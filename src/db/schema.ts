@@ -1,4 +1,9 @@
-import { integer, jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { customType, integer, jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+
+/** Binary column. Stored in Postgres so uploads survive redeploys (no local disk). */
+const bytea = customType<{ data: Uint8Array; driverData: Uint8Array }>({
+  dataType: () => "bytea",
+});
 
 const id = () => text("id").primaryKey().$defaultFn(() => crypto.randomUUID());
 const createdAt = () => timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
@@ -20,11 +25,18 @@ export const products = pgTable("products", {
   id: id(),
   storeId: text("store_id").notNull().references(() => stores.id),
   paypalProductId: text("paypal_product_id"),
+  /** Client draft id — makes publishing idempotent (double taps, retries). */
+  publishKey: text("publish_key").unique(),
   title: text("title").notNull(),
   description: text("description").notNull(),
   priceCents: integer("price_cents").notNull(),
   currency: text("currency").notNull().default("USD"),
+  /** media ids */
   images: jsonb("images").$type<string[]>().notNull().default([]),
+  /** Seller's original voice note (media id), transcript and language — shown as "Meet the maker". */
+  voiceNoteId: text("voice_note_id"),
+  sellerTranscript: text("seller_transcript"),
+  sellerLanguage: text("seller_language"),
   attributes: jsonb("attributes").$type<Record<string, unknown>>().notNull().default({}),
   status: text("status", { enum: ["draft", "live", "archived"] }).notNull().default("draft"),
   createdAt: createdAt(),
@@ -77,4 +89,14 @@ export const webhookEvents = pgTable("webhook_events", {
   payload: jsonb("payload").notNull(),
   receivedAt: createdAt(),
   processedAt: timestamp("processed_at", { withTimezone: true }),
+});
+
+/** Uploaded photos and voice notes. */
+export const media = pgTable("media", {
+  id: id(),
+  storeId: text("store_id").notNull().references(() => stores.id),
+  kind: text("kind", { enum: ["image", "audio"] }).notNull(),
+  mediaType: text("media_type").notNull(),
+  bytes: bytea("bytes").notNull(),
+  createdAt: createdAt(),
 });

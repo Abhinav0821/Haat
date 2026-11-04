@@ -1,26 +1,59 @@
 @import "tailwindcss";
 
+/* Haat palette: indigo dye, marigold, handmade paper. */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --paper: #fbf7ef;
+  --card: #ffffff;
+  --ink: #1d1b2e;
+  --muted: #6b6878;
+  --line: #e7e0d2;
+  --indigo: #27357a;
+  --indigo-soft: #e8ebf8;
+  --marigold: #e8970c;
+  --marigold-soft: #fdf1da;
+  --leaf: #2f7d4f;
+  --leaf-soft: #e3f3e9;
+  --danger: #b4232a;
+  --danger-soft: #fbe6e6;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --paper: #14131c;
+    --card: #1d1c28;
+    --ink: #f1eee6;
+    --muted: #a7a3b4;
+    --line: #2f2d3d;
+    --indigo: #9fb0ff;
+    --indigo-soft: #232a4d;
+    --marigold: #f5b244;
+    --marigold-soft: #3a2c12;
+    --leaf: #6fd19a;
+    --leaf-soft: #17321f;
+    --danger: #ff8a8a;
+    --danger-soft: #3b1a1c;
   }
 }
 
+@theme inline {
+  --color-paper: var(--paper);
+  --color-card: var(--card);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-indigo: var(--indigo);
+  --color-indigo-soft: var(--indigo-soft);
+  --color-marigold: var(--marigold);
+  --color-marigold-soft: var(--marigold-soft);
+  --color-leaf: var(--leaf);
+  --color-leaf-soft: var(--leaf-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --font-sans: var(--font-geist-sans), var(--font-devanagari), system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono);
+}
+
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--paper);
+  color: var(--ink);
 }
