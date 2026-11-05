@@ -10,7 +10,7 @@ Haat (Hindi for *village market*) lets a small cross-border seller snap photos o
 
 > Built for the [PayPal AI Hackathon 2026](https://paypalaihackathon.devpost.com/).
 
-**For sellers (voice-first, Hindi):** list a product by photo + voice note · fair-price advice from live market prices (Channel3) · buyer messages translated and read aloud · 🛡️ Scam Shield · refunds approved by saying a code word · tracking numbers spoken straight into PayPal · a daily summary in Hindi with exact PayPal fees.
+**For sellers (voice-first, Hindi):** list a product by photo + voice note · fair-price advice from live market prices (Channel3) · buyer messages translated and read aloud · 🛡️ Scam Shield (incl. fake payment-screenshot detection verified against PayPal) · refunds approved by saying a code word · tracking numbers spoken straight into PayPal · a daily summary in Hindi with exact PayPal fees · 🪡 Handmade Passport (signed, AI-verified proof of handmade) · 🎙️ "पूछो हाट" voice assistant that drafts PayPal invoices with QR codes.
 **For buyers and their AI agents:** an editorial storefront with the maker's own voice · PayPal JS SDK v6 checkout · an MCP server so Claude/ChatGPT can shop on the buyer's behalf (the human always approves payment).
 
 ## Quick start
@@ -63,6 +63,14 @@ Seller-written text is returned under `sellerProvided` and labelled as data, so 
 ## Scam Shield
 
 Every buyer message is translated into the maker's language and checked for the scams that target new cross-border sellers: fake "I already paid" claims (verified against **PayPal's own order status**), ship-to-another-address requests (which void Seller Protection), off-PayPal payment, overpayment refunds, pressure tactics and attempts to instruct the AI. Warnings come from fixed Hindi/English templates and are read aloud first; buyers never see the verdict.
+
+## Handmade Passport
+
+Proof that a piece is genuinely handmade by this maker: a fresh photo of the piece beside a one-time handwritten code (read by AI vision; digits must match), a Channel3 visual search for an identical mass-market product, and perceptual-hash checks against every other listing. Hard failures reject; soft signals hold for review. Verified passports are **Ed25519-signed** (`/api/passport/{productId}`, public key at `/api/passport/public-key`) and exposed to AI agents via MCP (`verifiedHandmadeOnly`). We deliberately don't claim to detect AI-generated images.
+
+## पूछो हाट (Ask Haat)
+
+A Hindi voice assistant for the seller. It answers from our records and PayPal's own data (Agent Toolkit `list_transactions`), and **drafts** actions — PayPal invoices (`create_invoice` → `send_invoice` → `generate_invoice_qr_code`, shareable on WhatsApp) and replies to buyers — that run only after the seller taps confirm. It cannot move money; refunds stay behind the spoken code word.
 
 ## How PayPal and AI are used
 

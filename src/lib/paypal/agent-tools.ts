@@ -17,7 +17,7 @@ export type PayPalToolName =
   | "create_order" | "get_order" | "pay_order" | "create_refund" | "get_refund"
   | "create_shipment_tracking" | "get_shipment_tracking" | "update_shipment_tracking"
   | "list_disputes" | "get_dispute" | "accept_dispute_claim"
-  | "create_invoice" | "list_invoices" | "get_invoice" | "send_invoice" | "send_invoice_reminder"
+  | "create_invoice" | "list_invoices" | "get_invoice" | "send_invoice" | "send_invoice_reminder" | "generate_invoice_qr_code"
   | "list_transactions" | "get_merchant_insights";
 
 type ToolInput = Record<string, unknown>;
