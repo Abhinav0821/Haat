@@ -89,3 +89,20 @@ test("missing costs or capacity block any quote", () => {
   assert.ok(v.checks.some((c) => c.code === "costs_missing"));
   assert.ok(v.checks.some((c) => c.code === "capacity_unknown"));
 });
+
+test("invoice check: same rules as Haat orders; the invoice total includes everything", async () => {
+  const { invoiceCheck } = await import("@/lib/custom/invoice-check");
+  const low = invoiceCheck(rules, { amountCents: 3000, pieces: 1, inrPerUsd: 88, backlogPieces: 6, now });
+  assert.equal(low.verdict, "below_minimum");
+  assert.equal(low.needsOverride, true);
+  assert.match(low.hi, /कम है/);
+  assert.equal(low.readyBy, "2026-11-19", "6 booked + 1 at 4/week → ceil(12.25) = 13 days after Nov 6");
+  const loss = invoiceCheck(rules, { amountCents: 1000, pieces: 1, inrPerUsd: 88, backlogPieces: 0, now });
+  assert.equal(loss.verdict, "loss");
+  const fair = invoiceCheck(rules, { amountCents: 6000, pieces: 1, inrPerUsd: 88, backlogPieces: 0, now });
+  assert.equal(fair.verdict, "meets_minimum");
+  assert.equal(fair.needsOverride, false);
+  const none = invoiceCheck(null, { amountCents: 6000, pieces: 1, inrPerUsd: 88, backlogPieces: 0, now });
+  assert.equal(none.verdict, "unknown");
+  assert.equal(none.needsOverride, false, "no rules → nothing to enforce, but she is told");
+});

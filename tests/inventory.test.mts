@@ -1,4 +1,4 @@
-import { before, test } from "node:test";
+import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 
@@ -130,3 +130,5 @@ test("availability reflects sold pieces and live holds", async () => {
   await inv.consume(a);
   assert.deepEqual(await inv.availableQuantity(p.id), { available: 1, held: 0, sold: 1, total: 2 });
 });
+
+after(async () => (await import("@/db")).closeDb());

@@ -8,12 +8,21 @@ export type DB = PgDatabase<PgQueryResultHKT, typeof schema>;
 
 /**
  * Database handle.
- *  - DATABASE_URL set  → real Postgres (production / Render)
+ *  - DATABASE_URL set  → real Postgres (production: Neon via Vercel, or any Postgres)
  *  - DATABASE_URL empty → embedded Postgres (PGlite) in ./.data — zero setup
  *    so judges can run `npm install && npm run dev`.
  */
 
 const MIGRATIONS = path.join(process.cwd(), "drizzle");
+
+let closer: (() => Promise<void>) | null = null;
+
+/**
+ * Migrations run at startup locally. On Vercel (serverless) they run ONCE in the
+ * build step (scripts/migrate.ts) instead: many cold starts migrating at the same
+ * time could race. Set RUN_MIGRATIONS=1 to force them at startup anyway.
+ */
+const migrateAtStartup = () => process.env.RUN_MIGRATIONS === "1" || !process.env.VERCEL;
 
 async function create(): Promise<DB> {
   const url = process.env.DATABASE_URL;
@@ -21,8 +30,11 @@ async function create(): Promise<DB> {
     const { drizzle } = await import("drizzle-orm/postgres-js");
     const { migrate } = await import("drizzle-orm/postgres-js/migrator");
     const postgres = (await import("postgres")).default;
-    const db = drizzle(postgres(url, { max: 5 }), { schema });
-    await migrate(db, { migrationsFolder: MIGRATIONS });
+    // prepare:false — required behind transaction-mode poolers (Neon's "-pooler" host, PgBouncer).
+    const client = postgres(url, { max: Number(process.env.DB_POOL_MAX ?? 5), prepare: false, idle_timeout: 20 });
+    closer = () => client.end({ timeout: 5 });
+    const db = drizzle(client, { schema });
+    if (migrateAtStartup()) await migrate(db, { migrationsFolder: MIGRATIONS });
     return db as unknown as DB;
   }
   const { PGlite } = await import("@electric-sql/pglite");
@@ -31,9 +43,29 @@ async function create(): Promise<DB> {
   // PGLITE_DIR=memory:// gives tests a throwaway in-memory database.
   const dir = process.env.PGLITE_DIR ?? path.join(process.cwd(), ".data", "pglite");
   if (!dir.startsWith("memory://")) mkdirSync(dir, { recursive: true });
-  const db = drizzle(new PGlite(dir), { schema });
+  const pg = new PGlite(dir);
+  closer = () => pg.close();
+  const db = drizzle(pg, { schema });
   await migrate(db, { migrationsFolder: MIGRATIONS });
   return db as unknown as DB;
+}
+
+/** Apply migrations explicitly (build step / scripts). */
+export async function runMigrations() {
+  const d = await db();
+  if (process.env.DATABASE_URL && !migrateAtStartup()) {
+    const { migrate } = await import("drizzle-orm/postgres-js/migrator");
+    await migrate(d as never, { migrationsFolder: MIGRATIONS });
+  }
+}
+
+/** Close the connection (scripts and tests; a pooled client would otherwise keep Node alive). */
+export async function closeDb() {
+  if (!g.__haatDb) return;
+  await g.__haatDb.catch(() => undefined);
+  await closer?.();
+  g.__haatDb = undefined;
+  closer = null;
 }
 
 // Reuse one connection across Next.js hot reloads.

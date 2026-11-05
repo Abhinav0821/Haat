@@ -1,7 +1,10 @@
-import { test } from "node:test";
+import { after, test } from "node:test";
 import assert from "node:assert/strict";
 
 process.env.SELLER_PASSCODE = "246810";
+process.env.PGLITE_DIR = "memory://";
+process.env.PAYPAL_CLIENT_ID ??= "test";
+process.env.PAYPAL_CLIENT_SECRET ??= "test";
 process.env.SESSION_SECRET = "test-secret-not-for-production";
 
 const { createSessionToken, verifySessionToken, readSessionCookie, SESSION_TTL_MS } = await import("@/lib/auth/session");
@@ -43,11 +46,33 @@ test("passcode check", () => {
   assert.equal(passcodeMatches(""), false);
 });
 
-test("login attempts are rate-limited per client", () => {
-  for (let i = 0; i < 5; i++) recordFailedLogin("1.2.3.4");
-  assert.equal(loginAllowed("1.2.3.4"), false);
-  assert.equal(loginAllowed("5.6.7.8"), true);
+test("login attempts are rate-limited per client (stored in the database)", async () => {
+  const ip = `1.2.3.${Math.floor(Math.random() * 250)}`;
+  for (let i = 0; i < 5; i++) await recordFailedLogin(ip);
+  assert.equal(await loginAllowed(ip), false);
+  assert.equal(await loginAllowed("5.6.7.8"), true);
 });
+
+test("rate-limit window slides: old hits stop counting", async () => {
+  const { hit } = await import("@/lib/rate-limit");
+  const key = `t:${Math.random()}`;
+  const t0 = new Date(Date.now() - 120_000);
+  assert.equal(await hit(key, 2, 60_000, t0), true);
+  assert.equal(await hit(key, 2, 60_000, t0), true);
+  assert.equal(await hit(key, 2, 60_000, t0), false, "third within the window is refused");
+  assert.equal(await hit(key, 2, 60_000), true, "two minutes later the window has moved on");
+});
+
+test("client IP: a spoofed cf-connecting-ip is ignored on Vercel", async () => {
+  const { clientKeyOf } = await import("@/lib/auth/seller");
+  const req = new Request("https://x/", { headers: { "cf-connecting-ip": "6.6.6.6", "x-real-ip": "9.9.9.9" } });
+  process.env.VERCEL = "1";
+  assert.equal(clientKeyOf(req), "9.9.9.9");
+  delete process.env.VERCEL;
+  assert.equal(clientKeyOf(req), "6.6.6.6", "locally, behind the Cloudflare tunnel, cf-connecting-ip is the client");
+});
+
+after(async () => (await import("@/db")).closeDb());
 
 test("cookie parsing", () => {
   assert.equal(readSessionCookie("a=1; haat_seller=abc.def; b=2"), "abc.def");

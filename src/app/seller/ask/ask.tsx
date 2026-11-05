@@ -173,8 +173,8 @@ function CardView({ card }: { card: Card }) {
   return card.type === "invoice_draft" ? <InvoiceCard card={card} /> : <ReplyCard card={card} />;
 }
 
-async function post(url: string) {
-  const res = await fetch(url, { method: "POST" });
+async function post(url: string, payload?: Record<string, unknown>) {
+  const res = await fetch(url, { method: "POST", ...(payload ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) } : {}) });
   const body = await res.json();
   if (!res.ok) throw new Error(body.error ?? "Failed");
   return body;
@@ -184,12 +184,14 @@ function InvoiceCard({ card }: { card: Extract<Card, { type: "invoice_draft" }> 
   const [state, setState] = useState<"draft" | "busy" | "done" | "cancelled">("draft");
   const [result, setResult] = useState<{ link: string | null; qr: string | null; emailed: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [anyway, setAnyway] = useState(false);
+  const warn = card.check.needsOverride;
 
   async function confirm() {
     setState("busy");
     setError(null);
     try {
-      const r = await post(`/api/seller/ask/actions/${card.actionId}/confirm`);
+      const r = await post(`/api/seller/ask/actions/${card.actionId}/confirm`, warn ? { override: anyway } : undefined);
       setResult(r);
       setState("done");
       speak("PayPal का बिल बन गया है। लिंक या QR कोड ग्राहक को भेज दीजिए।", "hindi");
@@ -210,14 +212,31 @@ function InvoiceCard({ card }: { card: Extract<Card, { type: "invoice_draft" }> 
         ${(card.amountCents / 100).toFixed(2)} <span className="font-sans text-sm text-muted">≈ ₹{card.amountInr.toLocaleString("en-IN")}</span>
       </p>
       <p className="mt-1 text-sm">
+        {card.pieces > 1 ? `${card.pieces} × ` : ""}
         {card.item} · {card.buyerName}
         {card.buyerEmail && <span className="text-muted"> · {card.buyerEmail}</span>}
       </p>
 
+      <p lang="hi" className={`mt-3 text-sm ${card.check.verdict === "loss" ? "text-danger" : warn ? "text-marigold" : "text-muted"}`}>
+        {warn ? "⚠ " : ""}
+        {card.check.hi}
+        <span className="block text-xs text-muted">{card.check.en}</span>
+      </p>
+
       {state === "draft" || state === "busy" ? (
-        <div className="mt-4 flex gap-3">
-          <button type="button" onClick={confirm} disabled={state === "busy"} className="bg-ink px-5 py-3 text-sm text-paper hover:bg-ink/85 disabled:opacity-40">
-            {state === "busy" ? "बना रहे हैं… · Creating…" : "बिल बनाओ · Create PayPal link"}
+        <div className="mt-4 space-y-3">
+          {warn && (
+            <label className="flex items-start gap-2 text-sm" lang="hi">
+              <input type="checkbox" checked={anyway} onChange={(e) => setAnyway(e.target.checked)} className="mt-1" />
+              <span>
+                मुझे पता है यह मेरे नियम से कम है, फिर भी बिल बनाना है।
+                <span className="block text-xs text-muted">I know this is below my own rules and want it anyway.</span>
+              </span>
+            </label>
+          )}
+          <div className="flex gap-3">
+          <button type="button" onClick={confirm} disabled={state === "busy" || (warn && !anyway)} className="bg-ink px-5 py-3 text-sm text-paper hover:bg-ink/85 disabled:opacity-40">
+            {state === "busy" ? "बना रहे हैं… · Creating…" : warn ? "फिर भी बिल बनाओ · Create anyway" : "बिल बनाओ · Create PayPal link"}
           </button>
           <button
             type="button"
@@ -230,6 +249,7 @@ function InvoiceCard({ card }: { card: Extract<Card, { type: "invoice_draft" }> 
           >
             रद्द · Cancel
           </button>
+          </div>
         </div>
       ) : state === "cancelled" ? (
         <p className="mt-3 text-sm text-muted">रद्द किया · Cancelled</p>

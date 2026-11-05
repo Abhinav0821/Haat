@@ -14,7 +14,9 @@
     "test": "tsx --test tests/*.test.ts tests/*.test.mts",
     "try:listing": "tsx scripts/try-listing.ts",
     "demo:reset": "tsx scripts/reset-demo.ts",
-    "pilot:report": "tsx scripts/pilot-report.ts"
+    "pilot:report": "tsx scripts/pilot-report.ts",
+    "db:migrate": "tsx scripts/migrate.ts",
+    "vercel-build": "tsx scripts/migrate.ts && next build"
   },
   "dependencies": {
     "@ai-sdk/google": "^4.0.111",
@@ -45,6 +47,6 @@
     "tsx": "^4.23.15",
     "typescript": "^5"
   },
-  "description": "Haat \u2014 make any small seller shoppable by humans and AI agents, with PayPal.",
+  "description": "Haat — make any small seller shoppable by humans and AI agents, with PayPal.",
   "license": "MIT"
 }

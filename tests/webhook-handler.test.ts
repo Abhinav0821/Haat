@@ -1,4 +1,4 @@
-import { before, test } from "node:test";
+import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 
 import { eq } from "drizzle-orm";
@@ -141,3 +141,5 @@ test("storefront orders are not auto-captured by the webhook (the browser captur
   );
   assert.equal(called, false);
 });
+
+after(async () => (await import("@/db")).closeDb());

@@ -9,6 +9,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const { id } = await params;
   if (!/^[0-9a-f-]{36}$/i.test(id)) return Response.json({ error: "not found" }, { status: 404 });
   const store = await getDemoStore();
-  const r = await confirmAskAction(id, store.id);
+  const body = (await request.json().catch(() => null)) as { override?: boolean } | null;
+  const r = await confirmAskAction(id, store.id, { override: body?.override === true });
   return "error" in r ? Response.json(r, { status: 409 }) : Response.json(r);
 }

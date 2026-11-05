@@ -28,6 +28,7 @@ async function main() {
   const messages = await d.delete(schema.messages).returning({ id: schema.messages.id });
   const events = await d.delete(schema.webhookEvents).returning({ id: schema.webhookEvents.id });
   await d.delete(schema.reservations);
+  await d.delete(schema.rateHits);
   await d.delete(schema.events);
   await d.update(schema.products).set({ soldQuantity: 0 });
   await d.delete(schema.agreements); // references custom requests; orders reference agreements by id only

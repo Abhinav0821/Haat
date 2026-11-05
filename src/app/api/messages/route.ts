@@ -1,5 +1,7 @@
 import { z } from "zod";
+import { clientKeyOf } from "@/lib/auth/seller";
 import { getBuyerThread, MessageError, postBuyerMessage, toBuyerView } from "@/lib/messages";
+import { hit } from "@/lib/rate-limit";
 
 /**
  * Buyer-side messaging. Accepts JSON, or multipart with up to 3 photos
@@ -21,6 +23,10 @@ const MAX_PHOTOS = 3;
 const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
 
 export async function POST(request: Request) {
+  // Every message is translated and checked by AI: limit per client.
+  if (!(await hit(`msg:${clientKeyOf(request)}`, 8, 5 * 60_000))) {
+    return Response.json({ error: "Too many messages — please wait a few minutes." }, { status: 429 });
+  }
   let raw: unknown;
   let images: { data: Uint8Array; mediaType: string }[] = [];
 

@@ -1,4 +1,4 @@
-import { before, test } from "node:test";
+import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 
@@ -214,3 +214,18 @@ test("a lapsed hold releases her time and asks both to approve again", async () 
   const again = await svc.sellerApprove(r.id, a.id, a.termsHash);
   assert.equal(again.status, "approved", "re-approved after a fresh capacity check");
 });
+
+test("an invoice below her rules is not created without an explicit override", async () => {
+  const { confirmAskAction } = await import("@/lib/ask/agent");
+  const check = { verdict: "below_minimum", needsOverride: true, hi: "", en: "", perPieceInr: 900, readyBy: null };
+  const [action] = await d
+    .insert(schema.agentActions)
+    .values({ storeId, agent: "ask", tool: "create_invoice", input: { buyerName: "Sara", item: "Scarf", amountCents: 3000, amountInr: 2640, check }, summaryHi: "x", status: "proposed" })
+    .returning();
+  const r = await confirmAskAction(action.id, storeId);
+  assert.ok("error" in r && "needsOverride" in r);
+  const [still] = await d.select().from(schema.agentActions).where(eq(schema.agentActions.id, action.id));
+  assert.equal(still.status, "proposed", "nothing was sent to PayPal; she can still confirm or cancel");
+});
+
+after(async () => (await import("@/db")).closeDb());

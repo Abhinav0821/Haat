@@ -9,12 +9,12 @@ export async function POST(request: Request) {
     return Response.json({ error: "Seller area is locked: set SELLER_PASSCODE." }, { status: 503 });
   }
   const client = clientKeyOf(request);
-  if (!loginAllowed(client)) {
+  if (!(await loginAllowed(client))) {
     return Response.json({ error: "बहुत कोशिशें हो गईं। 15 मिनट बाद फिर कोशिश करें · Too many attempts, try again in 15 minutes." }, { status: 429 });
   }
   const parsed = Body.safeParse(await request.json().catch(() => null));
   if (!parsed.success || !passcodeMatches(parsed.data.passcode)) {
-    recordFailedLogin(client);
+    await recordFailedLogin(client);
     return Response.json({ error: "पासकोड ग़लत है · Wrong passcode" }, { status: 401 });
   }
   const secure = new URL(request.url).protocol === "https:" || request.headers.get("x-forwarded-proto") === "https";

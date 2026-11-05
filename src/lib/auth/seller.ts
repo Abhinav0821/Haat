@@ -22,17 +22,27 @@ export function passcodeMatches(attempt: string): boolean {
   return timingSafeEqual(a, b);
 }
 
-// Simple per-client limiter for login attempts (per process).
-const attempts = new Map<string, number[]>();
-export function loginAllowed(clientKey: string, max = 5, windowMs = 15 * 60_000): boolean {
-  const now = Date.now();
-  const recent = (attempts.get(clientKey) ?? []).filter((t) => now - t < windowMs);
-  attempts.set(clientKey, recent);
-  return recent.length < max;
+// Login attempts: 5 failures per client per 15 minutes, stored in the database
+// so the limit holds across serverless instances.
+const LOGIN_WINDOW_MS = 15 * 60_000;
+export async function loginAllowed(clientKey: string, max = 5): Promise<boolean> {
+  const { allowed } = await import("@/lib/rate-limit");
+  return allowed(`login:${clientKey}`, max, LOGIN_WINDOW_MS);
 }
-export function recordFailedLogin(clientKey: string) {
-  attempts.set(clientKey, [...(attempts.get(clientKey) ?? []), Date.now()]);
+export async function recordFailedLogin(clientKey: string) {
+  const { record } = await import("@/lib/rate-limit");
+  await record(`login:${clientKey}`);
 }
+
+/**
+ * The client's IP for rate limiting. Only trust headers the platform sets:
+ * on Vercel, x-real-ip / x-forwarded-for are overwritten by the edge; locally
+ * (behind a Cloudflare tunnel) cf-connecting-ip. A client-sent cf-connecting-ip
+ * is ignored on Vercel, so it can't be used to dodge limits.
+ */
 export function clientKeyOf(request: Request): string {
-  return request.headers.get("cf-connecting-ip") ?? request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "local";
+  const h = request.headers;
+  const forwarded = h.get("x-forwarded-for")?.split(",")[0]?.trim();
+  if (process.env.VERCEL) return h.get("x-real-ip") ?? forwarded ?? "unknown";
+  return h.get("cf-connecting-ip") ?? forwarded ?? "local";
 }

@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
+import { hit } from "@/lib/rate-limit";
 import { AgreementError } from "@/lib/custom/agreement";
 import { buyerView, createCustomRequest, loadRequest, makerCapabilities } from "@/lib/custom/requests";
 import { getBuyerThread, MessageError, postBuyerMessage } from "@/lib/messages";
@@ -36,15 +37,8 @@ function fail(message: string) {
   return { content: [{ type: "text" as const, text: JSON.stringify({ error: message }) }], isError: true };
 }
 
-// Tiny per-process rate limit for tools that create things.
-const hits = new Map<string, number[]>();
-function allow(key: string, perMinute: number) {
-  const now = Date.now();
-  const recent = (hits.get(key) ?? []).filter((t) => now - t < 60_000);
-  if (recent.length >= perMinute) return false;
-  hits.set(key, [...recent, now]);
-  return true;
-}
+// Rate limit for tools that create things (stored in the database: holds across instances).
+const allow = (key: string, perMinute: number) => hit(`mcp:${key}`, perMinute, 60_000);
 
 type ProductRow = typeof schema.products.$inferSelect;
 type StoreRow = typeof schema.stores.$inferSelect;
@@ -203,7 +197,7 @@ export function buildMcpServer({ baseUrl, clientKey }: { baseUrl: string; client
       annotations: { readOnlyHint: false, idempotentHint: false },
     },
     async ({ productId, quantity }) => {
-      if (!allow(`checkout:${clientKey}`, 10)) return fail("Too many checkout requests. Please wait a minute.");
+      if (!(await allow(`checkout:${clientKey}`, 10))) return fail("Too many checkout requests. Please wait a minute.");
       try {
         const o = await createCheckoutOrder({ productId, quantity: quantity ?? 1, channel: "mcp" });
         if (!o.approveUrl) return fail("PayPal did not return an approval link.");
@@ -266,7 +260,7 @@ export function buildMcpServer({ baseUrl, clientKey }: { baseUrl: string; client
     },
     async ({ message, productId, orderId }) => {
       if (!productId && !orderId) return fail("Provide productId or orderId.");
-      if (!allow(`msg:${clientKey}`, 5)) return fail("Too many messages. Please wait a minute.");
+      if (!(await allow(`msg:${clientKey}`, 5))) return fail("Too many messages. Please wait a minute.");
       try {
         const { message: m, storeSlug } = await postBuyerMessage({ text: message, productId, orderId, channel: "mcp" });
         return json({
@@ -337,7 +331,7 @@ export function buildMcpServer({ baseUrl, clientKey }: { baseUrl: string; client
       annotations: { readOnlyHint: false },
     },
     async ({ shop, request, buyerName }) => {
-      if (!allow(`custom:${clientKey}`, 3)) return fail("Too many requests. Please wait a minute.");
+      if (!(await allow(`custom:${clientKey}`, 3))) return fail("Too many requests. Please wait a minute.");
       const d = await db();
       const [store] = await d.select().from(schema.stores).where(eq(schema.stores.slug, shop));
       if (!store) return fail("Shop not found.");

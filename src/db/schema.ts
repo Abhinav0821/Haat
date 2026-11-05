@@ -1,4 +1,4 @@
-import { customType, integer, jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { customType, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 
 /** Binary column. Stored in Postgres so uploads survive redeploys (no local disk). */
 const bytea = customType<{ data: Uint8Array; driverData: Uint8Array }>({
@@ -270,3 +270,14 @@ export const agreements = pgTable("agreements", {
   orderId: text("order_id"),
   createdAt: createdAt(),
 });
+
+/** Rate-limit hits, shared by every server instance (serverless-safe). */
+export const rateHits = pgTable(
+  "rate_hits",
+  {
+    id: id(),
+    key: text("key").notNull(),
+    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("rate_hits_key_at").on(t.key, t.at)],
+);
