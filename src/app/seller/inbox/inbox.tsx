@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { SellerNav } from "@/components/seller-nav";
 import { useEffect, useRef, useState } from "react";
 import { speak, startRecording, type Recorder } from "@/lib/client/media";
 import { Autopilot } from "./autopilot";
@@ -51,14 +51,9 @@ export function Inbox() {
 
   return (
     <div className="mx-auto w-full max-w-2xl px-6 pb-24 pt-10">
-      <header className="mb-10 border-b border-line pb-8">
-        <div className="flex items-baseline justify-between">
-          <p className="eyebrow">Seller studio · विक्रेता</p>
-          <Link href="/seller/list" className="eyebrow text-ink underline underline-offset-4">
-            + नया सामान
-          </Link>
-        </div>
-        <h1 className="mt-3 font-display text-4xl font-normal">
+      <SellerNav active="inbox" />
+      <header className="mb-10">
+        <h1 className="font-display text-4xl font-normal">
           आज का काम <span className="font-sans text-base font-light text-muted">Today’s inbox</span>
         </h1>
         {dangers > 0 && (

@@ -1,9 +1,12 @@
+import { requireSeller } from "@/lib/auth/seller";
 import { approveWithCodeWord, AutopilotError } from "@/lib/autopilot/refunds";
 
 /** Approve a refund by saying (audio) or typing the code word. */
 const AUDIO = new Set(["audio/wav", "audio/x-wav", "audio/mpeg", "audio/mp4", "audio/ogg", "audio/aac"]);
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const denied = await requireSeller(request);
+  if (denied) return denied;
   const { id } = await params;
   const form = await request.formData().catch(() => null);
   if (!form) return Response.json({ error: "expected multipart/form-data" }, { status: 400 });

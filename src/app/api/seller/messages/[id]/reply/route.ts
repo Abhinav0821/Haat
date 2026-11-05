@@ -1,9 +1,12 @@
+import { requireSeller } from "@/lib/auth/seller";
 import { MessageError, postSellerReply } from "@/lib/messages";
 
 /** Seller reply by text or voice (multipart: text and/or audio). Translated to English for the buyer. */
 const AUDIO = new Set(["audio/wav", "audio/x-wav", "audio/mpeg", "audio/mp4", "audio/ogg", "audio/aac"]);
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const denied = await requireSeller(request);
+  if (denied) return denied;
   const { id } = await params;
   if (!/^[0-9a-f-]{36}$/i.test(id)) return Response.json({ error: "not found" }, { status: 404 });
 

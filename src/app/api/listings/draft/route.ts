@@ -1,3 +1,4 @@
+import { requireSeller } from "@/lib/auth/seller";
 import { db, schema } from "@/db";
 import { env } from "@/lib/env";
 import { draftListing, suggestUsdCents, type MediaInput } from "@/lib/ai/listing";
@@ -21,6 +22,8 @@ function bad(message: string, status = 400) {
 }
 
 export async function POST(request: Request) {
+  const denied = await requireSeller(request);
+  if (denied) return denied;
   let form: FormData;
   try {
     form = await request.formData();

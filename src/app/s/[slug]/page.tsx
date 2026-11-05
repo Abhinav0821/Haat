@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
@@ -5,6 +6,14 @@ import { Assurances, ProductArt, SiteFooter, SiteHeader } from "@/components/cra
 import { VoiceButton } from "@/components/voice-button";
 import { formatUsd, getStore, listLiveProducts } from "@/lib/queries";
 import { MAKER_PROFILES } from "@/lib/store";
+
+export async function generateMetadata(props: PageProps<"/s/[slug]">): Promise<Metadata> {
+  const { slug } = await props.params;
+  const store = await getStore(slug);
+  return store
+    ? { title: `${store.name} · Haat`, description: `Handmade by ${store.ownerName}, described in her own voice. Pay securely with PayPal.` }
+    : { title: "Not found · Haat" };
+}
 
 export default function StorePage(props: PageProps<"/s/[slug]">) {
   return (

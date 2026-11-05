@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
@@ -8,6 +9,22 @@ import { env } from "@/lib/env";
 import { formatUsd, getLiveProduct } from "@/lib/queries";
 import { MAKER_PROFILES } from "@/lib/store";
 import { PayPalCheckout } from "./paypal-checkout";
+
+export async function generateMetadata(props: PageProps<"/s/[slug]/p/[productId]">): Promise<Metadata> {
+  const { slug, productId } = await props.params;
+  const row = await getLiveProduct(slug, productId);
+  if (!row) return { title: "Not found · Haat" };
+  const { product, store } = row;
+  return {
+    title: `${product.title} · ${store.name}`,
+    description: product.description.slice(0, 160),
+    openGraph: {
+      title: product.title,
+      description: `Handmade by ${store.ownerName}. ${formatUsd(product.priceCents)} · Pay with PayPal.`,
+      images: product.images[0] ? [`/api/media/${product.images[0]}`] : [],
+    },
+  };
+}
 
 export default function ProductPage(props: PageProps<"/s/[slug]/p/[productId]">) {
   return (

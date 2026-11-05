@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { Suspense } from "react";
+import { CheckoutNotice } from "@/components/checkout-notice";
 import { SiteFooter, SiteHeader } from "@/components/craft";
 import { DEMO_STORE } from "@/lib/store";
 
@@ -13,6 +15,9 @@ export default function Home() {
     <>
       <SiteHeader />
       <main className="mx-auto w-full max-w-6xl flex-1 px-6">
+        <Suspense>
+          <CheckoutNotice />
+        </Suspense>
         <section className="mx-auto max-w-3xl py-24 text-center sm:py-36">
           <p className="eyebrow">A marketplace for India’s artisans</p>
           <h1 className="mt-8 font-display text-5xl font-normal leading-[1.05] tracking-tight sm:text-7xl">

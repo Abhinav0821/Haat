@@ -1,3 +1,4 @@
+import { requireSeller } from "@/lib/auth/seller";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
@@ -23,6 +24,8 @@ const PublishSchema = z.object({
 });
 
 export async function POST(request: Request) {
+  const denied = await requireSeller(request);
+  if (denied) return denied;
   const parsed = PublishSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
     return Response.json({ error: "invalid listing", issues: parsed.error.issues }, { status: 400 });

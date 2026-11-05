@@ -1,6 +1,9 @@
+import { requireSeller } from "@/lib/auth/seller";
 import { AutopilotError, rejectProposal } from "@/lib/autopilot/refunds";
 
-export async function POST(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const denied = await requireSeller(request);
+  if (denied) return denied;
   const { id } = await params;
   try {
     await rejectProposal(id);

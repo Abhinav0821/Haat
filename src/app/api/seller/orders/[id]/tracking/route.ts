@@ -1,3 +1,4 @@
+import { requireSeller } from "@/lib/auth/seller";
 import { z } from "zod";
 import { addTrackingToOrder, CARRIERS, type CarrierKey } from "@/lib/autopilot/tracking";
 
@@ -8,6 +9,8 @@ const Body = z.object({
 });
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const denied = await requireSeller(request);
+  if (denied) return denied;
   const { id } = await params;
   const parsed = Body.safeParse(await request.json().catch(() => null));
   if (!parsed.success || !/^[0-9a-f-]{36}$/i.test(id)) return Response.json({ error: "invalid request" }, { status: 400 });

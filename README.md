@@ -8,7 +8,10 @@ Haat (Hindi for *village market*) lets a small cross-border seller snap photos o
 2. **An MCP endpoint** that lets AI shopping agents (Claude, ChatGPT, …) find products and start a PayPal checkout. The human buyer still approves every payment.
 3. **An AI back-office "autopilot"** that handles shipment tracking, refunds, disputes and invoices through PayPal APIs. It never moves money without the seller's approval.
 
-> Built for the [PayPal AI Hackathon 2026](https://paypalaihackathon.devpost.com/). 🚧 Work in progress.
+> Built for the [PayPal AI Hackathon 2026](https://paypalaihackathon.devpost.com/).
+
+**For sellers (voice-first, Hindi):** list a product by photo + voice note · fair-price advice from live market prices (Channel3) · buyer messages translated and read aloud · 🛡️ Scam Shield · refunds approved by saying a code word · tracking numbers spoken straight into PayPal · a daily summary in Hindi with exact PayPal fees.
+**For buyers and their AI agents:** an editorial storefront with the maker's own voice · PayPal JS SDK v6 checkout · an MCP server so Claude/ChatGPT can shop on the buyer's behalf (the human always approves payment).
 
 ## Quick start
 
@@ -19,7 +22,7 @@ git clone <this repo> haat && cd haat
 npm install
 cp .env.example .env.local   # then fill in the keys (see below)
 npm run smoke                # checks PayPal sandbox + AI + DB connectivity
-npm run dev                  # http://localhost:3000
+npm run dev                  # http://localhost:3000  (seller studio: /seller — enter SELLER_PASSCODE)
 ```
 
 ### Keys you need
@@ -29,7 +32,19 @@ npm run dev                  # http://localhost:3000
 | `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET` | [developer.paypal.com](https://developer.paypal.com/dashboard/applications/sandbox) → Apps & Credentials → **Sandbox** → Create App (Merchant) |
 | `GOOGLE_API_KEY` | Free at [aistudio.google.com](https://aistudio.google.com/apikey) → Get API key. Alternatively set `AI_PROVIDER=openai` + `OPENAI_API_KEY`. `npm run smoke` lists the models your key can use |
 
+| `SELLER_PASSCODE` | Any 4–12 digit PIN. Unlocks the seller studio (`/seller`). Without it the seller area stays locked. |
+| `CHANNEL3_API_KEY` *(optional)* | [channel3.ai](https://channel3.ai) — enables the fair-price coach (1 credit per listing). |
+
 Everything runs against the **PayPal sandbox**. No real money moves.
+
+### Useful scripts
+
+| Command | What it does |
+|---|---|
+| `npm test` | Unit tests (policy engine, webhooks, Scam Shield, code words, pricing, brief, auth) |
+| `npm run smoke` | Live connectivity check: PayPal Orders/Invoicing/Disputes/Reporting, Gemini, Agent Toolkit |
+| `npm run tunnel` | Public HTTPS URL for PayPal webhooks and for connecting AI agents to `/api/mcp` |
+| `npm run demo:reset` | Clear test orders/messages (backs up the local DB first; stop `npm run dev` before running) |
 
 ## Shop with an AI agent (MCP)
 
@@ -57,6 +72,8 @@ Every buyer message is translated into the maker's language and checked for the 
 | Catalog | Catalog Products API via **PayPal Agent Toolkit** | Vision model turns product photos into listings |
 | Agent shopping | MCP server → Orders v2 approval link | Buyer's own AI assistant |
 | Autopilot | Agent Toolkit: shipment tracking, refunds, disputes, invoices, transactions, insights | Event-driven agent with a policy engine and an approval inbox |
+
+**Seller security:** the studio is behind a PIN. Sessions are signed, httpOnly cookies (HMAC-SHA256, 30 days); passcodes are compared in constant time and login attempts are rate-limited. A Next.js Proxy redirects unauthenticated visitors, and every seller API re-checks the session itself.
 
 **Safety principle:** the model proposes and code decides. Each agent receives an explicit PayPal tool allowlist (`src/lib/paypal/agent-tools.ts`). Money-moving actions pass deterministic policy checks and human approval, and every action is written to an audit log.
 
