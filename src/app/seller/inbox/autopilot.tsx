@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { SectionHeading } from "@/components/seller-nav";
 import { useEffect, useRef, useState } from "react";
 import { speak, startRecording, type Recorder } from "@/lib/client/media";
 
@@ -101,8 +102,8 @@ export function Autopilot({ refreshKey, onChange }: { refreshKey: number; onChan
 
       {board.custom.inProduction.length > 0 && (
         <section>
-          <h2 className="eyebrow text-ink"><span className="deva">बन रहे हैं</span> · Being made</h2>
-          <ol className="mt-5 space-y-4">
+          <SectionHeading hi="बन रहे हैं" en="Being made" />
+          <ol className="space-y-4">
             {board.custom.inProduction.map((m) => (
               <MakingCard key={m.requestId} m={m} onDone={onChange} />
             ))}
@@ -111,8 +112,8 @@ export function Autopilot({ refreshKey, onChange }: { refreshKey: number; onChan
       )}
       {board.proposals.length > 0 && (
         <section>
-          <h2 className="eyebrow text-ink"><span className="deva">आपकी मंज़ूरी चाहिए</span> · Needs your approval</h2>
-          <ol className="mt-5 space-y-6">
+          <SectionHeading hi="आपकी मंज़ूरी चाहिए" en="Needs your approval" />
+          <ol className="space-y-6">
             {board.proposals.map((p) => (
               <ProposalCard key={p.id} p={p} onDone={onChange} />
             ))}
@@ -122,8 +123,8 @@ export function Autopilot({ refreshKey, onChange }: { refreshKey: number; onChan
 
       {board.toShip.length > 0 && (
         <section>
-          <h2 className="eyebrow text-ink"><span className="deva">भेजने के लिए तैयार</span> · Ready to ship</h2>
-          <p className="mt-2 text-sm text-muted">
+          <SectionHeading hi="भेजने के लिए तैयार" en="Ready to ship" className="mb-1" />
+          <p className="text-sm text-muted">
             ट्रैकिंग नंबर जोड़ने से PayPal Seller Protection मज़बूत होता है और पैसा जल्दी मिल सकता है।
             <span className="block text-xs">Adding tracking strengthens Seller Protection and can release held funds sooner.</span>
           </p>
@@ -137,10 +138,8 @@ export function Autopilot({ refreshKey, onChange }: { refreshKey: number; onChan
 
       {board.activity.length > 0 && (
         <section>
-          <h2 className="eyebrow text-ink">
-            AI <span className="deva">ने क्या किया</span> · Autopilot activity
-          </h2>
-          <ol className="mt-4 divide-y divide-line border-y border-line">
+          <SectionHeading hi="AI ने क्या किया" en="Autopilot activity" />
+          <ol className="divide-y divide-line border-y border-line">
             {board.activity.slice(0, 8).map((a) => (
               <ActivityRow key={a.id} a={a} />
             ))}

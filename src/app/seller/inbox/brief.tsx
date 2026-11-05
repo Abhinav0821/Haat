@@ -1,5 +1,6 @@
 "use client";
 
+import { SectionHeading } from "@/components/seller-nav";
 import { useEffect, useState } from "react";
 import { speak } from "@/lib/client/media";
 
@@ -28,29 +29,39 @@ export function DailyBrief({ refreshKey }: { refreshKey: number }) {
   if (!brief) return null;
   const n = brief.numbers;
   const stats = [
-    { label: "कमाई · Earned (24h)", value: `₹${Math.round((n.netCents / 100) * n.inrPerUsd).toLocaleString("en-IN")}` },
-    { label: "ऑर्डर · Orders", value: String(n.paidOrders) },
-    { label: "भेजने हैं · To ship", value: String(n.toShip) },
-    { label: "मंज़ूरी · Approvals", value: String(n.pendingApprovals) },
+    { hi: "कमाई", en: "Earned, 24h", value: `₹${Math.round((n.netCents / 100) * n.inrPerUsd).toLocaleString("en-IN")}` },
+    { hi: "ऑर्डर", en: "Orders", value: String(n.paidOrders) },
+    { hi: "भेजने हैं", en: "To ship", value: String(n.toShip) },
+    { hi: "मंज़ूरी", en: "Approvals", value: String(n.pendingApprovals) },
   ];
 
   return (
-    <section className="mb-14 bg-card p-6">
-      <div className="flex items-baseline justify-between gap-3">
-        <p className="eyebrow"><span className="deva">आज का हाल</span> · Today</p>
-        <button
-          type="button"
-          onClick={() => speak(brief.hi, "hindi")}
-          className="rounded-full border border-ink px-4 py-1.5 text-sm transition hover:bg-ink hover:text-paper"
-        >
-          🔊 सुनें
-        </button>
-      </div>
-      <dl className="mt-5 grid grid-cols-2 gap-px bg-line sm:grid-cols-4">
+    <section className="mb-14">
+      <SectionHeading
+        hi="आज का हाल"
+        en="Today"
+        action={
+          <button
+            type="button"
+            onClick={() => speak(brief.hi, "hindi")}
+            className="shrink-0 rounded-full border border-ink px-4 py-1.5 text-sm transition hover:bg-ink hover:text-paper"
+          >
+            🔊 सुनें
+          </button>
+        }
+      />
+      <div className="border border-line bg-card p-5 sm:p-6">
+      {/* Figures: even padding on both sides of every divider; the first column stays on the card's text edge. */}
+      <dl className="-mx-4 grid grid-cols-2 gap-px bg-line sm:grid-cols-4">
         {stats.map((s) => (
-          <div key={s.label} className="bg-card py-3 pr-3">
+          <div key={s.en} className="bg-card px-4 py-3">
             <dd className="font-display text-3xl">{s.value}</dd>
-            <dt className="mt-1 text-[11px] text-muted">{s.label}</dt>
+            <dt className="mt-1 text-xs leading-snug text-muted">
+              <span className="block text-ink/80" lang="hi">
+                {s.hi}
+              </span>
+              {s.en}
+            </dt>
           </div>
         ))}
       </dl>
@@ -66,6 +77,7 @@ export function DailyBrief({ refreshKey }: { refreshKey: number }) {
         {showEn ? "Hide English" : "English"}
       </button>
       {showEn && <p className="mt-2 text-sm text-muted">{brief.en}</p>}
+      </div>
     </section>
   );
 }

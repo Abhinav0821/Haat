@@ -23,6 +23,21 @@ export function StudioHeader({ hi, en, children }: { hi: string; en: string; chi
   );
 }
 
+/**
+ * Heading for a section OUTSIDE a card (labels inside cards keep the small eyebrow style).
+ * Fixed min-height so side-by-side columns start their content at the same line.
+ */
+export function SectionHeading({ hi, en, action, className = "" }: { hi: string; en: string; action?: React.ReactNode; className?: string }) {
+  return (
+    <div className={`mb-4 flex min-h-10 items-center justify-between gap-3 ${className}`}>
+      <h2 className="font-display text-xl leading-tight">
+        <span lang="hi">{hi}</span> <span className="whitespace-nowrap font-sans text-sm font-light text-muted">{en}</span>
+      </h2>
+      {action}
+    </div>
+  );
+}
+
 /** Empty list, explained: what will appear here and why — same look on every studio page. */
 export function EmptyState({ hi, en, detailHi, detailEn, children }: { hi: string; en: string; detailHi: string; detailEn: string; children?: React.ReactNode }) {
   return (

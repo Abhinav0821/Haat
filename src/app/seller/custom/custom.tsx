@@ -2,7 +2,7 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { EmptyState, SellerNav, STUDIO, StudioHeader } from "@/components/seller-nav";
+import { EmptyState, SectionHeading, SellerNav, STUDIO, StudioHeader } from "@/components/seller-nav";
 import { MakingCard } from "@/app/seller/inbox/autopilot";
 import { speak, startRecording, type Recorder } from "@/lib/client/media";
 
@@ -236,7 +236,7 @@ export function CustomRequests() {
 
           {view.status !== "paid" && view.status !== "declined" && (
           <section className="mt-6 text-sm">
-            <p className="eyebrow"><span className="deva">आपके नियमों से</span> · From your rules</p>
+            <SectionHeading hi="आपके नियमों से" en="From your rules" className="mb-2" />
             <ul className="mt-2 space-y-1">
               {view.advice.hi.map((line, i) => (
                 <li key={line} lang="hi">
@@ -254,7 +254,7 @@ export function CustomRequests() {
 
           {view.status !== "paid" && view.status !== "declined" && (
             <section className="mt-10">
-              <p className="eyebrow"><span className="deva">आपका जवाब</span> · Your answer</p>
+              <SectionHeading hi="आपका जवाब" en="Your answer — speak or type" className="mb-2" />
               <div className="mt-3 flex items-center gap-4">
                 <button
                   type="button"
@@ -348,7 +348,7 @@ export function CustomRequests() {
 
           {view.options.length > 0 && (
             <section className="mt-8 text-sm">
-              <p className="eyebrow"><span className="deva">भेजे गए</span> · Sent to buyer</p>
+              <SectionHeading hi="भेजे गए" en="Sent to buyer" className="mb-2" />
               <ul className="mt-2 space-y-1" lang="hi">
                 {view.options.map((o) => (
                   <li key={o.index}>
@@ -361,7 +361,7 @@ export function CustomRequests() {
 
           {view.counter && (
             <section className="mt-6 text-sm">
-              <p className="eyebrow"><span className="deva">ख़रीदार का सुझाव</span> · Buyer&apos;s counter</p>
+              <SectionHeading hi="ख़रीदार का सुझाव" en="Buyer's counter-offer" className="mb-2" />
               <p className="mt-2">
                 {view.counter.quantity} pcs for {usd(view.counter.totalBudgetUsdCents)} —{" "}
                 {view.counter.acceptable ? <span className="text-leaf">within your rules</span> : <span className="text-marigold">refused automatically: {view.counter.reason}</span>}
@@ -371,14 +371,18 @@ export function CustomRequests() {
 
           {view.agreement && view.agreement.status !== "cancelled" && (
             <section className="mt-10 border-t-2 border-ink pt-6">
-              <div className="flex items-baseline justify-between gap-3">
-                <p className="eyebrow"><span className="deva">समझौता</span> · Terms v{view.agreement.version}</p>
-                {view.agreementHi && (
-                  <button type="button" onClick={() => speak(view.agreementHi!, "hindi")} className="text-sm underline underline-offset-4">
-                    🔊 सुनें
-                  </button>
-                )}
-              </div>
+              <SectionHeading
+                hi="समझौता"
+                en={`Terms · version ${view.agreement.version}`}
+                className="mb-2"
+                action={
+                  view.agreementHi ? (
+                    <button type="button" onClick={() => speak(view.agreementHi!, "hindi")} className="shrink-0 text-sm underline underline-offset-4">
+                      🔊 सुनें
+                    </button>
+                  ) : undefined
+                }
+              />
               {view.agreementHi && (
                 <p className="mt-3 leading-relaxed" lang="hi">
                   {view.agreementHi}

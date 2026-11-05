@@ -1,6 +1,6 @@
 "use client";
 
-import { EmptyState, SellerNav, STUDIO, StudioHeader } from "@/components/seller-nav";
+import { EmptyState, SectionHeading, SellerNav, STUDIO, StudioHeader } from "@/components/seller-nav";
 import { useEffect, useRef, useState } from "react";
 import { speak, startRecording, type Recorder } from "@/lib/client/media";
 import { Autopilot } from "./autopilot";
@@ -85,11 +85,16 @@ export function Inbox() {
       </div>
 
       <section>
-      <h2 className="eyebrow mt-14 border-t border-line pt-10 text-ink lg:mt-0 lg:border-t-0 lg:pt-0"><span className="deva">ख़रीदारों के संदेश</span> · Buyer messages</h2>
+      <SectionHeading
+        hi="ख़रीदारों के संदेश"
+        en="Buyer messages"
+        className="mt-14 border-t border-line pt-10 lg:mt-0 lg:border-t-0 lg:pt-0"
+        action={messages?.length ? <span className="shrink-0 text-sm text-muted">{messages.length}</span> : undefined}
+      />
       {error && <p className="text-sm text-danger">{error}</p>}
       {messages === null && !error && <p className="text-muted">लोड हो रहा है…</p>}
       {messages?.length === 0 && (
-        <div className="mt-6">
+        <div>
           <EmptyState
             hi="अभी कोई संदेश नहीं"
             en="No messages yet"
@@ -99,7 +104,7 @@ export function Inbox() {
         </div>
       )}
 
-      <ol className="mt-6 space-y-10">
+      <ol className="space-y-10">
         {messages?.map((m) => (
           <MessageCard key={m.id} m={m} onReplied={() => setRefresh((n) => n + 1)} />
         ))}
