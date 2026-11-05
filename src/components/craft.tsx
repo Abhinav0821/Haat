@@ -1,14 +1,15 @@
 import Link from "next/link";
 
 /** Bilingual wordmark: letterspaced serif HAAT, hairline, हाट. */
-export function Wordmark({ className = "" }: { className?: string }) {
+export function Wordmark({ className = "", compactOnPhone = false }: { className?: string; compactOnPhone?: boolean }) {
+  const hiOnly = compactOnPhone ? "hidden sm:inline-block" : "";
   return (
     <span className={`inline-flex items-center gap-3 text-ink ${className}`}>
       <span className="font-display text-[1.35rem] font-medium uppercase leading-none tracking-[0.42em] [margin-right:-0.42em]">
         Haat
       </span>
-      <span aria-hidden className="h-4 w-px bg-line" />
-      <span className="text-[0.95rem] font-light leading-none text-muted" lang="hi">
+      <span aria-hidden className={`h-4 w-px bg-line ${hiOnly}`} />
+      <span className={`text-[0.95rem] font-light leading-none text-muted ${hiOnly}`} lang="hi">
         हाट
       </span>
     </span>
@@ -18,8 +19,8 @@ export function Wordmark({ className = "" }: { className?: string }) {
 export function SiteHeader({ storeSlug, storeName }: { storeSlug?: string; storeName?: string }) {
   return (
     <header className="border-b border-line">
-      <nav className="mx-auto grid h-16 max-w-6xl grid-cols-[1fr_auto_1fr] items-center px-6">
-        <div className="eyebrow">
+      <nav className="mx-auto grid h-16 max-w-6xl grid-cols-[1fr_auto_1fr] items-center gap-3 px-4 sm:px-6">
+        <div className="eyebrow min-w-0 truncate">
           {storeSlug ? (
             <Link href={`/s/${storeSlug}`} className="hover:text-ink">
               {storeName ?? "Collection"}
@@ -31,11 +32,11 @@ export function SiteHeader({ storeSlug, storeName }: { storeSlug?: string; store
           )}
         </div>
         <Link href="/" aria-label="Haat home">
-          <Wordmark />
+          <Wordmark compactOnPhone />
         </Link>
         <div className="eyebrow text-right">
           <Link href="/seller/list" className="hover:text-ink">
-            Sell on Haat
+            Sell<span className="hidden sm:inline"> on Haat</span>
           </Link>
         </div>
       </nav>

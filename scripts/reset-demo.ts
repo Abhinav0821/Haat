@@ -8,7 +8,7 @@
 import { config } from "dotenv";
 config({ path: ".env.local", quiet: true });
 
-import { cpSync, existsSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { inArray, ne, notInArray } from "drizzle-orm";
 import { db, schema } from "@/db";
@@ -29,6 +29,15 @@ async function main() {
   const events = await d.delete(schema.webhookEvents).returning({ id: schema.webhookEvents.id });
   await d.delete(schema.reservations);
   await d.delete(schema.rateHits);
+  // Pilot sessions: keep each session's events before clearing (npm run pilot:report -- --from <file>).
+  const logged = await d.select().from(schema.events);
+  if (logged.length) {
+    const dir = path.join(process.cwd(), ".data", "pilot-archive");
+    mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, `events-${new Date().toISOString().replace(/[:.]/g, "-")}.json`);
+    writeFileSync(file, JSON.stringify(logged, null, 1));
+    console.log(`pilot events archived: ${path.relative(process.cwd(), file)} (${logged.length})`);
+  }
   await d.delete(schema.events);
   await d.update(schema.products).set({ soldQuantity: 0 });
   await d.delete(schema.agreements); // references custom requests; orders reference agreements by id only

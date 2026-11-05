@@ -37,7 +37,7 @@ export function DailyBrief({ refreshKey }: { refreshKey: number }) {
   return (
     <section className="mb-14 bg-card p-6">
       <div className="flex items-baseline justify-between gap-3">
-        <p className="eyebrow">आज का हाल · Today</p>
+        <p className="eyebrow"><span className="deva">आज का हाल</span> · Today</p>
         <button
           type="button"
           onClick={() => speak(brief.hi, "hindi")}

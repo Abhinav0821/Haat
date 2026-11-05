@@ -18,7 +18,10 @@ export function Ask() {
   const recorder = useRef<Recorder | null>(null);
   const end = useRef<HTMLDivElement>(null);
 
-  useEffect(() => end.current?.scrollIntoView({ behavior: "smooth", block: "end" }), [turns, busy]);
+  useEffect(() => {
+    // Braces matter: newer browsers return a Promise from scrollIntoView, and an effect may only return a cleanup function.
+    end.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [turns, busy]);
   useEffect(() => () => recorder.current?.cancel(), []);
 
   async function ask(input: { audio?: Blob; text?: string }) {
@@ -96,7 +99,7 @@ export function Ask() {
           ) : (
             <div key={i} className="max-w-[92%] space-y-3">
               <div className="border-l-2 border-ink bg-card px-4 py-3">
-                <p className="eyebrow mb-1">हाट</p>
+                <p className="eyebrow deva mb-1">हाट</p>
                 <p className="leading-relaxed" lang="hi">
                   {t.text}
                 </p>
@@ -207,7 +210,8 @@ function InvoiceCard({ card }: { card: Extract<Card, { type: "invoice_draft" }> 
 
   return (
     <div className="border border-ink/80 bg-card p-5">
-      <p className="eyebrow">PayPal बिल · Invoice {state === "draft" ? "(draft)" : ""}</p>
+      <p className="eyebrow">
+        PayPal <span className="deva">बिल</span> · Invoice {state === "draft" ? "(draft)" : ""}</p>
       <p className="mt-2 font-display text-3xl">
         ${(card.amountCents / 100).toFixed(2)} <span className="font-sans text-sm text-muted">≈ ₹{card.amountInr.toLocaleString("en-IN")}</span>
       </p>
@@ -283,7 +287,7 @@ function ReplyCard({ card }: { card: Extract<Card, { type: "reply_draft" }> }) {
   const [english, setEnglish] = useState<string | null>(null);
   return (
     <div className="border border-ink/80 bg-card p-5 text-sm">
-      <p className="eyebrow">जवाब · Reply {state === "draft" ? "(draft)" : ""}</p>
+      <p className="eyebrow"><span className="deva">जवाब</span> · Reply {state === "draft" ? "(draft)" : ""}</p>
       <p className="mt-2 text-muted" lang="hi">
         ख़रीदार: {card.buyerSaid}
       </p>

@@ -70,10 +70,19 @@ async function currentAgreement(requestId: string): Promise<AgreementRow | undef
 
 // ── Buyer side ──────────────────────────────────────────────────────────────
 
-export function requestSummaryHi(spec: CustomSpec, itemHi: string, buyerName: string | null, inrPerUsd: number): string {
+export function requestSummaryHi(
+  spec: CustomSpec,
+  itemHi: string,
+  buyerName: string | null,
+  inrPerUsd: number,
+  wordsHi: { colors?: string[]; materials?: string[] } = {},
+): string {
+  // Hindi words only when the model gave one per item (otherwise the English is safer than a mismatch).
+  const colors = wordsHi.colors?.length === spec.colors.length ? wordsHi.colors : spec.colors;
+  const materials = wordsHi.materials?.length === spec.materials.length ? wordsHi.materials : spec.materials;
   const parts = [`${buyerName ?? "एक ख़रीदार"} को ${spec.quantity} पीस ${itemHi || spec.item} चाहिए`];
-  if (spec.colors.length) parts.push(`रंग: ${spec.colors.join(", ")}`);
-  if (spec.materials.length) parts.push(`कपड़ा/सामान: ${spec.materials.join(", ")}`);
+  if (colors.length) parts.push(`रंग: ${colors.join(", ")}`);
+  if (materials.length) parts.push(`कपड़ा/सामान: ${materials.join(", ")}`);
   let s = parts.join(", ") + "।";
   if (spec.deadline) s += ` ${hiDate(spec.deadline)} तक पहुँचने चाहिए।`;
   if (spec.budgetUsdCents) s += ` बजट: कुल ${(spec.budgetUsdCents / 100).toFixed(0)} डॉलर (लगभग ₹${Math.round((spec.budgetUsdCents / 100) * inrPerUsd).toLocaleString("en-IN")})।`;
@@ -100,15 +109,15 @@ export async function createCustomRequest(
       buyerName: input.buyerName?.trim().slice(0, 80) || null,
       buyerEmail: input.buyerEmail?.trim().slice(0, 120) || null,
       buyerText: text,
-      spec: { ...spec, itemHi: heard.itemHi, otherWishes: heard.otherWishes },
-      summaryHi: requestSummaryHi(spec, heard.itemHi, input.buyerName?.trim() || null, inrPerUsd),
+      spec: { ...spec, itemHi: heard.itemHi, colorsHi: heard.colorsHi, materialsHi: heard.materialsHi, otherWishes: heard.otherWishes },
+      summaryHi: requestSummaryHi(spec, heard.itemHi, input.buyerName?.trim() || null, inrPerUsd, { colors: heard.colorsHi, materials: heard.materialsHi }),
     })
     .returning();
-  await logEvent("custom_request_created", { channel: input.channel, quantity: spec.quantity, deadline: !!spec.deadline, budget: !!spec.budgetUsdCents }, storeId);
+  await logEvent("custom_request_created", { requestId: row.id, channel: input.channel, quantity: spec.quantity, deadline: !!spec.deadline, budget: !!spec.budgetUsdCents }, storeId);
   return row;
 }
 
-const specOf = (r: RequestRow) => r.spec as unknown as CustomSpec & { itemHi?: string; otherWishes?: string | null };
+const specOf = (r: RequestRow) => r.spec as unknown as CustomSpec & { itemHi?: string; colorsHi?: string[]; materialsHi?: string[]; otherWishes?: string | null };
 
 /** Buyer picks one of the maker's sent options → agreement v(n+1) (re-checked against her rules NOW). */
 export async function chooseOption(requestId: string, pick: { kind: "option" | "alternative"; index: number }) {
@@ -136,7 +145,7 @@ async function proposeFromOption(r: RequestRow, option: Option, origin: string) 
   const store = await loadStore(r.storeId);
   const terms = buildTerms(v, specOf(r), store, e);
   const a = await proposeAgreement(r.id, r.storeId, terms);
-  await logEvent("agreement_proposed", { version: a.version, origin, quantity: terms.quantity }, r.storeId);
+  await logEvent("agreement_proposed", { requestId: r.id, version: a.version, origin, quantity: terms.quantity }, r.storeId);
   return a;
 }
 
@@ -151,7 +160,7 @@ export async function counterOffer(requestId: string, c: { quantity: number; tot
   const d = await db();
   const counter: Counter = { ...c, result, at: new Date().toISOString() };
   await d.update(schema.customRequests).set({ counter, updatedAt: new Date() }).where(eq(schema.customRequests.id, r.id));
-  await logEvent("custom_counter", { acceptable: result.acceptable, quantity: c.quantity }, r.storeId);
+  await logEvent("custom_counter", { requestId: r.id, acceptable: result.acceptable, quantity: c.quantity }, r.storeId);
   if (result.acceptable) {
     // Within her rules: becomes a proposed agreement; she still approves it herself.
     const a = await proposeFromOption(r, result.verdict.option, "counter");
@@ -164,7 +173,7 @@ export async function buyerApprove(requestId: string, agreementId: string, hash:
   const a = await currentAgreement(requestId);
   if (!a || a.id !== agreementId) throw new AgreementError("These terms were replaced by a newer version. Please review the latest terms.");
   const updated = await approveAgreement(agreementId, "buyer", hash);
-  await logEvent("agreement_approved", { party: "buyer", version: a.version, both: updated.status === "approved" }, a.storeId);
+  await logEvent("agreement_approved", { requestId, party: "buyer", version: a.version, both: updated.status === "approved" }, a.storeId);
   return updated;
 }
 
@@ -289,7 +298,7 @@ export async function draftAnswer(
   const verdicts = optionsFrom(heard, inrPerUsd).map((o) => validateOption(o, specOf(r), e, { now, inrPerUsd }));
   const d = await db();
   await d.update(schema.customRequests).set({ sellerSaid: heard.transcript, draftOptions: verdicts, updatedAt: now }).where(eq(schema.customRequests.id, r.id));
-  await logEvent("custom_options_drafted", { options: verdicts.length, blocked: verdicts.filter((v) => v.status === "blocked").length }, r.storeId);
+  await logEvent("custom_options_drafted", { requestId: r.id, options: verdicts.length, blocked: verdicts.filter((v) => v.status === "blocked").length }, r.storeId);
   return { heard: heard.transcript, decline: false, verdicts, readback: optionsReadbackHi(verdicts) };
 }
 
@@ -306,7 +315,7 @@ export async function sendOptions(requestId: string, indexes: number[]) {
     .update(schema.customRequests)
     .set({ options: chosen, status: r.status === "new" ? "options_sent" : r.status, updatedAt: new Date() })
     .where(eq(schema.customRequests.id, r.id));
-  await logEvent("custom_options_sent", { options: chosen.length }, r.storeId);
+  await logEvent("custom_options_sent", { requestId: r.id, options: chosen.length }, r.storeId);
 }
 
 /** She approves the exact terms (re-checked against her rules and capacity NOW). */
@@ -325,7 +334,7 @@ export async function sellerApprove(requestId: string, agreementId: string, hash
   );
   if (v.status === "blocked") throw new AgreementError(v.checks.filter((c) => c.blocking).map((c) => c.en).join(" "));
   const updated = await approveAgreement(agreementId, "seller", hash);
-  await logEvent("agreement_approved", { party: "seller", version: a.version, both: updated.status === "approved" }, r.storeId);
+  await logEvent("agreement_approved", { requestId: r.id, party: "seller", version: a.version, both: updated.status === "approved" }, r.storeId);
   return updated;
 }
 
@@ -353,7 +362,7 @@ export async function recordProgress(requestId: string, piecesDone: number) {
       translatedLanguage: "English",
     });
   }
-  await logEvent("custom_progress", { done, total }, r.storeId);
+  await logEvent("custom_progress", { requestId: r.id, done, total }, r.storeId);
   return { done, total };
 }
 
@@ -366,7 +375,7 @@ export async function declineRequest(requestId: string) {
     .update(schema.agreements)
     .set({ status: "cancelled" })
     .where(and(eq(schema.agreements.requestId, r.id), ne(schema.agreements.status, "superseded"), ne(schema.agreements.status, "paid")));
-  await logEvent("custom_declined", {}, r.storeId);
+  await logEvent("custom_declined", { requestId: r.id }, r.storeId);
 }
 
 export async function sellerView(requestId: string) {
@@ -383,7 +392,7 @@ export async function sellerView(requestId: string) {
     advice: adviceFor(spec, e, new Date(), inrPerUsd),
     sellerSaid: r.sellerSaid,
     draft: ((r.draftOptions ?? []) as OptionVerdict[]).map((v, i) => ({ index: i, ...v })),
-    agreementHi: a ? termsHi(a.terms as Terms, inrPerUsd, spec.itemHi) : null,
+    agreementHi: a ? termsHi(a.terms as Terms, inrPerUsd, spec.itemHi, { colors: spec.colorsHi ?? [], materials: spec.materialsHi ?? [], from: { colors: spec.colors, materials: spec.materials } }) : null,
     createdAt: r.createdAt.toISOString(),
   };
 }

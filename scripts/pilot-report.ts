@@ -1,20 +1,30 @@
 /**
- * Summarise pilot-study events.  npm run pilot:report   (stop `npm run dev` first when using the embedded DB)
+ * Summarise pilot-study events.
+ *
+ *   npm run pilot:report                       current database (stop `npm run dev` first when using the embedded DB)
+ *   npm run pilot:report -- --from <file.json> an archive written by `npm run demo:reset` (one per participant session)
+ *
+ * Only counts what the app logged; per-task success, assistance and quotes come from the facilitator's sheet
+ * (docs/pilot-study.md).
  */
 import { config } from "dotenv";
 config({ path: ".env.local", quiet: true });
-import { db, schema } from "@/db";
+import { readFileSync } from "node:fs";
+import { pilotSummary, type Ev } from "@/lib/pilot";
 
 async function main() {
-  const d = await db();
-  const rows = await d.select().from(schema.events);
-  const published = rows.filter((r) => r.name === "listing_published");
-  const durations = published.map((r) => r.props.durationMs as number | null).filter((n): n is number => typeof n === "number").sort((a, b) => a - b);
-  const median = durations.length ? durations[Math.floor(durations.length / 2)] : null;
-  console.log(`listings published: ${published.length}`);
-  console.log(`time to list (median): ${median !== null ? `${Math.round(median / 1000)} s` : "n/a"}  [${durations.map((d) => Math.round(d / 1000) + "s").join(", ")}]`);
-  console.log(`voice corrections used: ${rows.filter((r) => r.name === "listing_corrected_by_voice").length}`);
-  console.log(`rules approved: ${rows.filter((r) => r.name === "rules_approved").length}`);
+  const i = process.argv.indexOf("--from");
+  let rows: Ev[];
+  if (i > 0 && process.argv[i + 1]) {
+    rows = JSON.parse(readFileSync(process.argv[i + 1], "utf8")) as Ev[];
+    console.log(`archive: ${process.argv[i + 1]} (${rows.length} events)`);
+  } else {
+    const { db, schema, closeDb } = await import("@/db");
+    rows = (await (await db()).select().from(schema.events)) as Ev[];
+    await closeDb();
+  }
+  for (const l of pilotSummary(rows)) console.log(l);
   process.exit(0);
 }
-main();
+
+if (process.argv[1]?.includes("pilot-report")) void main();

@@ -17,7 +17,7 @@
 ## Setup
 
 - Phone browser on the deployed app (or laptop on `localhost`), seller PIN entered by the facilitator.
-- Start from a clean demo (`npm run demo:reset`). Facilitator stays silent unless the participant is stuck for > 60 s; every intervention is recorded as **assistance**.
+- Start from a clean demo (`npm run demo:reset`). The reset archives the previous session's events to `.data/pilot-archive/`; summarise a session with `npm run pilot:report -- --from <file>`. Facilitator stays silent unless the participant is stuck for > 60 s; every intervention is recorded as **assistance**.
 
 ## Tasks
 
@@ -29,7 +29,7 @@
 | T4 | Facilitator sends a fake “I already paid” screenshot. “यह संदेश सुनिए — क्या आप सामान भेजेंगी?” | Participant correctly says *don't ship* and why |
 | T5 | Facilitator triggers a refund proposal. “इसे मंज़ूर कीजिए।” | Approved by saying the code word |
 
-(After Checkpoint 2: add **T6 — respond to a custom-order request by voice**.)
+| T6 | Facilitator sends a custom request (“12 red scarves by Dec 10, budget $250”). “इसका जवाब बोलकर दीजिए।” | Answer heard correctly; any option that breaks her rules is shown as blocked and not sent; she sends a valid one and approves the terms |
 
 ## What to measure
 
@@ -40,6 +40,7 @@
 | **Time** | Listing time is logged automatically (`npm run pilot:report`); also stopwatch per task |
 | **Understanding** | T4: did they correctly decide *not* to ship? Ask them to explain in their words |
 | **Corrections** | How often they used voice correction (logged automatically) |
+| **Custom orders (T6)** | Time from request to answer, options blocked by her rules, counter-offers refused (logged automatically) |
 | **Comparison** | Ask: “आज आप ऐसा कैसे करती हैं? कितना समय लगता है?” — their current process for the same task |
 
 Three closing questions (1–5): *Easy to use? Would you trust it with real money? Would you use it?* — plus “सबसे मुश्किल क्या लगा?” (hardest part).
@@ -50,8 +51,8 @@ Three closing questions (1–5): *Easy to use? Would you trust it with real mone
 - Report every failure and assistance, not only successes. Quote participants (with permission, no names).
 - Keep **sandbox** results clearly separate from any real sales. Don't infer income gains from listing speed.
 
-| Participant | Target? | T1 | T2 | T3 | T4 | T5 | Listing time | Errors after approval | Notes |
-|---|---|---|---|---|---|---|---|---|---|
-| P1 | | | | | | | | | |
-| P2 | | | | | | | | | |
-| P3 | | | | | | | | | |
+| Participant | Target? | T1 | T2 | T3 | T4 | T5 | T6 | Listing time | Errors after approval | Notes |
+|---|---|---|---|---|---|---|---|---|---|---|
+| P1 | | | | | | | | | | |
+| P2 | | | | | | | | | | |
+| P3 | | | | | | | | | | |

@@ -73,6 +73,7 @@ export function buildTerms(v: OptionVerdict, req: CustomSpec, shop: { name: stri
 }
 
 const usd = (c: number) => `$${(c / 100).toFixed(2)}`;
+const longDate = (iso: string) => new Date(iso).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" });
 
 export function termsLinesEn(t: Terms): [string, string][] {
   return [
@@ -81,8 +82,8 @@ export function termsLinesEn(t: Terms): [string, string][] {
     ["Price", `${usd(t.unitPriceUsdCents)} each · ${usd(t.unitPriceUsdCents * t.quantity)} for ${t.quantity}`],
     ["Shipping", usd(t.shippingUsdCents)],
     ["Total", usd(t.totalUsdCents)],
-    ["Made by", t.completionBy],
-    ["Estimated delivery", `${t.deliveryEstimate} (estimate — courier times vary)`],
+    ["Made by", longDate(t.completionBy)],
+    ["Estimated delivery", `${longDate(t.deliveryEstimate)} (estimate — courier times vary)`],
     ["Handmade variation", t.handmadeVariation],
     ["Refunds", t.refundTerms],
     ...(t.note ? ([["Note", t.note]] as [string, string][]) : []),
@@ -90,10 +91,13 @@ export function termsLinesEn(t: Terms): [string, string][] {
 }
 
 /** Read aloud to the maker (fixed template). */
-export function termsHi(t: Terms, inrPerUsd: number, itemHi?: string): string {
+export function termsHi(t: Terms, inrPerUsd: number, itemHi?: string, wordsHi?: { colors: string[]; materials: string[]; from: { colors: string[]; materials: string[] } }): string {
+  const sameAs = (a: string[], b: string[]) => a.join("|") === b.join("|");
+  const colors = wordsHi && sameAs(t.colors, wordsHi.from.colors) && wordsHi.colors.length === t.colors.length ? wordsHi.colors : t.colors;
+  const materials = wordsHi && sameAs(t.materials, wordsHi.from.materials) && wordsHi.materials.length === t.materials.length ? wordsHi.materials : t.materials;
   const inr = Math.round((t.totalUsdCents / 100) * inrPerUsd).toLocaleString("en-IN");
   const day = (iso: string) => new Date(iso).toLocaleDateString("hi-IN", { day: "numeric", month: "long", timeZone: "UTC" });
-  return `समझौता: ${t.quantity} पीस ${itemHi || t.item}, ${[...t.colors, ...t.materials].join(", ")}। हर पीस ${(t.unitPriceUsdCents / 100).toFixed(2)} डॉलर, शिपिंग ${(t.shippingUsdCents / 100).toFixed(2)} डॉलर, कुल ${(t.totalUsdCents / 100).toFixed(2)} डॉलर, यानी लगभग ${inr} रुपये। ${day(t.completionBy)} तक बनाना है, पहुँचने का अनुमान ${day(t.deliveryEstimate)}। मन बदलने पर वापसी नहीं; ख़राब पहुँचे तो आपकी रिफ़ंड नीति लागू होगी।`;
+  return `समझौता: ${t.quantity} पीस ${itemHi || t.item}, ${[...colors, ...materials].join(", ")}। हर पीस ${(t.unitPriceUsdCents / 100).toFixed(2)} डॉलर, शिपिंग ${(t.shippingUsdCents / 100).toFixed(2)} डॉलर, कुल ${(t.totalUsdCents / 100).toFixed(2)} डॉलर, यानी लगभग ${inr} रुपये। ${day(t.completionBy)} तक बनाना है, पहुँचने का अनुमान ${day(t.deliveryEstimate)}। मन बदलने पर वापसी नहीं; ख़राब पहुँचे तो आपकी रिफ़ंड नीति लागू होगी।`;
 }
 
 /** Pieces still to make: her stated backlog + approved (held) agreements + paid ones not yet finished. */

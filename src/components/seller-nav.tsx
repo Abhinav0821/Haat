@@ -23,11 +23,12 @@ export function SellerNav({ active }: { active: "list" | "inbox" | "products" | 
   }
 
   return (
-    <nav className="mb-10 flex items-center justify-between border-b border-line pb-5">
+    <nav className="mb-10 flex flex-wrap items-center justify-between gap-y-4 border-b border-line pb-5">
       <Link href="/" aria-label="Haat home">
         <Wordmark />
       </Link>
-      <div className="flex items-center gap-5 text-sm">
+      {/* Phones: links get their own row and scroll sideways, so the page never overflows. */}
+      <div className="-mx-6 flex w-[calc(100%+3rem)] items-center gap-5 overflow-x-auto whitespace-nowrap px-6 pb-1 text-sm sm:mx-0 sm:w-auto sm:overflow-visible sm:px-0 sm:pb-0">
         {links.map((l) => (
           <Link
             key={l.key}

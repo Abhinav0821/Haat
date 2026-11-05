@@ -83,7 +83,7 @@ export function Inbox() {
       <DailyBrief refreshKey={refresh} />
       <Autopilot refreshKey={refresh} onChange={() => setRefresh((n) => n + 1)} />
 
-      <h2 className="eyebrow mt-14 border-t border-line pt-10 text-ink">ख़रीदारों के संदेश · Buyer messages</h2>
+      <h2 className="eyebrow mt-14 border-t border-line pt-10 text-ink"><span className="deva">ख़रीदारों के संदेश</span> · Buyer messages</h2>
       {error && <p className="text-sm text-danger">{error}</p>}
       {messages === null && !error && <p className="text-muted">लोड हो रहा है…</p>}
       {messages?.length === 0 && <p className="text-muted">अभी कोई संदेश नहीं · No messages yet</p>}
@@ -112,11 +112,11 @@ function MessageCard({ m, onReplied }: { m: InboxMessage; onReplied: () => void 
   return (
     <li className="border-t border-line pt-6">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <p className="eyebrow">
+        <p className="eyebrow deva">
           {m.orderId ? `ऑर्डर · ${m.orderStatus === "COMPLETED" ? "पैसा मिल गया" : "पैसा नहीं मिला"}` : "सवाल · Question"}
           {m.productTitle && <span className="normal-case tracking-normal"> — {m.productTitle}</span>}
         </p>
-        <p className="eyebrow">
+        <p className="eyebrow deva">
           {m.channel === "mcp" && <span className="mr-2 text-indigo">AI agent</span>}
           {timeAgo(m.createdAt)}
         </p>
@@ -168,7 +168,7 @@ function MessageCard({ m, onReplied }: { m: InboxMessage; onReplied: () => void 
                 <img src={`/api/media/${a.mediaId}`} alt="Buyer's photo" className="h-20 w-20 object-cover" />
               </a>
               <div className="min-w-0 text-sm">
-                <p className="eyebrow">{ATTACHMENT_LABEL[a.kind]}</p>
+                <p className="eyebrow deva">{ATTACHMENT_LABEL[a.kind]}</p>
                 {a.kind === "payment_screenshot" && a.payment && (
                   <p className="mt-1">
                     दावा · Claims {a.payment.amount !== null ? `$${a.payment.amount.toFixed(2)}` : "a payment"}
@@ -200,7 +200,7 @@ function MessageCard({ m, onReplied }: { m: InboxMessage; onReplied: () => void 
         <ul className="mt-5 space-y-3">
           {m.replies.map((r) => (
             <li key={r.id} className="border-l-2 border-ink bg-card px-4 py-3 text-sm">
-              <p className="eyebrow mb-1">आपका जवाब · Your reply</p>
+              <p className="eyebrow mb-1"><span className="deva">आपका जवाब</span> · Your reply</p>
               <p lang="hi">{r.text}</p>
               {r.english && <p className="mt-1 text-xs text-muted">Sent in English: {r.english}</p>}
             </li>

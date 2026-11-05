@@ -101,7 +101,7 @@ export function Autopilot({ refreshKey, onChange }: { refreshKey: number; onChan
 
       {board.custom.inProduction.length > 0 && (
         <section>
-          <h2 className="eyebrow text-ink">बन रहे हैं · Being made</h2>
+          <h2 className="eyebrow text-ink"><span className="deva">बन रहे हैं</span> · Being made</h2>
           <ol className="mt-5 space-y-4">
             {board.custom.inProduction.map((m) => (
               <MakingCard key={m.requestId} m={m} onDone={onChange} />
@@ -111,7 +111,7 @@ export function Autopilot({ refreshKey, onChange }: { refreshKey: number; onChan
       )}
       {board.proposals.length > 0 && (
         <section>
-          <h2 className="eyebrow text-ink">आपकी मंज़ूरी चाहिए · Needs your approval</h2>
+          <h2 className="eyebrow text-ink"><span className="deva">आपकी मंज़ूरी चाहिए</span> · Needs your approval</h2>
           <ol className="mt-5 space-y-6">
             {board.proposals.map((p) => (
               <ProposalCard key={p.id} p={p} onDone={onChange} />
@@ -122,7 +122,7 @@ export function Autopilot({ refreshKey, onChange }: { refreshKey: number; onChan
 
       {board.toShip.length > 0 && (
         <section>
-          <h2 className="eyebrow text-ink">भेजने के लिए तैयार · Ready to ship</h2>
+          <h2 className="eyebrow text-ink"><span className="deva">भेजने के लिए तैयार</span> · Ready to ship</h2>
           <p className="mt-2 text-sm text-muted">
             ट्रैकिंग नंबर जोड़ने से PayPal Seller Protection मज़बूत होता है और पैसा जल्दी मिल सकता है।
             <span className="block text-xs">Adding tracking strengthens Seller Protection and can release held funds sooner.</span>
@@ -137,7 +137,9 @@ export function Autopilot({ refreshKey, onChange }: { refreshKey: number; onChan
 
       {board.activity.length > 0 && (
         <section>
-          <h2 className="eyebrow text-ink">AI ने क्या किया · Autopilot activity</h2>
+          <h2 className="eyebrow text-ink">
+            AI <span className="deva">ने क्या किया</span> · Autopilot activity
+          </h2>
           <ol className="mt-4 divide-y divide-line border-y border-line">
             {board.activity.slice(0, 8).map((a) => (
               <ActivityRow key={a.id} a={a} />
@@ -208,7 +210,7 @@ function ProposalCard({ p, onDone }: { p: ActionView; onDone: () => void }) {
           {p.amountCents !== null && usd(p.amountCents)}{" "}
           {p.amountInr !== null && <span className="font-sans text-base text-muted">≈ {inr(p.amountInr)}</span>}
         </p>
-        <p className="eyebrow">रिफ़ंड का सुझाव · Refund proposal</p>
+        <p className="eyebrow"><span className="deva">रिफ़ंड का सुझाव</span> · Refund proposal</p>
       </div>
       {p.buyerSaid && (
         <p className="mt-4 border-l-2 border-line pl-3 text-sm text-muted" lang="hi">
@@ -239,7 +241,7 @@ function ProposalCard({ p, onDone }: { p: ActionView; onDone: () => void }) {
         </div>
       ) : (
         <div className="mt-6 border-t border-line pt-6 text-center">
-          <p className="eyebrow">पक्का करने के लिए यह शब्द बोलिए · Say this word to confirm</p>
+          <p className="eyebrow"><span className="deva">पक्का करने के लिए यह शब्द बोलिए</span> · Say this word to confirm</p>
           <p className="mt-3 font-display text-6xl" lang="hi">
             {challenge.word}
           </p>
@@ -313,7 +315,7 @@ function TrackingCard({ o, onDone }: { o: ToShip; onDone: () => void }) {
     <li className="border border-line bg-card p-6">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <p className="font-display text-2xl">{usd(o.amountCents)}</p>
-        <p className="eyebrow">पैसा मिल गया · Paid</p>
+        <p className="eyebrow"><span className="deva">पैसा मिल गया</span> · Paid</p>
       </div>
       <p className="mt-1 text-sm text-muted">
         {o.buyerName ?? "Buyer"}
@@ -337,7 +339,7 @@ function TrackingCard({ o, onDone }: { o: ToShip; onDone: () => void }) {
         </div>
       ) : (
         <div className="mt-5 border-t border-line pt-5">
-          <p className="eyebrow">{heard.carrierLabel}</p>
+          <p className="eyebrow deva">{heard.carrierLabel}</p>
           <p className="mt-2 font-mono text-2xl tracking-wider">{heard.trackingNumber}</p>
           {!heard.valid && <p className="mt-2 text-sm text-danger">यह नंबर सही नहीं लग रहा · This doesn’t look like a valid number</p>}
           <div className="mt-5 flex flex-wrap gap-3">

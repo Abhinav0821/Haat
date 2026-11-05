@@ -64,7 +64,7 @@ export function PinPad() {
     <div className="mx-auto flex w-full max-w-xs flex-1 flex-col justify-center px-6 py-16">
       <div className="text-center">
         <Wordmark />
-        <p className="eyebrow mt-10">विक्रेता · Seller studio</p>
+        <p className="eyebrow mt-10"><span className="deva">विक्रेता</span> · Seller studio</p>
         <h1 className="mt-3 font-display text-3xl font-normal">
           पासकोड डालें
           <span className="mt-1 block font-sans text-sm font-light text-muted">Enter your passcode</span>

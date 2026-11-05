@@ -106,3 +106,22 @@ test("invoice check: same rules as Haat orders; the invoice total includes every
   assert.equal(none.verdict, "unknown");
   assert.equal(none.needsOverride, false, "no rules → nothing to enforce, but she is told");
 });
+
+test("pilot report: custom-order metrics from logged events", async () => {
+  const { pilotSummary } = await import("@/lib/pilot");
+  const t = (min: number) => new Date(Date.UTC(2026, 10, 9, 10, min)).toISOString();
+  const lines = pilotSummary([
+    { name: "custom_request_created", props: { requestId: "a", channel: "web" }, at: t(0) },
+    { name: "custom_request_created", props: { requestId: "b", channel: "mcp" }, at: t(1) },
+    { name: "custom_options_drafted", props: { requestId: "a", options: 3, blocked: 1 }, at: t(3) },
+    { name: "custom_options_sent", props: { requestId: "a", options: 2 }, at: t(4) },
+    { name: "custom_options_sent", props: { requestId: "a", options: 1 }, at: t(9) },
+    { name: "custom_counter", props: { requestId: "a", acceptable: false }, at: t(5) },
+    { name: "agreement_approved", props: { requestId: "a", party: "seller", both: true }, at: t(6) },
+  ]).join("\n");
+  assert.match(lines, /requests received: 2 \(via AI agent: 1\)/);
+  assert.match(lines, /options heard: 3, blocked by her own rules: 1/);
+  assert.match(lines, /options sent\): 1; time from request to answer \(median\): 4\.0 min/, "first answer counts");
+  assert.match(lines, /refused automatically: 1/);
+  assert.match(lines, /approved by both: 1/);
+});

@@ -162,7 +162,7 @@ export function Rules() {
       {readback && (
         <section className="mt-6 border-l-2 border-ink bg-card p-5">
           <div className="flex items-baseline justify-between gap-3">
-            <p className="eyebrow">{dirty ? "मैंने यह समझा · Please check" : "अभी के नियम · Current rules"}</p>
+            <p className="eyebrow deva">{dirty ? "मैंने यह समझा · Please check" : "अभी के नियम · Current rules"}</p>
             <button type="button" onClick={() => speak(readback, "hindi")} className="text-sm underline underline-offset-4">
               🔊 सुनें
             </button>
@@ -212,7 +212,7 @@ export function Rules() {
       </section>
 
       <section className="mt-10 bg-card p-5 text-sm">
-        <p className="eyebrow">उदाहरण · Example</p>
+        <p className="eyebrow"><span className="deva">उदाहरण</span> · Example</p>
         <label className="mt-3 flex items-center gap-2">
           <span lang="hi">अगर दाम हो</span> $
           <input value={examplePrice} onChange={(e) => setExamplePrice(e.target.value.replace(/[^0-9.]/g, ""))} className="w-20 border-b border-line bg-transparent py-1 focus:border-ink focus:outline-none" />

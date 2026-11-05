@@ -193,7 +193,7 @@ export function CustomRequests() {
                 <span lang="hi" className={selected === it.id ? "font-medium" : ""}>
                   {it.summaryHi}
                 </span>
-                <span className="eyebrow shrink-0">
+                <span className="eyebrow deva shrink-0">
                   {STATUS_HI[it.status] ?? it.status}
                   {it.channel === "mcp" && " · AI"}
                 </span>
@@ -207,7 +207,7 @@ export function CustomRequests() {
         <article className="mt-10">
           <section className="border-l-2 border-ink bg-card p-5">
             <div className="flex items-baseline justify-between gap-3">
-              <p className="eyebrow">{view.buyerName ?? "ख़रीदार"}{view.channel === "mcp" ? " · via AI agent" : ""}</p>
+              <p className="eyebrow deva">{view.buyerName ?? "ख़रीदार"}{view.channel === "mcp" ? " · via AI agent" : ""}</p>
               {view.summaryHi && (
                 <button type="button" onClick={() => speak(view.summaryHi!, "hindi")} className="text-sm underline underline-offset-4">
                   🔊 सुनें
@@ -221,8 +221,9 @@ export function CustomRequests() {
             {view.otherWishes && <p className="mt-1 text-xs text-muted">Also: {view.otherWishes}</p>}
           </section>
 
+          {view.status !== "paid" && view.status !== "declined" && (
           <section className="mt-6 text-sm">
-            <p className="eyebrow">आपके नियमों से · From your rules</p>
+            <p className="eyebrow"><span className="deva">आपके नियमों से</span> · From your rules</p>
             <ul className="mt-2 space-y-1">
               {view.advice.hi.map((line, i) => (
                 <li key={line} lang="hi">
@@ -236,10 +237,11 @@ export function CustomRequests() {
               </button>
             )}
           </section>
+          )}
 
           {view.status !== "paid" && view.status !== "declined" && (
             <section className="mt-10">
-              <p className="eyebrow">आपका जवाब · Your answer</p>
+              <p className="eyebrow"><span className="deva">आपका जवाब</span> · Your answer</p>
               <div className="mt-3 flex items-center gap-4">
                 <button
                   type="button"
@@ -333,7 +335,7 @@ export function CustomRequests() {
 
           {view.options.length > 0 && (
             <section className="mt-8 text-sm">
-              <p className="eyebrow">भेजे गए · Sent to buyer</p>
+              <p className="eyebrow"><span className="deva">भेजे गए</span> · Sent to buyer</p>
               <ul className="mt-2 space-y-1" lang="hi">
                 {view.options.map((o) => (
                   <li key={o.index}>
@@ -346,7 +348,7 @@ export function CustomRequests() {
 
           {view.counter && (
             <section className="mt-6 text-sm">
-              <p className="eyebrow">ख़रीदार का सुझाव · Buyer&apos;s counter</p>
+              <p className="eyebrow"><span className="deva">ख़रीदार का सुझाव</span> · Buyer&apos;s counter</p>
               <p className="mt-2">
                 {view.counter.quantity} pcs for {usd(view.counter.totalBudgetUsdCents)} —{" "}
                 {view.counter.acceptable ? <span className="text-leaf">within your rules</span> : <span className="text-marigold">refused automatically: {view.counter.reason}</span>}
@@ -357,7 +359,7 @@ export function CustomRequests() {
           {view.agreement && view.agreement.status !== "cancelled" && (
             <section className="mt-10 border-t-2 border-ink pt-6">
               <div className="flex items-baseline justify-between gap-3">
-                <p className="eyebrow">समझौता · Terms v{view.agreement.version}</p>
+                <p className="eyebrow"><span className="deva">समझौता</span> · Terms v{view.agreement.version}</p>
                 {view.agreementHi && (
                   <button type="button" onClick={() => speak(view.agreementHi!, "hindi")} className="text-sm underline underline-offset-4">
                     🔊 सुनें

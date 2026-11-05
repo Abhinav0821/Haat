@@ -58,6 +58,11 @@ body {
   background: var(--marigold-soft);
 }
 
+/* Devanagari inside letterspaced labels: letter-spacing would split vowel signs from their letters. */
+.deva {
+  letter-spacing: normal;
+}
+
 /* Small, letterspaced uppercase labels used throughout. */
 @utility eyebrow {
   font-size: 0.6875rem;

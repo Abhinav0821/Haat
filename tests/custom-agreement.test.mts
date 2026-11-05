@@ -39,7 +39,9 @@ const fakeBuyer = async () => ({
   item: "hand block-printed cotton scarf",
   itemHi: "हाथ से छपा सूती दुपट्टा",
   colors: ["red"],
+  colorsHi: ["लाल"],
   materials: ["cotton"],
+  materialsHi: ["सूती"],
   deadline: new Date(Date.now() + 34 * 86_400_000).toISOString().slice(0, 10),
   budget: null,
   otherWishes: null,
@@ -258,3 +260,12 @@ test("after payment: progress shrinks booked work, and the order is shipped only
 });
 
 after(async () => (await import("@/db")).closeDb());
+
+test("her summary uses Hindi colour/material words when the model gives one per item", async () => {
+  const r = await svc.createCustomRequest(storeId, { buyerText: "12 red cotton scarves for my bridesmaids please", channel: "web" }, { hear: fakeBuyer });
+  assert.match(r.summaryHi ?? "", /रंग: लाल/);
+  assert.match(r.summaryHi ?? "", /सूती/);
+  const mismatched = async () => ({ ...(await fakeBuyer()), colorsHi: [] as string[] });
+  const r2 = await svc.createCustomRequest(storeId, { buyerText: "12 red cotton scarves for my bridesmaids please", channel: "web" }, { hear: mismatched });
+  assert.match(r2.summaryHi ?? "", /रंग: red/, "falls back to English rather than guessing");
+});

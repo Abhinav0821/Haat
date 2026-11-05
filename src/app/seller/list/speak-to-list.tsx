@@ -458,7 +458,7 @@ function Review(props: {
       {draft.photoAdvice.length > 0 && (
         <section className="border-l-2 border-line bg-card p-5">
           <div className="flex items-baseline justify-between gap-3">
-            <p className="eyebrow">फ़ोटो सुझाव · Photo tips</p>
+            <p className="eyebrow"><span className="deva">फ़ोटो सुझाव</span> · Photo tips</p>
             <button type="button" onClick={() => speak(draft.photoAdvice.map((a) => a.hi).join(" "), "hindi")} className="text-sm underline underline-offset-4">
               🔊 सुनें
             </button>
@@ -513,7 +513,7 @@ function FairPriceCard({ fp, inrPerUsd, onUse }: { fp: FairPrice; inrPerUsd: num
   return (
     <section className={`border-l-2 ${fp.verdict === "under" ? "border-marigold" : "border-line"} bg-card p-5`}>
       <div className="flex items-baseline justify-between gap-3">
-        <p className="eyebrow">उचित दाम · Fair price</p>
+        <p className="eyebrow"><span className="deva">उचित दाम</span> · Fair price</p>
         <button type="button" onClick={() => speak(fp.hi, "hindi")} className="text-sm underline underline-offset-4">
           🔊 सुनें
         </button>
@@ -584,7 +584,7 @@ function EarningsCard({ economics, priceUsd, inrPerUsd }: { economics: Economics
   return (
     <section className={`border-l-2 px-4 py-3 text-sm ${tone}`}>
       <div className="flex items-baseline justify-between gap-3">
-        <p className="eyebrow">आपकी कमाई · Left for your work</p>
+        <p className="eyebrow"><span className="deva">आपकी कमाई</span> · Left for your work</p>
         <button type="button" onClick={() => speak(hi, "hindi")} className="text-sm underline underline-offset-4">
           🔊 सुनें
         </button>
