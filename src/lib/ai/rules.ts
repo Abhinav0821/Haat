@@ -22,6 +22,7 @@ const Heard = z.object({
     .describe("What the BUYER should be charged for shipping, if stated."),
   minimumInr: z.number().nullable().describe("The least she wants left for her work per piece, in rupees."),
   piecesPerWeek: z.number().int().nullable(),
+  backlogPieces: z.number().int().nullable().describe("Pieces she has already promised to other customers, if stated."),
   shippingDays: z.number().int().nullable().describe("Typical courier days to the buyer."),
   askBeforeChanges: z.boolean().nullable().describe("True if she wants to be asked before materials/colours are changed."),
 });
@@ -48,7 +49,7 @@ export async function hearRules(input: { text?: string; audio?: { data: Uint8Arr
 
 /** Merge what she said into her current rules (deterministic). */
 export function mergeRules(current: Economics | null, heard: z.infer<typeof Heard>, inrPerUsd: number): Economics {
-  const base = EconomicsSchema.parse(current ?? { materialsInr: null, packagingInr: null, shippingCostInr: null, minimumInr: null, piecesPerWeek: null });
+  const base = EconomicsSchema.parse(current ?? { materialsInr: null, packagingInr: null, shippingCostInr: null, minimumInr: null, piecesPerWeek: null, backlogPieces: 0 });
   const charge = heard.shippingCharge
     ? Math.round(heard.shippingCharge.currency === "USD" ? heard.shippingCharge.amount * 100 : (heard.shippingCharge.amount / inrPerUsd) * 100)
     : null;
@@ -61,6 +62,7 @@ export function mergeRules(current: Economics | null, heard: z.infer<typeof Hear
     ...(charge !== null ? { shippingChargeUsdCents: charge } : {}),
     ...(heard.minimumInr !== null ? { minimumInr: heard.minimumInr } : {}),
     ...(heard.piecesPerWeek !== null ? { piecesPerWeek: heard.piecesPerWeek } : {}),
+    ...(heard.backlogPieces !== null ? { backlogPieces: heard.backlogPieces } : {}),
     ...(heard.shippingDays !== null ? { shippingDays: heard.shippingDays } : {}),
     ...(heard.askBeforeChanges !== null ? { askBeforeChanges: heard.askBeforeChanges } : {}),
   });
@@ -83,6 +85,8 @@ export function rulesReadbackHi(e: Economics): { text: string; missing: string[]
   if (e.minimumInr !== null) parts.push(`हर पीस पर आपकी मेहनत के लिए कम से कम ${inr(e.minimumInr)} बचने चाहिए`);
   else missing.push("आपकी कम से कम कमाई");
   if (e.piecesPerWeek !== null) parts.push(`हफ़्ते में ${e.piecesPerWeek} पीस तक बना सकती हैं`);
+  else missing.push("हफ़्ते में कितने पीस");
+  if (e.backlogPieces) parts.push(`अभी ${e.backlogPieces} पीस का काम बाकी है`);
   parts.push(`पार्सल पहुँचने में लगभग ${e.shippingDays} दिन`);
   parts.push(e.askBeforeChanges ? "रंग या सामान बदलने से पहले आपसे पूछा जाएगा" : "छोटे बदलाव बिना पूछे मान लिए जाएँगे");
   const text = `मैंने यह समझा: ${parts.join("; ")}।${missing.length ? ` अभी बताना बाकी है: ${missing.join(", ")}।` : ""} क्या यह सही है?`;

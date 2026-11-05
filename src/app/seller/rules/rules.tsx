@@ -13,6 +13,7 @@ const EMPTY: Economics = {
   shippingChargeUsdCents: 0,
   minimumInr: null,
   piecesPerWeek: null,
+  backlogPieces: 0,
   shippingDays: 10,
   askBeforeChanges: true,
   feePercent: 5.4,
@@ -28,6 +29,7 @@ const FIELDS: Field[] = [
   { key: "shippingChargeUsdCents", hi: "ग्राहक से शिपिंग", en: "Shipping charged to buyer", unit: "$", cents: true },
   { key: "minimumInr", hi: "कम से कम कमाई (हर पीस)", en: "Minimum left for your work, per piece", unit: "₹" },
   { key: "piecesPerWeek", hi: "हफ़्ते में कितने पीस", en: "Pieces per week", unit: "#" },
+  { key: "backlogPieces", hi: "अभी कितने पीस का काम बाकी है", en: "Pieces already promised to others", unit: "#" },
   { key: "shippingDays", hi: "पार्सल कितने दिन में पहुँचता है", en: "Courier days to buyer", unit: "#" },
   { key: "feePercent", hi: "PayPal फ़ीस का अनुमान", en: "PayPal fee estimate", unit: "%" },
 ];
@@ -122,7 +124,7 @@ export function Rules() {
   function setField(f: Field, raw: string) {
     const n = raw.trim() === "" ? null : Number(raw);
     if (n !== null && !Number.isFinite(n)) return;
-    setRules((r) => ({ ...r, [f.key]: n === null ? (f.key === "otherInr" || f.key === "shippingChargeUsdCents" ? 0 : null) : f.cents ? Math.round(n * 100) : n }));
+    setRules((r) => ({ ...r, [f.key]: n === null ? (f.key === "otherInr" || f.key === "shippingChargeUsdCents" || f.key === "backlogPieces" ? 0 : null) : f.cents ? Math.round(n * 100) : n }));
     setDirty(true);
   }
 

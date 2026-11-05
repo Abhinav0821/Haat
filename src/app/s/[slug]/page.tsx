@@ -129,6 +129,19 @@ async function Store({ params }: { params: PageProps<"/s/[slug]">["params"] }) {
           </section>
         )}
 
+        {/* Made to order */}
+        <section className="mt-28 border-t border-line pt-16 text-center">
+          <p className="eyebrow">Made to order</p>
+          <h2 className="mx-auto mt-5 max-w-xl font-display text-3xl font-normal leading-snug sm:text-4xl">Something in your colours, for your occasion.</h2>
+          <p className="mx-auto mt-4 max-w-lg text-muted">
+            Tell {store.ownerName} what you have in mind. She answers in her own voice with what she can make, by when, and at what price — and you both approve the same terms before
+            you pay.
+          </p>
+          <Link href={`/s/${store.slug}/custom`} className="mt-8 inline-block bg-ink px-8 py-4 text-sm tracking-wide text-paper hover:bg-ink/85">
+            Request a piece
+          </Link>
+        </section>
+
         <div className="mt-28">
           <Assurances />
         </div>

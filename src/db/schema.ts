@@ -79,6 +79,9 @@ export const orders = pgTable(
     trackingNumber: text("tracking_number"),
     trackingCarrier: text("tracking_carrier"),
     trackingAddedAt: timestamp("tracking_added_at", { withTimezone: true }),
+    /** Set when the order pays for a custom-order agreement: the exact terms paid for. */
+    agreementId: text("agreement_id"),
+    termsHash: text("terms_hash"),
     /** "storefront" | "mcp" (bought by an AI agent) | "chat" */
     channel: text("channel").notNull().default("storefront"),
     createdAt: createdAt(),
@@ -219,4 +222,51 @@ export const events = pgTable("events", {
   name: text("name").notNull(),
   props: jsonb("props").$type<Record<string, unknown>>().notNull().default({}),
   at: createdAt(),
+});
+
+/** A buyer (or their AI agent) asking for something that doesn't exist yet. */
+export const customRequests = pgTable("custom_requests", {
+  id: id(),
+  storeId: text("store_id").notNull().references(() => stores.id),
+  channel: text("channel").notNull().default("web"), // "web" | "mcp"
+  buyerName: text("buyer_name"),
+  buyerEmail: text("buyer_email"),
+  buyerText: text("buyer_text").notNull(),
+  /** Structured request (quantity, item, colours, materials, deadline, budget). */
+  spec: jsonb("spec").$type<Record<string, unknown>>().notNull(),
+  summaryHi: text("summary_hi"),
+  sellerSaid: text("seller_said"),
+  /** Options the maker drafted by voice, each with code-checked verdicts (not yet visible to the buyer). */
+  draftOptions: jsonb("draft_options").$type<unknown[]>(),
+  /** Options the maker approved and sent. */
+  options: jsonb("options").$type<unknown[]>(),
+  /** Last buyer counter-offer and Haat's deterministic answer. */
+  counter: jsonb("counter").$type<Record<string, unknown>>(),
+  status: text("status", { enum: ["new", "options_sent", "agreement", "paid", "declined"] }).notNull().default("new"),
+  createdAt: createdAt(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * Immutable, versioned order terms. Approvals are bound to the terms hash;
+ * a change creates a new version and invalidates earlier approvals. Payment is
+ * only possible against the current version with both approvals.
+ */
+export const agreements = pgTable("agreements", {
+  id: id(),
+  storeId: text("store_id").notNull().references(() => stores.id),
+  requestId: text("request_id").notNull().references(() => customRequests.id),
+  version: integer("version").notNull(),
+  supersededById: text("superseded_by_id"),
+  terms: jsonb("terms").$type<Record<string, unknown>>().notNull(),
+  termsHash: text("terms_hash").notNull(),
+  status: text("status", { enum: ["proposed", "approved", "superseded", "paid", "expired", "cancelled"] }).notNull(),
+  buyerApprovedHash: text("buyer_approved_hash"),
+  buyerApprovedAt: timestamp("buyer_approved_at", { withTimezone: true }),
+  sellerApprovedHash: text("seller_approved_hash"),
+  sellerApprovedAt: timestamp("seller_approved_at", { withTimezone: true }),
+  /** Capacity is held from approval until this time if unpaid. */
+  holdUntil: timestamp("hold_until", { withTimezone: true }),
+  orderId: text("order_id"),
+  createdAt: createdAt(),
 });

@@ -57,6 +57,8 @@ Haat exposes a remote MCP server at `/api/mcp` (Streamable HTTP). Add it as a cu
 | `create_checkout` | Creates a PayPal order **at the shop's price** and returns a PayPal link the **human must approve**; the agent can never pay |
 | `get_order_status` | CREATED → APPROVED → COMPLETED |
 | `message_maker` / `get_messages` | Ask the maker; she reads it in her language and replies by voice, translated back |
+| `get_maker_capabilities` | Capacity for made-to-order work: earliest ready date for N pieces, most pieces deliverable by a date (from her stated capacity and work already booked) |
+| `request_custom_order` / `get_custom_request` | Send a custom request in plain language; read her checked options and the agreement status. The human approves terms and pays on the returned link |
 
 Seller-written text is returned under `sellerProvided` and labelled as data, so a crafted product description can't instruct the buyer's agent.
 
@@ -76,6 +78,17 @@ left for her work (₹) = (buyer pays − est. PayPal fee) × est. ₹/$ − shi
 Fee and exchange rate are labelled estimates (the actual fee is recorded from PayPal at capture). “Loss” is only said when the result is negative; otherwise “below your minimum”. Missing costs produce a question, not a number. She hears the result before publishing, and can correct a listing by voice (“दाम 1800 कर दो”, “यह सूती है”).
 
 **One-of-a-kind stock:** each order reserves the piece under a row lock; every capture path (browser, agent return URL, webhook) re-checks the reservation, re-holding an expired one only if the piece is still free and otherwise refusing to capture (the buyer is never charged). Captures are counted once, including duplicate and recovered webhooks. Covered by concurrency tests (2 buyers / 1 piece, 10 agents / 3 pieces).
+
+## Custom orders, on her terms
+
+A buyer (or their AI agent) describes what they want — “12 red cotton scarves by December 10, around $300”. The maker hears a Hindi summary plus facts computed from **her** rules (“with work already booked, at most 7 can arrive by then; 12 pieces need at least $22.80 each”) and answers by voice: “seven by the 29th at $35 each, or all twelve by the 8th”.
+
+- Gemini only turns speech/text into fields. **Code** checks every option against her minimum earnings, weekly capacity and work already booked (her stated backlog + approved and paid agreements). An option that breaks her rules is marked with the reason and **cannot be sent**.
+- Buyers see price, ready-by date and a separately labelled delivery estimate — never her costs or earnings. A counter-offer is answered instantly from her rules; a lowball one is refused with alternatives that still meet her minimum (“10 pieces fit your budget”).
+- The chosen option becomes an **immutable agreement**: terms hashed (SHA-256 of canonical JSON). Each approval records the hash it approved. Any change creates a new version, supersedes the old one and voids its approvals.
+- PayPal checkout (Orders v2) is created only for the **current version approved by both**, for exactly its total; **every capture path re-checks** the agreement and hash, so terms changed mid-checkout are never charged. Approval holds her capacity for 48 h; a lapsed hold releases it and asks both to approve again (her approval re-checks capacity).
+
+Covered by `tests/custom-quote.test.ts` and `tests/custom-agreement.test.mts` (supersede during checkout, hash mismatch, expiry, booked capacity, no earnings leak).
 
 ## Maker Evidence
 
@@ -122,6 +135,7 @@ Being explicit about scope:
 - **Export readiness.** PayPal India requires identity verification, PAN, bank details, purpose codes and (for goods) an IEC. Haat doesn't collect or automate these.
 - **Shipping logistics.** No labels, customs forms or courier booking — only the shipping charge, her shipping cost, and tracking.
 - **Dispute resolution.** Dispute events are recorded and surfaced; there is no full evidence-and-response workflow.
+- **Production tracking for custom orders.** Paid agreements count as booked work until reset; there's no “piece finished” step yet, and the buyer's request link is the access control (an unguessable id, no buyer accounts).
 - **Multiple sellers.** The demo runs one maker; tables are keyed by store for later separation.
 - **Languages.** Hindi is tested end to end; other Indian languages are supported by the model but not validated with users.
 

@@ -27,6 +27,8 @@ export const EconomicsSchema = z.object({
   minimumInr: z.number().min(0).nullable(),
   /** Capacity: pieces she can finish per week, and days the courier usually takes. */
   piecesPerWeek: z.number().int().min(1).nullable(),
+  /** Pieces already promised (her offline orders); Haat adds accepted agreements on top. */
+  backlogPieces: z.number().int().min(0).default(0),
   shippingDays: z.number().int().min(1).default(10),
   /** Ask her before agreeing to a different material or colour. */
   askBeforeChanges: z.boolean().default(true),

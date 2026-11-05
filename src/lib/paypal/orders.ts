@@ -4,6 +4,7 @@ import { env } from "@/lib/env";
 import { paypal, PayPalApiError } from "@/lib/paypal/client";
 import { randomUUID } from "node:crypto";
 import { CAPTURED_STATUSES, shouldAdvance } from "@/lib/paypal/order-status";
+import { AgreementError, assertCapturable, markAgreementPaid } from "@/lib/custom/agreement";
 import { availableQuantity, consume, ensureReservedForCapture, release, reserve, SoldOutError } from "@/lib/inventory";
 import { readEconomics } from "@/lib/economics";
 
@@ -175,11 +176,13 @@ export async function captureCheckoutOrder(paypalOrderId: string, deps: { paypal
     return { orderId: order.id, status: order.status }; // already captured (e.g. webhook got there first)
   }
 
-  // Every capture path (browser, return URL, webhook) re-checks the stock hold.
+  // Every capture path (browser, return URL, webhook) re-checks the stock hold
+  // and, for custom orders, that the agreement paid for is still current and approved.
   try {
     await ensureReservedForCapture(order.id);
+    await assertCapturable(order);
   } catch (e) {
-    if (e instanceof SoldOutError) throw new CheckoutError(e.message, 409);
+    if (e instanceof SoldOutError || e instanceof AgreementError) throw new CheckoutError(e.message, 409);
     throw e;
   }
 
@@ -195,6 +198,7 @@ export async function captureCheckoutOrder(paypalOrderId: string, deps: { paypal
       const issue = JSON.stringify(e.body);
       if (issue.includes("ORDER_ALREADY_CAPTURED")) {
         await consume(order.id);
+        await markAgreementPaid(order);
         const [fresh] = await d.select().from(schema.orders).where(eq(schema.orders.id, order.id));
         return { orderId: order.id, status: fresh?.status ?? "COMPLETED" };
       }
@@ -235,8 +239,10 @@ export async function captureCheckoutOrder(paypalOrderId: string, deps: { paypal
     })
     .where(eq(schema.orders.id, order.id));
 
-  if (status === "COMPLETED") await consume(order.id);
-  else if (status === "DENIED") await release(order.id);
+  if (status === "COMPLETED") {
+    await consume(order.id);
+    await markAgreementPaid(order);
+  } else if (status === "DENIED") await release(order.id);
   return { orderId: order.id, status };
 }
 

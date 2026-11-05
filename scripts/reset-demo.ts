@@ -30,6 +30,8 @@ async function main() {
   await d.delete(schema.reservations);
   await d.delete(schema.events);
   await d.update(schema.products).set({ soldQuantity: 0 });
+  await d.delete(schema.agreements); // references custom requests; orders reference agreements by id only
+  const custom = await d.delete(schema.customRequests).returning({ id: schema.customRequests.id });
   const orders = await d.delete(schema.orders).returning({ id: schema.orders.id });
   const notLive = await d.select({ id: schema.products.id }).from(schema.products).where(ne(schema.products.status, "live"));
   if (notLive.length) await d.delete(schema.passports).where(inArray(schema.passports.productId, notLive.map((p) => p.id)));
@@ -44,7 +46,7 @@ async function main() {
   const remaining = keep.length ? await d.select({ id: schema.media.id }).from(schema.media).where(inArray(schema.media.id, keep)) : [];
 
   console.log(
-    `removed: ${orders.length} orders, ${messages.length} messages, ${actions.length} autopilot actions, ` +
+    `removed: ${orders.length} orders, ${custom.length} custom requests, ${messages.length} messages, ${actions.length} autopilot actions, ` +
       `${events.length} webhook events, ${archived.length} archived products, ${media.length} unused media files`,
   );
   console.log(`kept: ${live.length} live product(s), ${remaining.length} media file(s)`);

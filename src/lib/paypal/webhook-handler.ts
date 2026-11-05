@@ -109,7 +109,10 @@ export async function handleWebhookEvent(
     const [order] = await d.select().from(orders).where(eq(orders.paypalOrderId, target.paypalOrderId));
     // A completed capture always counts the sale (idempotent) — this also recovers
     // a capture that succeeded at PayPal but whose database update was interrupted.
-    if (order && target.status === "COMPLETED") await (deps.consumeStock ?? defaultConsume)(order.id);
+    if (order && target.status === "COMPLETED") {
+      await (deps.consumeStock ?? defaultConsume)(order.id);
+      if (order.agreementId) await (await import("@/lib/custom/agreement")).markAgreementPaid(order);
+    }
     if (!order) {
       result = { status: "recorded", note: `order ${target.paypalOrderId} not in our database` };
     } else if (!shouldAdvance(order.status, target.status)) {
@@ -127,9 +130,16 @@ export async function handleWebhookEvent(
 
       // Agent-initiated (MCP) orders: the human approves on PayPal and may never come
       // back to our site, so the approval webhook triggers the (idempotent) capture.
-      if (target.status === "APPROVED" && order.channel === "mcp") {
-        const captured = await (deps.capture ?? defaultCapturer)(order.paypalOrderId);
-        result = { status: "applied", orderId: order.id, orderStatus: captured.status };
+      if (target.status === "APPROVED" && (order.channel === "mcp" || order.agreementId)) {
+        try {
+          const captured = await (deps.capture ?? defaultCapturer)(order.paypalOrderId);
+          result = { status: "applied", orderId: order.id, orderStatus: captured.status };
+        } catch (e) {
+          // A refusal (sold out, terms changed) is a final answer, not a transient failure:
+          // record it rather than make PayPal retry the webhook. Nothing was charged.
+          if ((e as { status?: number }).status !== 409) throw e;
+          result = { status: "recorded", note: `capture refused: ${(e as Error).message}` };
+        }
       }
     }
   }
