@@ -171,13 +171,13 @@ export function CustomRequests() {
       <SellerNav active="custom" />
       <StudioHeader hi="फ़रमाइश" en="Custom requests">
         <p lang="hi">
-          ख़रीदार जो बनवाना चाहते हैं। आप बोलकर जवाब दें — हाट हर दाम और तारीख़ आपके नियमों से जाँचेगा।
-          <span className="block text-xs">Answer by voice; every price and date is checked against your rules before the buyer sees it.</span>
+          ख़रीदार जो बनवाना चाहते हैं। आप बोलकर या लिखकर जवाब दें — हाट हर दाम और तारीख़ आपके नियमों से जाँचेगा।
+          <span className="block text-xs">Answer by voice or typing; every price and date is checked against your rules before the buyer sees it.</span>
         </p>
       </StudioHeader>
 
       <div className="lg:grid lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)] lg:items-start lg:gap-14 xl:grid-cols-[minmax(0,25rem)_minmax(0,1fr)] xl:gap-16">
-      <div className={`lg:sticky lg:top-8 ${selected ? "hidden lg:block" : ""}`}>
+      <div className={`lg:sticky lg:top-8 ${selected ? "hidden lg:block" : ""} ${items?.length === 0 ? "lg:col-span-2" : ""}`}>
       {items === null ? (
         <p className="text-muted">…</p>
       ) : items.length === 0 ? (
