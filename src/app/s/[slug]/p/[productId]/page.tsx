@@ -7,6 +7,7 @@ import { MessageThread } from "@/components/message-thread";
 import { VoiceButton } from "@/components/voice-button";
 import { env } from "@/lib/env";
 import { formatUsd, getLiveProduct } from "@/lib/queries";
+import { getPassportsFor } from "@/lib/passport/passport";
 import { MAKER_PROFILES } from "@/lib/store";
 import { PayPalCheckout } from "./paypal-checkout";
 
@@ -58,6 +59,7 @@ async function Product({ params }: { params: PageProps<"/s/[slug]/p/[productId]"
     ["Care", attrs.care],
   ];
   const { PAYPAL_CLIENT_ID, PAYPAL_ENV } = env();
+  const verified = (await getPassportsFor([p.id])).get(p.id)?.status === "verified";
 
   return (
     <>
@@ -84,6 +86,14 @@ async function Product({ params }: { params: PageProps<"/s/[slug]/p/[productId]"
             <h1 className="mt-4 font-display text-4xl font-normal leading-tight sm:text-5xl">{p.title}</h1>
             <p className="mt-4 text-lg">{formatUsd(p.priceCents)}</p>
             {attrs.handmade && <p className="eyebrow mt-2">Handmade · One of a kind</p>}
+            {verified && (
+              <Link
+                href={`/s/${store.slug}/p/${p.id}/passport`}
+                className="mt-4 inline-flex items-center gap-2 border border-leaf px-3 py-1.5 text-xs tracking-wide text-leaf transition hover:bg-leaf hover:text-paper"
+              >
+                ✓ Verified handmade · View passport
+              </Link>
+            )}
 
             <div className="mt-10">
               <PayPalCheckout

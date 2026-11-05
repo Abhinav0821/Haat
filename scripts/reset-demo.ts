@@ -28,6 +28,8 @@ async function main() {
   const messages = await d.delete(schema.messages).returning({ id: schema.messages.id });
   const events = await d.delete(schema.webhookEvents).returning({ id: schema.webhookEvents.id });
   const orders = await d.delete(schema.orders).returning({ id: schema.orders.id });
+  const notLive = await d.select({ id: schema.products.id }).from(schema.products).where(ne(schema.products.status, "live"));
+  if (notLive.length) await d.delete(schema.passports).where(inArray(schema.passports.productId, notLive.map((p) => p.id)));
   const archived = await d.delete(schema.products).where(ne(schema.products.status, "live")).returning({ id: schema.products.id });
 
   // Keep media used by live products; drop drafts that were never published.

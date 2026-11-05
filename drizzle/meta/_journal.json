@@ -50,6 +50,13 @@
       "when": 1793857309766,
       "tag": "0006_capture_fees",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1793858513270,
+      "tag": "0007_handmade_passport",
+      "breakpoints": true
     }
   ]
 }

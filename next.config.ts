@@ -5,7 +5,7 @@ const nextConfig: NextConfig = {
   cacheComponents: true,
   devIndicators: false,
   // Embedded Postgres ships WASM + data files; load it from node_modules at runtime.
-  serverExternalPackages: ["@electric-sql/pglite"],
+  serverExternalPackages: ["@electric-sql/pglite", "sharp"],
   partialPrefetching: true,
   turbopack: {
     rules: {

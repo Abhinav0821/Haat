@@ -42,6 +42,12 @@ export const ListingDraftSchema = z.object({
     .describe(
       "One or two short sentences IN THE SELLER'S LANGUAGE AND SCRIPT summarising what you understood (product, colour, size, price), to be read aloud so the seller can confirm. Empty if the seller's language is English or unknown.",
     ),
+  photoAdvice: z
+    .array(z.object({ hi: z.string(), en: z.string() }))
+    .max(2)
+    .describe(
+      "Up to 2 short, practical tips to improve the PHOTOS for international buyers (light, plain background, show the whole piece, close-up of the work, blur). In simple Hindi + English. Empty array if there are no photos or they are already good.",
+    ),
   comparableSearch: z
     .object({
       query: z.string().describe("Short generic English shopping query for similar items, e.g. 'hand block printed cotton scarf'. No brand, no place names."),

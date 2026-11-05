@@ -122,6 +122,9 @@ export const media = pgTable("media", {
   kind: text("kind", { enum: ["image", "audio"] }).notNull(),
   mediaType: text("media_type").notNull(),
   bytes: bytea("bytes").notNull(),
+  /** 64-bit difference hash (hex) for images — finds re-used photos even after re-encoding. */
+  dhash: text("dhash"),
+  sha256: text("sha256"),
   createdAt: createdAt(),
 });
 
@@ -150,5 +153,30 @@ export const messages = pgTable("messages", {
   /** What the buyer wants (from the AI read), e.g. "refund_or_problem". */
   intent: text("intent"),
   readAt: timestamp("read_at", { withTimezone: true }),
+  createdAt: createdAt(),
+});
+
+/**
+ * Handmade Passport: signed proof that the maker physically has the piece
+ * (live photo with a handwritten code), that it isn't a mass-market item,
+ * and that its photos aren't reused.
+ */
+export const passports = pgTable("passports", {
+  id: id(),
+  productId: text("product_id")
+    .notNull()
+    .unique()
+    .references(() => products.id),
+  storeId: text("store_id").notNull().references(() => stores.id),
+  /** e.g. "कमल 4821" — written on paper and photographed next to the piece. */
+  code: text("code").notNull(),
+  codeIssuedAt: timestamp("code_issued_at", { withTimezone: true }).notNull(),
+  proofMediaId: text("proof_media_id"),
+  status: text("status", { enum: ["awaiting_photo", "verified", "needs_review", "rejected"] }).notNull(),
+  checks: jsonb("checks").$type<Record<string, unknown>>(),
+  /** Ed25519 signature (base64url) over the canonical passport payload. */
+  signature: text("signature"),
+  payload: jsonb("payload").$type<Record<string, unknown>>(),
+  verifiedAt: timestamp("verified_at", { withTimezone: true }),
   createdAt: createdAt(),
 });

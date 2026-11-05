@@ -5,6 +5,7 @@ import { Suspense } from "react";
 import { Assurances, ProductArt, SiteFooter, SiteHeader } from "@/components/craft";
 import { VoiceButton } from "@/components/voice-button";
 import { formatUsd, getStore, listLiveProducts } from "@/lib/queries";
+import { getPassportsFor } from "@/lib/passport/passport";
 import { MAKER_PROFILES } from "@/lib/store";
 
 export async function generateMetadata(props: PageProps<"/s/[slug]">): Promise<Metadata> {
@@ -30,6 +31,7 @@ async function Store({ params }: { params: PageProps<"/s/[slug]">["params"] }) {
   const products = await listLiveProducts(store.id);
   const profile = MAKER_PROFILES[store.slug];
   const voiced = products.find((p) => p.voiceNoteId && p.sellerTranscript);
+  const passports = await getPassportsFor(products.map((p) => p.id));
 
   return (
     <>
@@ -91,6 +93,7 @@ async function Store({ params }: { params: PageProps<"/s/[slug]">["params"] }) {
                         <p className="mt-1 text-sm capitalize text-muted">{attrs.materials.slice(0, 2).join(", ")}</p>
                       ) : null}
                       <p className="mt-2 text-sm">{formatUsd(p.priceCents)}</p>
+                      {passports.get(p.id)?.status === "verified" && <p className="eyebrow mt-2 text-leaf">✓ Verified handmade</p>}
                     </Link>
                   </li>
                 );

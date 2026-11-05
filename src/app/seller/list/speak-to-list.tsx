@@ -275,6 +275,12 @@ export function SpeakToList() {
           <p className="text-sm text-muted">
             PayPal catalog ID <code className="rounded bg-card px-1.5 py-0.5 font-mono text-xs">{phase.paypalProductId}</code>
           </p>
+          <a
+            href="/seller/products"
+            className="block border border-ink px-4 py-4 text-sm tracking-wide transition hover:bg-ink hover:text-paper"
+          >
+            हाथ से बने होने का प्रमाण पाएँ · Get Handmade Passport →
+          </a>
           <button type="button" onClick={reset} className="w-full bg-ink px-4 py-4 tracking-wide text-paper">
             एक और जोड़ें · List another
           </button>
@@ -401,6 +407,25 @@ function Review(props: {
           )}
         </label>
       </section>
+
+      {draft.photoAdvice.length > 0 && (
+        <section className="border-l-2 border-line bg-card p-5">
+          <div className="flex items-baseline justify-between gap-3">
+            <p className="eyebrow">फ़ोटो सुझाव · Photo tips</p>
+            <button type="button" onClick={() => speak(draft.photoAdvice.map((a) => a.hi).join(" "), "hindi")} className="text-sm underline underline-offset-4">
+              🔊 सुनें
+            </button>
+          </div>
+          <ul className="mt-3 space-y-2 text-sm">
+            {draft.photoAdvice.map((a) => (
+              <li key={a.en}>
+                {a.hi}
+                <span className="block text-xs text-muted">{a.en}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {fairPrice && <FairPriceCard fp={fairPrice} inrPerUsd={inrPerUsd} onUse={(c) => props.onPrice((c / 100).toFixed(2))} />}
 

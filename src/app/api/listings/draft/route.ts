@@ -4,6 +4,7 @@ import { env } from "@/lib/env";
 import { draftListing, suggestUsdCents, type MediaInput } from "@/lib/ai/listing";
 import { analyzeFairPrice, selectComparables } from "@/lib/pricing/fair-price";
 import { searchComparables } from "@/lib/pricing/channel3";
+import { dHash, sha256Hex } from "@/lib/passport/image-hash";
 import { getDemoStore } from "@/lib/store";
 
 /**
@@ -59,7 +60,16 @@ export async function POST(request: Request) {
     .insert(schema.media)
     .values([
       ...(audio ? [{ storeId: store.id, kind: "audio" as const, mediaType: audio.mediaType, bytes: audio.data }] : []),
-      ...images.map((i) => ({ storeId: store.id, kind: "image" as const, mediaType: i.mediaType, bytes: i.data })),
+      ...(await Promise.all(
+        images.map(async (i) => ({
+          storeId: store.id,
+          kind: "image" as const,
+          mediaType: i.mediaType,
+          bytes: i.data,
+          dhash: await dHash(i.data).catch(() => null), // fingerprint for the Handmade Passport duplicate check
+          sha256: sha256Hex(i.data),
+        })),
+      )),
     ])
     .returning({ id: schema.media.id, kind: schema.media.kind });
 
