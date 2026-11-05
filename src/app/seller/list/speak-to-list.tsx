@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { SellerNav } from "@/components/seller-nav";
+import { SellerNav, STUDIO } from "@/components/seller-nav";
 import { downscaleImage, speak, startRecording, type Recorder } from "@/lib/client/media";
 import type { ListingDraft } from "@/lib/ai/listing";
 import type { FairPrice } from "@/lib/pricing/fair-price";
@@ -173,7 +173,7 @@ export function SpeakToList() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-md px-6 pb-20 pt-10">
+    <div className={STUDIO}>
       <SellerNav active="list" />
       <header className="mb-10">
         <h1 className="font-display text-4xl font-normal leading-tight">
@@ -189,10 +189,10 @@ export function SpeakToList() {
       )}
 
       {phase.name === "compose" && (
-        <div className="space-y-6">
+        <div className="space-y-6 lg:grid lg:grid-cols-2 lg:items-start lg:gap-x-14 lg:gap-y-10 lg:space-y-0">
           <section>
             <StepLabel n={1} hi="फ़ोटो लें" en="Take photos" />
-            <div className="grid grid-cols-4 gap-2">
+            <div className="grid grid-cols-4 gap-2 lg:grid-cols-3 lg:gap-3">
               {photos.map((p, i) => (
                 <img key={p.url} src={p.url} alt={`Photo ${i + 1}`} className="aspect-square w-full object-cover" />
               ))}
@@ -248,7 +248,7 @@ export function SpeakToList() {
             type="button"
             disabled={recording || (!voice && photos.length === 0)}
             onClick={createDraft}
-            className="w-full bg-ink px-4 py-4 text-base tracking-wide text-paper transition hover:bg-ink/85 disabled:opacity-30"
+            className="w-full bg-ink px-4 py-4 text-base tracking-wide text-paper transition hover:bg-ink/85 disabled:opacity-30 lg:col-span-2 lg:mx-auto lg:max-w-md"
           >
             लिस्टिंग बनाएँ · Create listing
           </button>
@@ -283,7 +283,7 @@ export function SpeakToList() {
       )}
 
       {phase.name === "done" && (
-        <div className="space-y-4 py-10 text-center">
+        <div className="mx-auto max-w-md space-y-4 py-10 text-center">
           <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full border border-leaf text-xl text-leaf">✓</div>
           <h2 className="font-display text-3xl">
             बिक्री के लिए तैयार!
@@ -345,7 +345,8 @@ function Review(props: {
   ].filter(Boolean) as string[];
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5 lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)] lg:items-start lg:gap-12 lg:space-y-0">
+      <div className="space-y-5">
       {draft.transcript && (
         <section className="border-l-2 border-ink bg-card p-5">
           <div className="mb-2 flex items-center justify-between gap-2">
@@ -454,7 +455,9 @@ function Review(props: {
         </label>
         <EarningsCard economics={economics} priceUsd={props.price} inrPerUsd={inrPerUsd} />
       </section>
+      </div>
 
+      <aside className="space-y-5 lg:sticky lg:top-8">
       {draft.photoAdvice.length > 0 && (
         <section className="border-l-2 border-line bg-card p-5">
           <div className="flex items-baseline justify-between gap-3">
@@ -501,6 +504,7 @@ function Review(props: {
         </button>
       </div>
       {!(priceNum > 0) && <p className="text-center text-xs text-muted">Add a USD price to publish.</p>}
+      </aside>
     </div>
   );
 }

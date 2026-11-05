@@ -1,6 +1,6 @@
 "use client";
 
-import { SellerNav } from "@/components/seller-nav";
+import { SellerNav, STUDIO } from "@/components/seller-nav";
 import { useEffect, useRef, useState } from "react";
 import { speak, startRecording, type Recorder } from "@/lib/client/media";
 import { Autopilot } from "./autopilot";
@@ -67,7 +67,7 @@ export function Inbox() {
   const dangers = messages?.filter((m) => m.shield?.level === "danger").length ?? 0;
 
   return (
-    <div className="mx-auto w-full max-w-2xl px-6 pb-24 pt-10">
+    <div className={STUDIO}>
       <SellerNav active="inbox" />
       <header className="mb-10">
         <h1 className="font-display text-4xl font-normal">
@@ -81,10 +81,14 @@ export function Inbox() {
         )}
       </header>
 
+      <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] lg:items-start lg:gap-14">
+      <div className="lg:sticky lg:top-8">
       <DailyBrief refreshKey={refresh} />
       <Autopilot refreshKey={refresh} onChange={() => setRefresh((n) => n + 1)} />
+      </div>
 
-      <h2 className="eyebrow mt-14 border-t border-line pt-10 text-ink"><span className="deva">ख़रीदारों के संदेश</span> · Buyer messages</h2>
+      <section>
+      <h2 className="eyebrow mt-14 border-t border-line pt-10 text-ink lg:mt-0 lg:border-t-0 lg:pt-0"><span className="deva">ख़रीदारों के संदेश</span> · Buyer messages</h2>
       {error && <p className="text-sm text-danger">{error}</p>}
       {messages === null && !error && <p className="text-muted">लोड हो रहा है…</p>}
       {messages?.length === 0 && <p className="text-muted">अभी कोई संदेश नहीं · No messages yet</p>}
@@ -94,6 +98,8 @@ export function Inbox() {
           <MessageCard key={m.id} m={m} onReplied={() => setRefresh((n) => n + 1)} />
         ))}
       </ol>
+      </section>
+      </div>
     </div>
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { SellerNav } from "@/components/seller-nav";
+import { SellerNav, STUDIO } from "@/components/seller-nav";
 import { speak, startRecording, type Recorder } from "@/lib/client/media";
 import { computeEarnings, earningsSentenceEn, earningsSentenceHi, type Economics } from "@/lib/economics";
 
@@ -131,7 +131,7 @@ export function Rules() {
   const example = computeEarnings(rules, { unitPriceUsdCents: Math.round((parseFloat(examplePrice) || 0) * 100), pieces: 1, inrPerUsd });
 
   return (
-    <div className="mx-auto w-full max-w-2xl px-6 pb-24 pt-10">
+    <div className={STUDIO}>
       <SellerNav active="rules" />
       <header className="mb-8">
         <h1 className="font-display text-4xl font-normal">
@@ -143,6 +143,8 @@ export function Rules() {
         </p>
       </header>
 
+      <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)] lg:items-start lg:gap-14">
+      <div>
       <div className="flex items-center gap-4">
         <button
           type="button"
@@ -173,7 +175,7 @@ export function Rules() {
         </section>
       )}
 
-      <section className="mt-8 grid gap-4 sm:grid-cols-2">
+      <section className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {FIELDS.map((f) => {
           const v = rules[f.key] as number | null | boolean;
           const shown = typeof v === "number" ? (f.cents ? (v / 100).toString() : String(v)) : "";
@@ -211,7 +213,10 @@ export function Rules() {
         </label>
       </section>
 
-      <section className="mt-10 bg-card p-5 text-sm">
+      </div>
+
+      <aside className="lg:sticky lg:top-8">
+      <section className="mt-10 bg-card p-5 text-sm lg:mt-0">
         <p className="eyebrow"><span className="deva">उदाहरण</span> · Example</p>
         <label className="mt-3 flex items-center gap-2">
           <span lang="hi">अगर दाम हो</span> $
@@ -242,6 +247,8 @@ export function Rules() {
         </button>
       </div>
       {note && <p className="mt-3 text-sm text-danger">{note}</p>}
+      </aside>
+      </div>
     </div>
   );
 }

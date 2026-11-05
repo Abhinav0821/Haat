@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { SellerNav } from "@/components/seller-nav";
+import { SellerNav, STUDIO } from "@/components/seller-nav";
 import { downscaleImage, speak } from "@/lib/client/media";
 
 type Flag = { code: string; hi: string; en: string };
@@ -34,19 +34,19 @@ export function Products() {
   }, [refresh]);
 
   return (
-    <div className="mx-auto w-full max-w-2xl px-6 pb-24 pt-10">
+    <div className={STUDIO}>
       <SellerNav active="products" />
       <header className="mb-10">
         <h1 className="font-display text-4xl font-normal">
           मेरा सामान <span className="font-sans text-base font-light text-muted">My pieces</span>
         </h1>
-        <p className="mt-3 text-sm leading-relaxed text-muted">
+        <p className="mt-3 max-w-3xl text-sm leading-relaxed text-muted">
           “कारीगर का सबूत” ख़रीदारों और AI एजेंटों को दिखाता है कि यह सामान आपके पास है और फ़ोटो असली हैं।
           <span className="block text-xs">Maker Evidence shows buyers and their AI agents that you have this piece and its photos are original — not who made it.</span>
         </p>
       </header>
       {pieces === null && <p className="text-muted">लोड हो रहा है…</p>}
-      <ol className="space-y-8">
+      <ol className="space-y-8 lg:grid lg:grid-cols-2 lg:gap-10 lg:space-y-0 xl:grid-cols-3">
         {pieces?.map((p) => (
           <PieceCard key={p.id} p={p} slug={slug} onChange={() => setRefresh((n) => n + 1)} />
         ))}

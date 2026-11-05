@@ -61,9 +61,9 @@ export function Ask() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col px-6 pb-10 pt-10">
+    <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col px-4 pb-10 pt-8 sm:px-6 lg:px-10">
       <SellerNav active="ask" />
-      <header>
+      <header className="w-full lg:mx-auto lg:max-w-3xl">
         <h1 className="font-display text-4xl font-normal">
           पूछो हाट <span className="font-sans text-base font-light text-muted">Ask Haat</span>
         </h1>
@@ -73,7 +73,7 @@ export function Ask() {
         </p>
       </header>
 
-      <div className="mt-8 flex-1 space-y-6">
+      <div className="mt-8 w-full flex-1 space-y-6 lg:mx-auto lg:max-w-3xl">
         {turns.length === 0 && (
           <div className="flex flex-wrap gap-2">
             {EXAMPLES.map((q) => (
@@ -116,7 +116,7 @@ export function Ask() {
         <div ref={end} />
       </div>
 
-      <div className="sticky bottom-0 mt-8 bg-paper pb-2 pt-4">
+      <div className="sticky bottom-0 mt-8 w-full bg-paper pb-2 pt-4 lg:mx-auto lg:max-w-3xl">
         <div className="flex items-center gap-3">
           <button
             type="button"

@@ -5,6 +5,12 @@ import { useRouter } from "next/navigation";
 import { Wordmark } from "@/components/craft";
 import { DEMO_STORE } from "@/lib/store-constants";
 
+/**
+ * The seller studio's page frame: one column on phones (she works on her phone);
+ * on laptops and wider, a wide canvas that each page splits into columns.
+ */
+export const STUDIO = "mx-auto w-full max-w-6xl px-4 pb-24 pt-8 sm:px-6 lg:px-10";
+
 /** Top bar for the seller studio: add, inbox, view shop, sign out. */
 export function SellerNav({ active }: { active: "list" | "inbox" | "products" | "ask" | "rules" | "custom" }) {
   const router = useRouter();
@@ -28,7 +34,7 @@ export function SellerNav({ active }: { active: "list" | "inbox" | "products" | 
         <Wordmark />
       </Link>
       {/* Phones: links get their own row and scroll sideways, so the page never overflows. */}
-      <div className="-mx-6 flex w-[calc(100%+3rem)] items-center gap-5 overflow-x-auto whitespace-nowrap px-6 pb-1 text-sm sm:mx-0 sm:w-auto sm:overflow-visible sm:px-0 sm:pb-0">
+      <div className="-mx-4 flex w-[calc(100%+2rem)] items-center gap-5 overflow-x-auto whitespace-nowrap px-4 pb-1 text-sm sm:-mx-6 sm:w-[calc(100%+3rem)] sm:px-6 lg:mx-0 lg:w-auto lg:gap-6 lg:overflow-visible lg:px-0 lg:pb-0">
         {links.map((l) => (
           <Link
             key={l.key}

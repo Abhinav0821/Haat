@@ -2,7 +2,7 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { SellerNav } from "@/components/seller-nav";
+import { SellerNav, STUDIO } from "@/components/seller-nav";
 import { MakingCard } from "@/app/seller/inbox/autopilot";
 import { speak, startRecording, type Recorder } from "@/lib/client/media";
 
@@ -167,7 +167,7 @@ export function CustomRequests() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-2xl px-6 pb-24 pt-10">
+    <div className={STUDIO}>
       <SellerNav active="custom" />
       <header className="mb-8">
         <h1 className="font-display text-4xl font-normal">
@@ -179,6 +179,8 @@ export function CustomRequests() {
         </p>
       </header>
 
+      <div className="lg:grid lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)] lg:items-start lg:gap-14">
+      <div className="lg:sticky lg:top-8">
       {items === null ? (
         <p className="text-muted">…</p>
       ) : items.length === 0 ? (
@@ -202,9 +204,10 @@ export function CustomRequests() {
           ))}
         </ul>
       )}
+      </div>
 
-      {selected && view && (
-        <article className="mt-10">
+      {selected && view ? (
+        <article className="mt-10 lg:mt-0">
           <section className="border-l-2 border-ink bg-card p-5">
             <div className="flex items-baseline justify-between gap-3">
               <p className="eyebrow deva">{view.buyerName ?? "ख़रीदार"}{view.channel === "mcp" ? " · via AI agent" : ""}</p>
@@ -449,7 +452,14 @@ export function CustomRequests() {
           )}
           {note && <p className="mt-3 text-sm text-danger">{note}</p>}
         </article>
+      ) : (
+        items?.length ? (
+          <p className="hidden text-sm text-muted lg:block" lang="hi">
+            बाईं ओर से कोई फ़रमाइश चुनें। · Choose a request on the left.
+          </p>
+        ) : null
       )}
+      </div>
     </div>
   );
 }
