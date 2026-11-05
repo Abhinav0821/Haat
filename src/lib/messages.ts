@@ -30,6 +30,7 @@ const PRODUCT_PHOTO = new Set(["product_damage", "product_other"]);
 export async function postBuyerMessage(input: {
   orderId?: string;
   productId?: string;
+  customRequestId?: string;
   text: string;
   buyerEmail?: string;
   channel?: "web" | "mcp";
@@ -64,8 +65,17 @@ export async function postBuyerMessage(input: {
     if (!row) throw new MessageError("unknown product", 404);
     storeId = row.store.id;
     storeSlug = row.store.slug;
+  } else if (input.customRequestId) {
+    const [row] = await d
+      .select({ store: schema.stores })
+      .from(schema.customRequests)
+      .innerJoin(schema.stores, eq(schema.stores.id, schema.customRequests.storeId))
+      .where(eq(schema.customRequests.id, input.customRequestId));
+    if (!row) throw new MessageError("unknown request", 404);
+    storeId = row.store.id;
+    storeSlug = row.store.slug;
   } else {
-    throw new MessageError("orderId or productId required");
+    throw new MessageError("orderId, productId or customRequestId required");
   }
 
   const language = sellerLanguage(storeSlug);
@@ -168,6 +178,7 @@ export async function postBuyerMessage(input: {
       storeId,
       orderId: order?.id ?? null,
       productId,
+      customRequestId: order ? null : (input.customRequestId ?? null),
       direction: "buyer_to_seller",
       channel: input.channel ?? "web",
       buyerEmail: input.buyerEmail ?? null,
@@ -241,6 +252,7 @@ export async function postSellerReply(
       storeId: parent.storeId,
       orderId: parent.orderId,
       productId: parent.productId,
+      customRequestId: parent.customRequestId,
       parentId: parent.id,
       direction: "seller_to_buyer",
       channel: input.audio ? "voice" : "web",
@@ -266,11 +278,13 @@ export function toBuyerView(m: typeof schema.messages.$inferSelect) {
   };
 }
 
-export async function getBuyerThread(q: { orderId?: string; rootId?: string }) {
+export async function getBuyerThread(q: { orderId?: string; rootId?: string; customRequestId?: string }) {
   const d = await db();
   const where = q.orderId
     ? eq(schema.messages.orderId, q.orderId)
-    : q.rootId
+    : q.customRequestId
+      ? eq(schema.messages.customRequestId, q.customRequestId)
+      : q.rootId
       ? or(eq(schema.messages.id, q.rootId), eq(schema.messages.parentId, q.rootId))
       : undefined;
   if (!where) return [];

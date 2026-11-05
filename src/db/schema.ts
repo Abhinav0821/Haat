@@ -142,6 +142,8 @@ export const messages = pgTable("messages", {
   storeId: text("store_id").notNull().references(() => stores.id),
   orderId: text("order_id").references(() => orders.id),
   productId: text("product_id").references(() => products.id),
+  /** Conversation about a custom request before it's paid (e.g. "could you do navy instead?"). */
+  customRequestId: text("custom_request_id"),
   /** Reply threading: seller replies point at the buyer message they answer. */
   parentId: text("parent_id"),
   direction: text("direction", { enum: ["buyer_to_seller", "seller_to_buyer"] }).notNull(),

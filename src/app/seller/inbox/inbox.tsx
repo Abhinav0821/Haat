@@ -16,6 +16,7 @@ type Attachment = {
 };
 type InboxMessage = {
   id: string;
+  customRequestId?: string | null;
   channel: string;
   originalText: string;
   originalLanguage: string | null;
@@ -113,7 +114,11 @@ function MessageCard({ m, onReplied }: { m: InboxMessage; onReplied: () => void 
     <li className="border-t border-line pt-6">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <p className="eyebrow deva">
-          {m.orderId ? `ऑर्डर · ${m.orderStatus === "COMPLETED" ? "पैसा मिल गया" : "पैसा नहीं मिला"}` : "सवाल · Question"}
+          {m.orderId
+            ? `ऑर्डर · ${m.orderStatus === "COMPLETED" ? "पैसा मिल गया" : "पैसा नहीं मिला"}`
+            : m.customRequestId
+              ? "फ़रमाइश · Custom request"
+              : "सवाल · Question"}
           {m.productTitle && <span className="normal-case tracking-normal"> — {m.productTitle}</span>}
         </p>
         <p className="eyebrow deva">

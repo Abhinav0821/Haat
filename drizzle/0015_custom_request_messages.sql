@@ -1,0 +1,1 @@
+ALTER TABLE "messages" ADD COLUMN "custom_request_id" text;

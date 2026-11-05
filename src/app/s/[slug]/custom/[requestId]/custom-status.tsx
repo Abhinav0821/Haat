@@ -2,6 +2,7 @@
 
 import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
+import { MessageThread } from "@/components/message-thread";
 
 type View = {
   id: string;
@@ -270,6 +271,13 @@ export function CustomStatus({ requestId, makerName, slug }: { requestId: string
       )}
 
       {error && <p className="mt-6 text-sm text-danger">{error}</p>}
+
+      {view.status !== "paid" && view.status !== "declined" && (
+        <div className="mt-16 border-t border-line pt-10">
+          <MessageThread makerName={makerName} customRequestId={requestId} title={`Questions for ${makerName}`} />
+          <p className="mt-3 text-xs text-muted">Messages don&apos;t change the terms — any change becomes a new version you both approve.</p>
+        </div>
+      )}
     </div>
   );
 }

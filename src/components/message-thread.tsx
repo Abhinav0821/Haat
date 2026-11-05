@@ -20,12 +20,14 @@ export function MessageThread({
   makerName,
   orderId,
   productId,
+  customRequestId,
   rootId: initialRoot,
   title,
 }: {
   makerName: string;
   orderId?: string;
   productId?: string;
+  customRequestId?: string;
   rootId?: string;
   title?: string;
 }) {
@@ -39,7 +41,7 @@ export function MessageThread({
 
   // Poll for the maker's replies (she may answer hours later, by voice).
   useEffect(() => {
-    const q = orderId ? `orderId=${orderId}` : rootId ? `thread=${rootId}` : null;
+    const q = orderId ? `orderId=${orderId}` : customRequestId ? `customRequestId=${customRequestId}` : rootId ? `thread=${rootId}` : null;
     if (!q) return;
     let cancelled = false;
     const tick = async () => {
@@ -52,7 +54,7 @@ export function MessageThread({
       cancelled = true;
       clearInterval(t);
     };
-  }, [orderId, rootId]);
+  }, [orderId, rootId, customRequestId]);
 
   async function addPhotos(files: FileList | null) {
     if (!files) return;
@@ -75,6 +77,7 @@ export function MessageThread({
       const form = new FormData();
       form.append("text", text);
       if (orderId) form.append("orderId", orderId);
+      else if (customRequestId) form.append("customRequestId", customRequestId);
       else if (productId) form.append("productId", productId);
       photos.forEach((ph, i) => form.append("photos", ph.blob, `photo-${i}.jpg`));
       const res = await fetch("/api/messages", { method: "POST", body: form });
@@ -83,7 +86,7 @@ export function MessageThread({
       setText("");
       photos.forEach((ph) => URL.revokeObjectURL(ph.url));
       setPhotos([]);
-      if (!orderId && !rootId) {
+      if (!orderId && !rootId && !customRequestId) {
         setRootId(body.message.id);
         setThreadUrl(body.threadUrl);
       }

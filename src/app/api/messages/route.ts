@@ -13,10 +13,11 @@ const Fields = z
   .object({
     orderId: z.string().uuid().optional(),
     productId: z.string().uuid().optional(),
+    customRequestId: z.string().uuid().optional(),
     text: z.string().min(2).max(2000),
     email: z.string().email().max(254).optional(),
   })
-  .refine((v) => v.orderId || v.productId, "orderId or productId required");
+  .refine((v) => v.orderId || v.productId || v.customRequestId, "orderId, productId or customRequestId required");
 
 const IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const MAX_PHOTOS = 3;
@@ -34,7 +35,7 @@ export async function POST(request: Request) {
     const form = await request.formData().catch(() => null);
     if (!form) return Response.json({ error: "invalid form" }, { status: 400 });
     const str = (k: string) => (typeof form.get(k) === "string" && form.get(k) ? String(form.get(k)) : undefined);
-    raw = { orderId: str("orderId"), productId: str("productId"), text: str("text"), email: str("email") };
+    raw = { orderId: str("orderId"), productId: str("productId"), customRequestId: str("customRequestId"), text: str("text"), email: str("email") };
     const files = form.getAll("photos").filter((f): f is File => f instanceof File && f.size > 0);
     if (files.length > MAX_PHOTOS) return Response.json({ error: `at most ${MAX_PHOTOS} photos` }, { status: 400 });
     for (const f of files) {
@@ -52,7 +53,7 @@ export async function POST(request: Request) {
   try {
     const { message, storeSlug } = await postBuyerMessage({ ...parsed.data, buyerEmail: parsed.data.email, channel: "web", images });
     return Response.json(
-      { message: toBuyerView(message), threadUrl: message.orderId ? null : `/s/${storeSlug}/q/${message.id}` },
+      { message: toBuyerView(message), threadUrl: message.orderId || message.customRequestId ? null : `/s/${storeSlug}/q/${message.id}` },
       { status: 201 },
     );
   } catch (e) {
@@ -66,9 +67,11 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const orderId = url.searchParams.get("orderId") ?? undefined;
   const rootId = url.searchParams.get("thread") ?? undefined;
+  const customRequestId = url.searchParams.get("customRequestId") ?? undefined;
   const uuid = /^[0-9a-f-]{36}$/i;
-  if ((orderId && !uuid.test(orderId)) || (rootId && !uuid.test(rootId)) || (!orderId && !rootId)) {
-    return Response.json({ error: "orderId or thread required" }, { status: 400 });
+  const bad = [orderId, rootId, customRequestId].some((v) => v !== undefined && !uuid.test(v));
+  if (bad || (!orderId && !rootId && !customRequestId)) {
+    return Response.json({ error: "orderId, thread or customRequestId required" }, { status: 400 });
   }
-  return Response.json({ messages: await getBuyerThread({ orderId, rootId }) });
+  return Response.json({ messages: await getBuyerThread({ orderId, rootId, customRequestId }) });
 }
