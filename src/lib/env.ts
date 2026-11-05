@@ -22,6 +22,8 @@ const EnvSchema = z.object({
   APP_URL: z.string().url().default("http://localhost:3000"),
   /** Shown to the seller when converting their stated INR price; they confirm the final USD price. */
   INR_PER_USD: z.coerce.number().positive().default(88),
+  /** Optional: Channel3 product search for the fair-price coach (channel3.ai). */
+  CHANNEL3_API_KEY: z.string().optional(),
 }).superRefine((e, ctx) => {
   const provider = e.AI_PROVIDER ?? (e.GOOGLE_API_KEY ? "google" : "openai");
   const key = provider === "google" ? "GOOGLE_API_KEY" : "OPENAI_API_KEY";

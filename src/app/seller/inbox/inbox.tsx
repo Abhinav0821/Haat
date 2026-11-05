@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { speak, startRecording, type Recorder } from "@/lib/client/media";
 import { Autopilot } from "./autopilot";
+import { DailyBrief } from "./brief";
 
 type Flag = { code: string; hi: string; en: string };
 type InboxMessage = {
@@ -68,6 +69,7 @@ export function Inbox() {
         )}
       </header>
 
+      <DailyBrief refreshKey={refresh} />
       <Autopilot refreshKey={refresh} onChange={() => setRefresh((n) => n + 1)} />
 
       <h2 className="eyebrow mt-14 border-t border-line pt-10 text-ink">ख़रीदारों के संदेश · Buyer messages</h2>

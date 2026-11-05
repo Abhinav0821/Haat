@@ -17,10 +17,11 @@ export const DEMO_STORE = {
 /** Presentation details for the demo maker (would live on the store row in a multi-seller build). */
 export const MAKER_PROFILES: Record<
   string,
-  { place: string; craft: string; taglineHi: string; taglineEn: string; language: string }
+  { place: string; craft: string; taglineHi: string; taglineEn: string; language: string; ownerNameHi: string }
 > = {
   [DEMO_STORE.slug]: {
     language: "Hindi",
+    ownerNameHi: "मीरा",
     place: "Bagru, Jaipur · Rajasthan",
     craft: "Hand block printing with natural dyes",
     taglineHi: "हाथ से बना, दिल से बेचा",

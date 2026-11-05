@@ -42,6 +42,16 @@ export const ListingDraftSchema = z.object({
     .describe(
       "One or two short sentences IN THE SELLER'S LANGUAGE AND SCRIPT summarising what you understood (product, colour, size, price), to be read aloud so the seller can confirm. Empty if the seller's language is English or unknown.",
     ),
+  comparableSearch: z
+    .object({
+      query: z.string().describe("Short generic English shopping query for similar items, e.g. 'hand block printed cotton scarf'. No brand, no place names."),
+      typeKeywords: z
+        .array(z.string())
+        .min(1)
+        .max(6)
+        .describe("Single English nouns naming this kind of item and close equivalents, e.g. ['dupatta','scarf','stole','shawl']."),
+    })
+    .describe("Used to find comparable products for price guidance."),
   followUpQuestions: z
     .array(z.string())
     .max(3)

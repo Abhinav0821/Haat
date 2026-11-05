@@ -122,7 +122,13 @@ type CaptureResponse = {
         country_code?: string;
       };
     };
-    payments?: { captures?: { id: string; status: string }[] };
+    payments?: {
+      captures?: {
+        id: string;
+        status: string;
+        seller_receivable_breakdown?: { paypal_fee?: { value: string }; net_amount?: { value: string } };
+      }[];
+    };
   }[];
 };
 
@@ -181,9 +187,21 @@ export async function captureCheckoutOrder(paypalOrderId: string) {
           }
         : null,
       capturedAt: status === "COMPLETED" ? new Date() : null,
+      ...feesFrom(capture?.seller_receivable_breakdown),
       updatedAt: new Date(),
     })
     .where(eq(schema.orders.id, order.id));
 
   return { orderId: order.id, status };
+}
+
+/** PayPal's own fee/net for a capture, in cents (undefined fields are left untouched). */
+export function feesFrom(b?: { paypal_fee?: { value: string }; net_amount?: { value: string } }) {
+  const cents = (v?: string) => (v === undefined ? undefined : Math.round(parseFloat(v) * 100));
+  const out: { feeCents?: number; netCents?: number } = {};
+  const fee = cents(b?.paypal_fee?.value);
+  const net = cents(b?.net_amount?.value);
+  if (fee !== undefined) out.feeCents = fee;
+  if (net !== undefined) out.netCents = net;
+  return out;
 }

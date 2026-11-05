@@ -68,6 +68,9 @@ export const orders = pgTable(
     }>(),
     capturedAt: timestamp("captured_at", { withTimezone: true }),
     refundedCents: integer("refunded_cents").notNull().default(0),
+    /** From PayPal's seller_receivable_breakdown at capture: exact fee and what the seller receives. */
+    feeCents: integer("fee_cents"),
+    netCents: integer("net_cents"),
     trackingNumber: text("tracking_number"),
     trackingCarrier: text("tracking_carrier"),
     trackingAddedAt: timestamp("tracking_added_at", { withTimezone: true }),

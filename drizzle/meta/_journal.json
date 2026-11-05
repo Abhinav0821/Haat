@@ -43,6 +43,13 @@
       "when": 1793856212060,
       "tag": "0005_autopilot",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1793857309766,
+      "tag": "0006_capture_fees",
+      "breakpoints": true
     }
   ]
 }

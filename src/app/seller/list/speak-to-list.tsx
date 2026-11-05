@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { downscaleImage, speak, startRecording, type Recorder } from "@/lib/client/media";
 import type { ListingDraft } from "@/lib/ai/listing";
+import type { FairPrice } from "@/lib/pricing/fair-price";
 
 type DraftResponse = {
   draft: ListingDraft;
@@ -10,6 +11,7 @@ type DraftResponse = {
   imageIds: string[];
   suggestedPriceCents: number | null;
   inrPerUsd: number;
+  fairPrice: FairPrice | null;
 };
 
 type Photo = { blob: Blob; url: string };
@@ -308,7 +310,7 @@ function Review(props: {
   onPublish: () => void;
   onRestart: () => void;
 }) {
-  const { draft, imageIds, inrPerUsd } = props.data;
+  const { draft, imageIds, inrPerUsd, fairPrice } = props.data;
   const [showTranslation, setShowTranslation] = useState(false);
   const priceNum = parseFloat(props.price);
   const attrs = [
@@ -404,6 +406,8 @@ function Review(props: {
         </label>
       </section>
 
+      {fairPrice && <FairPriceCard fp={fairPrice} inrPerUsd={inrPerUsd} onUse={(c) => props.onPrice((c / 100).toFixed(2))} />}
+
       {draft.followUpQuestions.length > 0 && (
         <section className="border border-line p-5 text-sm">
           <p className="mb-1 font-semibold">ख़रीदार ये भी पूछ सकते हैं · Buyers may also ask</p>
@@ -430,5 +434,54 @@ function Review(props: {
       </div>
       {!(priceNum > 0) && <p className="text-center text-xs text-muted">Add a USD price to publish.</p>}
     </div>
+  );
+}
+
+const wholeUsd = (c: number) => `$${Math.round(c / 100)}`;
+const wholeInr = (c: number, rate: number) => `₹${Math.round((c / 100) * rate).toLocaleString("en-IN")}`;
+
+function FairPriceCard({ fp, inrPerUsd, onUse }: { fp: FairPrice; inrPerUsd: number; onUse: (cents: number) => void }) {
+  const suggested = fp.suggestedCents;
+  return (
+    <section className={`border-l-2 ${fp.verdict === "under" ? "border-marigold" : "border-line"} bg-card p-5`}>
+      <div className="flex items-baseline justify-between gap-3">
+        <p className="eyebrow">उचित दाम · Fair price</p>
+        <button type="button" onClick={() => speak(fp.hi, "hindi")} className="text-sm underline underline-offset-4">
+          🔊 सुनें
+        </button>
+      </div>
+      <p className="mt-3 font-display text-3xl">
+        {wholeUsd(fp.lowCents)}–{wholeUsd(fp.highCents)}
+        <span className="ml-2 font-sans text-sm font-light text-muted">
+          ≈ {wholeInr(fp.lowCents, inrPerUsd)}–{wholeInr(fp.highCents, inrPerUsd)}
+        </span>
+      </p>
+      <p className="mt-2 text-sm leading-relaxed" lang="hi">
+        {fp.hi}
+      </p>
+      <p className="mt-1 text-xs text-muted">{fp.en}</p>
+      {suggested !== null && (
+        <button
+          type="button"
+          onClick={() => onUse(suggested)}
+          className="mt-4 bg-ink px-5 py-3 text-sm text-paper transition hover:bg-ink/85"
+        >
+          {wholeUsd(suggested)} रखें · Use {wholeUsd(suggested)}
+        </button>
+      )}
+      <ul className="mt-5 divide-y divide-line border-t border-line text-xs">
+        {fp.examples.map((e) => (
+          <li key={e.url} className="flex justify-between gap-3 py-2">
+            <a href={e.url} target="_blank" rel="noopener noreferrer" className="min-w-0 truncate hover:underline">
+              {e.title}
+            </a>
+            <span className="shrink-0 text-muted">
+              {wholeUsd(e.priceCents)} · {e.domain}
+            </span>
+          </li>
+        ))}
+      </ul>
+      <p className="mt-3 text-[11px] text-muted">Live prices of similar products via Channel3. You decide the price.</p>
+    </section>
   );
 }

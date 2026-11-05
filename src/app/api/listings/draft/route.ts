@@ -1,6 +1,8 @@
 import { db, schema } from "@/db";
 import { env } from "@/lib/env";
 import { draftListing, suggestUsdCents, type MediaInput } from "@/lib/ai/listing";
+import { analyzeFairPrice, selectComparables } from "@/lib/pricing/fair-price";
+import { searchComparables } from "@/lib/pricing/channel3";
 import { getDemoStore } from "@/lib/store";
 
 /**
@@ -61,12 +63,20 @@ export async function POST(request: Request) {
   try {
     const draft = await draftListing({ audio, images, note });
     const inrPerUsd = env().INR_PER_USD;
+    const suggestedPriceCents = suggestUsdCents(draft.statedPrice, inrPerUsd);
+
+    // Fair-price coach: live comparables from Channel3, filtered to the same kind of item.
+    const found = await searchComparables(draft.comparableSearch.query);
+    const comparables = found ? selectComparables(found, draft.comparableSearch.typeKeywords) : [];
+    const fairPrice = analyzeFairPrice(comparables, suggestedPriceCents);
+
     return Response.json({
       draft,
       voiceNoteId: stored.find((m) => m.kind === "audio")?.id ?? null,
       imageIds: stored.filter((m) => m.kind === "image").map((m) => m.id),
-      suggestedPriceCents: suggestUsdCents(draft.statedPrice, inrPerUsd),
+      suggestedPriceCents,
       inrPerUsd,
+      fairPrice,
     });
   } catch (e) {
     console.error("[listings/draft] AI draft failed:", e);
