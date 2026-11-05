@@ -33,6 +33,10 @@ export type CaptureLoader = (captureId: string) => Promise<Capture>;
 
 const loadCapture: CaptureLoader = (id) => paypal<Capture>(`/v2/payments/captures/${encodeURIComponent(id)}`);
 
+/** PayPal's authoritative order record (injected in tests). */
+export type OrderLoader = (paypalOrderId: string) => Promise<PayPalOrderSnapshot>;
+const loadOrder: OrderLoader = (id) => paypal<PayPalOrderSnapshot>(`/v2/checkout/orders/${encodeURIComponent(id)}`);
+
 function str(v: unknown): string | undefined {
   return typeof v === "string" && v ? v : undefined;
 }
@@ -84,7 +88,7 @@ const defaultCapturer: Capturer = async (id) => (await import("@/lib/paypal/orde
 
 export async function handleWebhookEvent(
   event: PayPalWebhookEvent,
-  deps: { database?: DB; getCapture?: CaptureLoader; capture?: Capturer } = {},
+  deps: { database?: DB; getCapture?: CaptureLoader; getOrder?: OrderLoader; capture?: Capturer } = {},
 ): Promise<HandleResult> {
   const d = deps.database ?? (await db());
   const { webhookEvents, orders } = schema;
@@ -111,10 +115,19 @@ export async function handleWebhookEvent(
     // Capture outcomes go through the same finalisation as every other path (order
     // record, capture time, fees, stock, agreement) — idempotent, and it also recovers
     // a capture whose own response was lost.
-    const finalized = found && target.snapshot ? await finalizePayment(found.id, target.snapshot) : null;
+    let finalized = found && target.snapshot ? await finalizePayment(found.id, target.snapshot) : null;
+    if (found && finalized?.outcome === "UNKNOWN") {
+      // The event doesn't say how the capture ended: ask PayPal for its own record.
+      finalized = await finalizePayment(found.id, await (deps.getOrder ?? loadOrder)(found.paypalOrderId));
+      if (finalized.outcome === "UNKNOWN") {
+        // Still unresolved: change nothing and leave the event unprocessed (non-2xx → PayPal redelivers).
+        throw new Error(`capture outcome for ${found.paypalOrderId} not yet known (${event.event_type}); will retry`);
+      }
+    }
     const [order] = found ? await d.select().from(orders).where(eq(orders.id, found.id)) : [];
 
-    if (finalized && finalized.outcome !== "UNKNOWN") {
+    if (finalized) {
+      // Capture-bearing events: the order status comes ONLY from finalisation (the capture record).
       result = { status: "applied", orderId: order!.id, orderStatus: finalized.status };
     } else if (!order) {
       result = { status: "recorded", note: `order ${target.paypalOrderId} not in our database` };

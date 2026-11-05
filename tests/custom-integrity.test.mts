@@ -383,3 +383,91 @@ test("9b. a PENDING capture from PayPal's capture call waits for the webhook, wh
   assert.equal(order.status, "COMPLETED");
   assert.equal(order.capturedAt?.toISOString(), "2026-11-05T11:00:00.000Z");
 });
+
+// ── Finaliser vs callers and concurrent notifications (third review) ────────
+
+test("10. a CHECKOUT.ORDER.COMPLETED event without a capture record never marks the order paid; PayPal's own record decides", async () => {
+  const { a, o } = await approvedWithOrder();
+  await ag.beginAgreementCapture(o);
+  const event = { id: `WH-${randomUUID()}`, event_type: "CHECKOUT.ORDER.COMPLETED", resource: { id: o.paypalOrderId, status: "COMPLETED", purchase_units: [{}] } };
+
+  // PayPal's record doesn't resolve it either → nothing changes, event left for redelivery.
+  const unresolved = async () => ({ id: o.paypalOrderId, status: "COMPLETED", purchase_units: [{}] });
+  await assert.rejects(handleWebhookEvent(event, { database: d, getOrder: unresolved }), /not yet known/);
+  let [order] = await d.select().from(schema.orders).where(eq(schema.orders.id, o.id));
+  assert.equal(order.status, "APPROVED", "not marked completed from the event's top-level status");
+  assert.equal(order.paypalCaptureId, null);
+  assert.equal((await agreement(a.id)).status, "paying");
+  const [ev] = await d.select().from(schema.webhookEvents).where(eq(schema.webhookEvents.id, event.id));
+  assert.equal(ev.processedAt, null, "the event stays available for recovery");
+
+  // Redelivery once PayPal's record shows the completed capture → recorded fully.
+  const resolved = async () => ({ id: o.paypalOrderId, status: "COMPLETED", purchase_units: [{ payments: { captures: [{ id: "CAP-10", status: "COMPLETED", create_time: "2026-11-05T12:00:00Z" }] } }] });
+  const r = await handleWebhookEvent(event, { database: d, getOrder: resolved });
+  assert.deepEqual(r, { status: "applied", orderId: o.id, orderStatus: "COMPLETED" });
+  [order] = await d.select().from(schema.orders).where(eq(schema.orders.id, o.id));
+  assert.equal(order.paypalCaptureId, "CAP-10");
+  assert.equal(order.capturedAt?.toISOString(), "2026-11-05T12:00:00.000Z");
+  assert.equal((await agreement(a.id)).status, "paid");
+});
+
+test("10b. after an unresolved webhook, a capture request is not short-circuited", async () => {
+  const { a, o } = await approvedWithOrder();
+  const event = { id: `WH-${randomUUID()}`, event_type: "CHECKOUT.ORDER.COMPLETED", resource: { id: o.paypalOrderId, status: "COMPLETED" } };
+  await assert.rejects(handleWebhookEvent(event, { database: d, getOrder: async () => ({ status: "COMPLETED" }) }));
+  const res = await captureCheckoutOrder(o.paypalOrderId, { paypalCall: (async () => completed) as never });
+  assert.equal(res.status, "COMPLETED", "the capture actually ran");
+  assert.equal((await agreement(a.id)).status, "paid");
+});
+
+test("11. pending and completed notifications for the same capture, overlapping: the order never moves backwards", async () => {
+  const { finalizePayment } = await import("@/lib/paypal/finalize");
+  const { sql } = await import("drizzle-orm");
+  for (let i = 0; i < 6; i++) {
+    const { a, o } = await approvedWithOrder();
+    await ag.beginAgreementCapture(o);
+    const cap = { id: `CAP-11-${i}`, status: "COMPLETED", create_time: "2026-11-05T10:00:00Z" };
+    const done = { status: "COMPLETED", purchase_units: [{ payments: { captures: [cap] } }] };
+    const pending = { status: "COMPLETED", purchase_units: [{ payments: { captures: [{ ...cap, status: "PENDING" }] } }] };
+    // Alternate which one starts first; on PostgreSQL hold the order row so both read before either writes.
+    const run = () => (i % 2 ? Promise.all([finalizePayment(o.id, done), finalizePayment(o.id, pending)]) : Promise.all([finalizePayment(o.id, pending), finalizePayment(o.id, done)]));
+    let results: Awaited<ReturnType<typeof run>>;
+    if (process.env.DATABASE_URL) {
+      let pendingRun: ReturnType<typeof run> = Promise.resolve([] as never);
+      await d.transaction(async (tx) => {
+        await tx.execute(sql`select id from orders where id = ${o.id} for update`);
+        pendingRun = run();
+        await sleep(200);
+      });
+      results = await pendingRun;
+    } else {
+      results = await run();
+    }
+    const [order] = await d.select().from(schema.orders).where(eq(schema.orders.id, o.id));
+    assert.equal(order.status, "COMPLETED", `iteration ${i}: final state is completed`);
+    assert.ok(order.capturedAt);
+    assert.equal((await agreement(a.id)).status, "paid");
+    const completedResult = results.find((r) => r.outcome === "COMPLETED")!;
+    assert.equal(completedResult.status, "COMPLETED", "the completed caller reports completed");
+  }
+});
+
+test("12. reverse race: capture holds its locks, a revision starts meanwhile → the revision waits, then refuses (terms are paying)", async () => {
+  const { s, r, a, o } = await approvedWithOrder();
+  let revision: Promise<string> = Promise.resolve("not started");
+  const newTerms = { ...(a.terms as import("@/lib/custom/agreement").Terms), unitPriceUsdCents: 2500, totalUsdCents: 2500 };
+  const began = await ag.beginAgreementCapture(o, new Date(), {
+    afterRead: async () => {
+      revision = ag.proposeAgreement(r.id, s.id, newTerms).then(
+        () => "revised",
+        (e) => `refused: ${(e as Error).message}`,
+      );
+      await sleep(400);
+    },
+  });
+  assert.equal(began, "ok");
+  assert.match(await revision, /^refused: .*being processed/);
+  assert.equal((await agreement(a.id)).status, "paying");
+  const versions = await d.select().from(schema.agreements).where(eq(schema.agreements.requestId, r.id));
+  assert.equal(versions.length, 1);
+});

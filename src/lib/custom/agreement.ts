@@ -384,10 +384,11 @@ type OrderRef = { id: string; agreementId: string | null; termsHash: string | nu
  * Atomically checks the terms are the current, fully approved version this order was
  * created for, and locks them as "paying". Returns "already_paid" for a repeat capture.
  */
-export async function beginAgreementCapture(order: OrderRef, now = new Date()): Promise<"ok" | "already_paid" | "none"> {
+export async function beginAgreementCapture(order: OrderRef, now = new Date(), hooks: Hooks = {}): Promise<"ok" | "already_paid" | "none"> {
   if (!order.agreementId) return "none";
   return withTx(async (tx) => {
     const a = await lockAgreement(tx, order.agreementId!);
+    await hooks.afterRead?.();
     if (!a) throw new AgreementError("agreement not found. You have not been charged.");
     if (a.termsHash !== order.termsHash) throw new AgreementError("These terms changed after checkout started. You have not been charged.");
     if (a.status === "paid") {

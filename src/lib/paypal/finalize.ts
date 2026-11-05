@@ -1,5 +1,5 @@
-import { eq } from "drizzle-orm";
-import { db, schema } from "@/db";
+import { eq, sql } from "drizzle-orm";
+import { db, schema, withTx } from "@/db";
 import { shouldAdvance } from "@/lib/paypal/order-status";
 
 /**
@@ -67,52 +67,68 @@ export function feesFrom(b?: { paypal_fee?: { value: string }; net_amount?: { va
   return out;
 }
 
+/**
+ * Record a capture outcome. The status decision is made inside ONE transaction
+ * holding the order's row lock, against the order's current state — so two
+ * notifications arriving together (e.g. PENDING and COMPLETED for the same
+ * capture) can't move a completed order backwards. Effects follow what was
+ * applied and are idempotent (stock counted once; agreement paid once).
+ */
 export async function finalizePayment(orderId: string, pp: PayPalOrderSnapshot, now = new Date()): Promise<{ outcome: CaptureOutcome; status: string }> {
-  const d = await db();
-  const [order] = await d.select().from(schema.orders).where(eq(schema.orders.id, orderId));
-  if (!order) throw new Error(`order ${orderId} not found`);
   const { outcome, capture } = captureOutcome(pp);
-  if (outcome === "UNKNOWN") return { outcome, status: order.status };
+  if (outcome === "UNKNOWN") {
+    const d = await db();
+    const [order] = await d.select({ status: schema.orders.status }).from(schema.orders).where(eq(schema.orders.id, orderId));
+    if (!order) throw new Error(`order ${orderId} not found`);
+    return { outcome, status: order.status };
+  }
 
   const unit = pp.purchase_units?.[0];
   const a = unit?.shipping?.address;
   const buyerName = [pp.payer?.name?.given_name, pp.payer?.name?.surname].filter(Boolean).join(" ");
-  const status = outcome; // COMPLETED | PENDING | DENIED are also order statuses
-  await d
-    .update(schema.orders)
-    .set({
-      ...(shouldAdvance(order.status, status) ? { status } : {}),
-      paypalCaptureId: capture?.id ?? order.paypalCaptureId,
-      // Only fill what this payload carries; never erase details recorded earlier.
-      ...(pp.payer?.email_address ? { buyerEmail: pp.payer.email_address } : {}),
-      ...(buyerName ? { buyerName } : {}),
-      ...(a
-        ? {
-            shippingAddress: {
-              name: unit?.shipping?.name?.full_name,
-              lines: [a.address_line_1, a.address_line_2].filter((l): l is string => !!l),
-              city: a.admin_area_2,
-              state: a.admin_area_1,
-              postalCode: a.postal_code,
-              countryCode: a.country_code,
-            },
-          }
-        : {}),
-      ...(outcome === "COMPLETED" && !order.capturedAt ? { capturedAt: capture?.create_time ? new Date(capture.create_time) : now } : {}),
-      ...feesFrom(capture?.seller_receivable_breakdown),
-      updatedAt: now,
-    })
-    .where(eq(schema.orders.id, order.id));
+
+  const applied = await withTx(async (tx) => {
+    await tx.execute(sql`select id from orders where id = ${orderId} for update`);
+    const [order] = await tx.select().from(schema.orders).where(eq(schema.orders.id, orderId));
+    if (!order) throw new Error(`order ${orderId} not found`);
+    const advance = shouldAdvance(order.status, outcome); // decided against the LOCKED, current status
+    await tx
+      .update(schema.orders)
+      .set({
+        ...(advance ? { status: outcome } : {}),
+        paypalCaptureId: capture?.id ?? order.paypalCaptureId,
+        // Only fill what this payload carries; never erase details recorded earlier.
+        ...(pp.payer?.email_address ? { buyerEmail: pp.payer.email_address } : {}),
+        ...(buyerName ? { buyerName } : {}),
+        ...(a
+          ? {
+              shippingAddress: {
+                name: unit?.shipping?.name?.full_name,
+                lines: [a.address_line_1, a.address_line_2].filter((l): l is string => !!l),
+                city: a.admin_area_2,
+                state: a.admin_area_1,
+                postalCode: a.postal_code,
+                countryCode: a.country_code,
+              },
+            }
+          : {}),
+        ...(outcome === "COMPLETED" && !order.capturedAt ? { capturedAt: capture?.create_time ? new Date(capture.create_time) : now } : {}),
+        ...feesFrom(capture?.seller_receivable_breakdown),
+        updatedAt: now,
+      })
+      .where(eq(schema.orders.id, order.id));
+    return { order, advanced: advance, status: advance ? outcome : order.status };
+  });
 
   const { consume, release } = await import("@/lib/inventory");
   const { markAgreementPaid, endAgreementCapture } = await import("@/lib/custom/agreement");
   if (outcome === "COMPLETED") {
-    await consume(order.id);
-    await markAgreementPaid(order);
-  } else if (outcome === "DENIED") {
-    await release(order.id);
-    await endAgreementCapture(order);
+    // A completed capture is final money movement: always (idempotently) count it.
+    await consume(applied.order.id);
+    await markAgreementPaid(applied.order);
+  } else if (outcome === "DENIED" && applied.advanced) {
+    await release(applied.order.id);
+    await endAgreementCapture(applied.order);
   } // PENDING: wait — the agreement stays "paying" and stock stays held until PayPal reports the outcome.
-  const [fresh] = await d.select({ status: schema.orders.status }).from(schema.orders).where(eq(schema.orders.id, order.id));
-  return { outcome, status: fresh?.status ?? status };
+  return { outcome, status: applied.status };
 }
