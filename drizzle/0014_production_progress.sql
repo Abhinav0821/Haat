@@ -1,0 +1,1 @@
+ALTER TABLE "agreements" ADD COLUMN "pieces_done" integer DEFAULT 0 NOT NULL;

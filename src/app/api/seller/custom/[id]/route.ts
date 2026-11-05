@@ -1,7 +1,7 @@
 import { requireSeller } from "@/lib/auth/seller";
 import { AgreementError } from "@/lib/custom/agreement";
 import { errorResponse } from "@/lib/custom/http";
-import { declineRequest, draftAnswer, loadRequest, sellerApprove, sellerView, sendOptions } from "@/lib/custom/requests";
+import { declineRequest, draftAnswer, loadRequest, recordProgress, sellerApprove, sellerView, sendOptions } from "@/lib/custom/requests";
 import { getDemoStore } from "@/lib/store";
 
 const AUDIO = new Set(["audio/wav", "audio/x-wav", "audio/mpeg", "audio/mp4", "audio/ogg", "audio/aac"]);
@@ -26,7 +26,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
 
 /**
  * multipart (audio | text) → her spoken answer becomes checked DRAFT options.
- * JSON {action: "send", indexes} | {action: "approve", agreementId, hash} | {action: "decline"}.
+ * JSON {action: "send", indexes} | {action: "approve", agreementId, hash} | {action: "decline"} | {action: "progress", piecesDone}.
  */
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const denied = await requireSeller(request);
@@ -47,10 +47,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       const drafted = await draftAnswer(id, { text, audio });
       return Response.json({ ...drafted, view: await sellerView(id) });
     }
-    const body = (await request.json().catch(() => null)) as { action?: string; indexes?: number[]; agreementId?: string; hash?: string } | null;
+    const body = (await request.json().catch(() => null)) as { action?: string; indexes?: number[]; agreementId?: string; hash?: string; piecesDone?: number } | null;
     if (body?.action === "send") await sendOptions(id, (body.indexes ?? []).map(Number));
     else if (body?.action === "approve") await sellerApprove(id, String(body.agreementId), String(body.hash));
     else if (body?.action === "decline") await declineRequest(id);
+    else if (body?.action === "progress") await recordProgress(id, Number(body.piecesDone));
     else return Response.json({ error: "unknown action" }, { status: 400 });
     return Response.json(await sellerView(id));
   } catch (e) {

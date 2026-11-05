@@ -3,6 +3,7 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { SellerNav } from "@/components/seller-nav";
+import { MakingCard } from "@/app/seller/inbox/autopilot";
 import { speak, startRecording, type Recorder } from "@/lib/client/media";
 
 type Item = { id: string; status: string; summaryHi: string | null; buyerName: string | null; channel: string; createdAt: string };
@@ -29,7 +30,19 @@ type View = {
   draft: Draft[];
   options: { index: number; quantity: number; unitPriceUsdCents: number; readyBy: string }[];
   counter: { quantity: number; totalBudgetUsdCents: number; acceptable: boolean; reason: string | null } | null;
-  agreement: { id: string; version: number; status: string; termsHash: string; lines: [string, string][]; buyerApproved: boolean; sellerApproved: boolean; payable: boolean } | null;
+  agreement: {
+    id: string;
+    version: number;
+    status: string;
+    termsHash: string;
+    lines: [string, string][];
+    buyerApproved: boolean;
+    sellerApproved: boolean;
+    payable: boolean;
+    progress: { done: number; total: number; readyBy: string } | null;
+    tracking: { number: string; carrier: string | null } | null;
+    orderId?: string | null;
+  } | null;
   agreementHi: string | null;
 };
 
@@ -80,6 +93,12 @@ export function CustomRequests() {
       clearInterval(t);
     };
   }, [selected]);
+
+  async function refresh() {
+    if (!selected) return;
+    const res = await fetch(`/api/seller/custom/${selected}`).catch(() => null);
+    if (res?.ok) setView(await res.json());
+  }
 
   function open(id: string) {
     setView(null);
@@ -363,9 +382,32 @@ export function CustomRequests() {
                 <span className={view.agreement.sellerApproved ? "text-leaf" : "text-muted"}>{view.agreement.sellerApproved ? "✓" : "○"} आप</span>
               </div>
               {view.agreement.status === "paid" ? (
-                <p className="mt-4 text-leaf" lang="hi">
-                  पैसे मिल गए — काम शुरू कर सकती हैं। · Paid.
-                </p>
+                <div className="mt-4 space-y-3">
+                  <p className="text-leaf" lang="hi">
+                    पैसे मिल गए — काम शुरू कर सकती हैं। · Paid.
+                  </p>
+                  {view.agreement.progress && (
+                    <ol>
+                      <MakingCard
+                        key={view.agreement.progress.done}
+                        m={{ requestId: view.id, summaryHi: null, ...view.agreement.progress }}
+                        onDone={refresh}
+                      />
+                    </ol>
+                  )}
+                  {view.agreement.tracking ? (
+                    <p className="text-sm" lang="hi">
+                      भेज दिया · Shipped — {view.agreement.tracking.carrier} {view.agreement.tracking.number}
+                    </p>
+                  ) : (
+                    view.agreement.progress &&
+                    view.agreement.progress.done >= view.agreement.progress.total && (
+                      <p className="text-sm" lang="hi">
+                        सब बन गया। ट्रैकिंग नंबर “आज का काम” में जोड़ें। · Add tracking in the Inbox.
+                      </p>
+                    )
+                  )}
+                </div>
               ) : (
                 !view.agreement.sellerApproved && (
                   <button

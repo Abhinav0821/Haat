@@ -339,6 +339,30 @@ export async function getAutopilotBoard(storeId: string) {
     .where(and(eq(schema.orders.storeId, storeId), eq(schema.orders.status, "COMPLETED"), isNull(schema.orders.trackingNumber), isNotNull(schema.orders.paypalCaptureId)))
     .orderBy(desc(schema.orders.capturedAt));
 
+  // Custom orders: paid ≠ ready. Ship only once every piece is finished.
+  const paidAgreements = await d
+    .select({ a: schema.agreements, spec: schema.customRequests.spec, buyerName: schema.customRequests.buyerName })
+    .from(schema.agreements)
+    .innerJoin(schema.customRequests, eq(schema.customRequests.id, schema.agreements.requestId))
+    .where(and(eq(schema.agreements.storeId, storeId), eq(schema.agreements.status, "paid")));
+  const quantityOf = (a: typeof schema.agreements.$inferSelect) => (a.terms as { quantity: number }).quantity;
+  const unfinished = new Set(paidAgreements.filter(({ a }) => a.piecesDone < quantityOf(a)).map(({ a }) => a.id));
+  const inProduction = paidAgreements
+    .filter(({ a }) => unfinished.has(a.id))
+    .map(({ a, spec, buyerName }) => ({
+      requestId: a.requestId,
+      // What was AGREED (not the original request): "7 पीस हाथ से छपा सूती दुपट्टा — Sarah"
+      summaryHi: `${quantityOf(a)} पीस ${(spec as { itemHi?: string }).itemHi || (a.terms as { item: string }).item}${buyerName ? ` — ${buyerName}` : ""}`,
+      done: a.piecesDone, total: quantityOf(a), readyBy: (a.terms as { completionBy: string }).completionBy }));
+
+  const [newRequests, awaitingMaker] = await Promise.all([
+    d.select({ id: schema.customRequests.id }).from(schema.customRequests).where(and(eq(schema.customRequests.storeId, storeId), eq(schema.customRequests.status, "new"))),
+    d
+      .select({ id: schema.agreements.id, hash: schema.agreements.termsHash, seller: schema.agreements.sellerApprovedHash })
+      .from(schema.agreements)
+      .where(and(eq(schema.agreements.storeId, storeId), eq(schema.agreements.status, "proposed"))),
+  ]);
+
   const view = ({ a, o, m }: (typeof actions)[number]) => {
     const input = a.input as Partial<RefundInput>;
     return {
@@ -360,12 +384,14 @@ export async function getAutopilotBoard(storeId: string) {
   return {
     proposals: actions.filter((r) => r.a.status === "proposed").map(view),
     activity: actions.filter((r) => r.a.status !== "proposed").map(view),
-    toShip: toShip.map((o) => ({
+    custom: { newRequests: newRequests.length, awaitingYourApproval: awaitingMaker.filter((x) => x.seller !== x.hash).length, inProduction },
+    toShip: toShip.filter((o) => !o.agreementId || !unfinished.has(o.agreementId)).map((o) => ({
       id: o.id,
       amountCents: o.amountCents,
       buyerName: o.buyerName,
       shipTo: o.shippingAddress ? [o.shippingAddress.city, o.shippingAddress.countryCode].filter(Boolean).join(", ") : null,
       capturedAt: o.capturedAt?.toISOString() ?? null,
+      custom: Boolean(o.agreementId),
     })),
   };
 }

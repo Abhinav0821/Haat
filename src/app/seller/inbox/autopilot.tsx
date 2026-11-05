@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { speak, startRecording, type Recorder } from "@/lib/client/media";
 
@@ -17,8 +18,14 @@ type ActionView = {
   order: { id: string; amountCents: number; buyerName: string | null; refundedCents: number } | null;
   at: string;
 };
-type ToShip = { id: string; amountCents: number; buyerName: string | null; shipTo: string | null; capturedAt: string | null };
-type Board = { proposals: ActionView[]; activity: ActionView[]; toShip: ToShip[] };
+type ToShip = { id: string; amountCents: number; buyerName: string | null; shipTo: string | null; capturedAt: string | null; custom?: boolean };
+type Making = { requestId: string; summaryHi: string | null; done: number; total: number; readyBy: string };
+type Board = {
+  proposals: ActionView[];
+  activity: ActionView[];
+  toShip: ToShip[];
+  custom: { newRequests: number; awaitingYourApproval: number; inProduction: Making[] };
+};
 
 const usd = (c: number) => `$${(c / 100).toFixed(2)}`;
 const inr = (n: number) => `₹${n.toLocaleString("en-IN")}`;
@@ -77,8 +84,31 @@ export function Autopilot({ refreshKey, onChange }: { refreshKey: number; onChan
   }, [refreshKey]);
 
   if (!board) return null;
+  const waiting = board.custom.newRequests + board.custom.awaitingYourApproval;
   return (
     <div className="space-y-14">
+      {waiting > 0 && (
+        <Link href="/seller/custom" className="block border-l-2 border-marigold bg-card p-5 hover:bg-paper-deep/60">
+          <p lang="hi">
+            {board.custom.newRequests > 0 && <span className="block">{board.custom.newRequests} नई फ़रमाइश — बोलकर जवाब दें</span>}
+            {board.custom.awaitingYourApproval > 0 && <span className="block">{board.custom.awaitingYourApproval} समझौता आपकी मंज़ूरी का इंतज़ार कर रहा है</span>}
+          </p>
+          <span className="mt-1 block text-xs text-muted">
+            {board.custom.newRequests} new custom request{board.custom.newRequests === 1 ? "" : "s"} · {board.custom.awaitingYourApproval} agreement{board.custom.awaitingYourApproval === 1 ? "" : "s"} to approve →
+          </span>
+        </Link>
+      )}
+
+      {board.custom.inProduction.length > 0 && (
+        <section>
+          <h2 className="eyebrow text-ink">बन रहे हैं · Being made</h2>
+          <ol className="mt-5 space-y-4">
+            {board.custom.inProduction.map((m) => (
+              <MakingCard key={m.requestId} m={m} onDone={onChange} />
+            ))}
+          </ol>
+        </section>
+      )}
       {board.proposals.length > 0 && (
         <section>
           <h2 className="eyebrow text-ink">आपकी मंज़ूरी चाहिए · Needs your approval</h2>
@@ -356,6 +386,60 @@ function ActivityRow({ a }: { a: ActionView }) {
         </p>
       )}
       {reasons && <p className="mt-1 text-xs text-muted">{reasons.join(" · ")}</p>}
+    </li>
+  );
+}
+
+const hiDay = (iso: string) => new Date(iso).toLocaleDateString("hi-IN", { day: "numeric", month: "long", timeZone: "UTC" });
+
+/** Paid custom order in production: she taps as pieces are finished. */
+export function MakingCard({ m, onDone }: { m: Making; onDone: () => void }) {
+  const [done, setDone] = useState(m.done);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+
+  async function save(next: number) {
+    setBusy(true);
+    setNote(null);
+    try {
+      const res = await fetch(`/api/seller/custom/${m.requestId}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "progress", piecesDone: next }) });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error);
+      setDone(next);
+      speak(next === m.total ? "सारे पीस बन गए। अब भेजने के लिए तैयार है।" : `${m.total} में से ${next} पीस बन गए।`, "hindi");
+      onDone();
+    } catch (e) {
+      setNote((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <li className="bg-card p-5">
+      <p lang="hi">{m.summaryHi}</p>
+      <div className="mt-3 h-1.5 bg-line" aria-hidden>
+        <div className="h-1.5 bg-ink transition-all" style={{ width: `${Math.round((done / m.total) * 100)}%` }} />
+      </div>
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-sm">
+        <span lang="hi">
+          {m.total} में से {done} पीस बने · {hiDay(m.readyBy)} तक
+        </span>
+        <span className="flex gap-2">
+          <button type="button" disabled={busy || done <= 0} onClick={() => save(done - 1)} className="border border-line px-3 py-1 disabled:opacity-30" aria-label="One fewer">
+            −
+          </button>
+          <button type="button" disabled={busy || done >= m.total} onClick={() => save(done + 1)} className="bg-ink px-4 py-1 text-paper disabled:opacity-30">
+            +1 पीस बना
+          </button>
+          {done < m.total && (
+            <button type="button" disabled={busy} onClick={() => save(m.total)} className="underline underline-offset-4 disabled:opacity-30">
+              सब बन गए
+            </button>
+          )}
+        </span>
+      </div>
+      {note && <p className="mt-2 text-sm text-danger">{note}</p>}
     </li>
   );
 }

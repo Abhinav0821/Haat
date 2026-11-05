@@ -38,6 +38,9 @@ type View = {
     holdUntil: string | null;
     payable: boolean;
     blockedBecause: string | null;
+    progress: { done: number; total: number; readyBy: string } | null;
+    tracking: { number: string; carrier: string | null } | null;
+    orderId?: string | null;
   } | null;
 };
 
@@ -45,7 +48,7 @@ const usd = (c: number) => `$${(c / 100).toFixed(2)}`;
 const day = (iso: string) => new Date(iso).toLocaleDateString("en-US", { month: "long", day: "numeric", timeZone: "UTC" });
 const STEPS = ["Sent", "Options", "Terms agreed", "Paid"] as const;
 
-export function CustomStatus({ requestId, makerName }: { requestId: string; makerName: string }) {
+export function CustomStatus({ requestId, makerName, slug }: { requestId: string; makerName: string; slug: string }) {
   const params = useSearchParams();
   const [view, setView] = useState<View | null>(null);
   const [busy, setBusy] = useState(false);
@@ -119,6 +122,26 @@ export function CustomStatus({ requestId, makerName }: { requestId: string; make
           <p className="eyebrow text-leaf">Paid</p>
           <p className="mt-3 font-display text-2xl">Thank you. {makerName} has your order.</p>
           <p className="mt-2 text-sm text-muted">She works to the terms below — you&apos;ll get tracking when it ships.</p>
+          {a?.progress && (
+            <div className="mx-auto mt-6 max-w-sm text-left">
+              <div className="h-1.5 bg-line" aria-hidden>
+                <div className="h-1.5 bg-ink" style={{ width: `${Math.round((a.progress.done / a.progress.total) * 100)}%` }} />
+              </div>
+              <p className="mt-2 text-center text-sm">
+                {a.progress.done} of {a.progress.total} pieces made · ready by {day(a.progress.readyBy)}
+              </p>
+            </div>
+          )}
+          {a?.tracking && (
+            <p className="mt-4 text-sm">
+              Shipped with {a.tracking.carrier} · tracking <span className="font-mono">{a.tracking.number}</span>
+            </p>
+          )}
+          {a?.orderId && (
+            <a href={`/s/${slug}/order/${a.orderId}`} className="mt-6 inline-block text-sm underline underline-offset-4">
+              Order details &amp; messages with {makerName}
+            </a>
+          )}
         </section>
       )}
 

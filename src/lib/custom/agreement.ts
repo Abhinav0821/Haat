@@ -96,12 +96,12 @@ export function termsHi(t: Terms, inrPerUsd: number, itemHi?: string): string {
   return `समझौता: ${t.quantity} पीस ${itemHi || t.item}, ${[...t.colors, ...t.materials].join(", ")}। हर पीस ${(t.unitPriceUsdCents / 100).toFixed(2)} डॉलर, शिपिंग ${(t.shippingUsdCents / 100).toFixed(2)} डॉलर, कुल ${(t.totalUsdCents / 100).toFixed(2)} डॉलर, यानी लगभग ${inr} रुपये। ${day(t.completionBy)} तक बनाना है, पहुँचने का अनुमान ${day(t.deliveryEstimate)}। मन बदलने पर वापसी नहीं; ख़राब पहुँचे तो आपकी रिफ़ंड नीति लागू होगी।`;
 }
 
-/** Pieces already promised: her stated backlog + approved (held) and paid agreements. */
+/** Pieces still to make: her stated backlog + approved (held) agreements + paid ones not yet finished. */
 export async function effectiveBacklog(storeId: string, e: Economics, opts: { now?: Date; excludeRequestId?: string } = {}): Promise<number> {
   const d = await db();
   const now = opts.now ?? new Date();
   const rows = await d
-    .select({ terms: schema.agreements.terms, requestId: schema.agreements.requestId })
+    .select({ terms: schema.agreements.terms, requestId: schema.agreements.requestId, status: schema.agreements.status, piecesDone: schema.agreements.piecesDone })
     .from(schema.agreements)
     .where(
       and(
@@ -109,7 +109,8 @@ export async function effectiveBacklog(storeId: string, e: Economics, opts: { no
         or(eq(schema.agreements.status, "paid"), and(eq(schema.agreements.status, "approved"), gt(schema.agreements.holdUntil, now))),
       ),
     );
-  return e.backlogPieces + rows.filter((r) => r.requestId !== opts.excludeRequestId).reduce((s, r) => s + ((r.terms as Terms).quantity ?? 0), 0);
+  const remaining = (r: (typeof rows)[number]) => Math.max(0, ((r.terms as Terms).quantity ?? 0) - (r.status === "paid" ? r.piecesDone : 0));
+  return e.backlogPieces + rows.filter((r) => r.requestId !== opts.excludeRequestId).reduce((s, r) => s + remaining(r), 0);
 }
 
 export async function proposeAgreement(requestId: string, storeId: string, terms: Terms) {

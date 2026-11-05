@@ -228,4 +228,33 @@ test("an invoice below her rules is not created without an explicit override", a
   assert.equal(still.status, "proposed", "nothing was sent to PayPal; she can still confirm or cancel");
 });
 
+test("after payment: progress shrinks booked work, and the order is shipped only when every piece is made", async () => {
+  const { getAutopilotBoard } = await import("@/lib/autopilot/refunds");
+  const { r, a } = await requestWithAgreement();
+  await assert.rejects(svc.recordProgress(r.id, 1), /once the order is paid/);
+  await svc.buyerApprove(r.id, a.id, a.termsHash);
+  await svc.sellerApprove(r.id, a.id, a.termsHash);
+  const order = await agreementOrder(a);
+  await captureCheckoutOrder(order.paypalOrderId, { paypalCall: okCapture });
+
+  const booked = await ag.effectiveBacklog(storeId, rules);
+  let board = await getAutopilotBoard(storeId);
+  assert.ok(!board.toShip.some((o) => o.id === order.id), "paid but not made: not 'ready to ship'");
+  assert.ok(board.custom.inProduction.some((m) => m.requestId === r.id && m.done === 0 && m.total === 7));
+
+  await svc.recordProgress(r.id, 3);
+  assert.equal(await ag.effectiveBacklog(storeId, rules), booked - 3, "finished pieces free up her capacity");
+  assert.equal((await svc.buyerView(r.id)).agreement?.progress?.done, 3, "the buyer sees progress");
+
+  await svc.recordProgress(r.id, 99); // clamped to the quantity
+  board = await getAutopilotBoard(storeId);
+  assert.ok(board.toShip.some((o) => o.id === order.id && o.custom), "all made: now ready to ship");
+  assert.ok(!board.custom.inProduction.some((m) => m.requestId === r.id));
+  assert.equal(await ag.effectiveBacklog(storeId, rules), booked - 7);
+  const told = await d.select().from(schema.messages).where(eq(schema.messages.orderId, order.id));
+  assert.equal(told.length, 1, "buyer told once that the pieces are finished");
+  await svc.recordProgress(r.id, 7);
+  assert.equal((await d.select().from(schema.messages).where(eq(schema.messages.orderId, order.id))).length, 1, "not told twice");
+});
+
 after(async () => (await import("@/db")).closeDb());

@@ -21,7 +21,7 @@ async function Request({ params }: { params: PageProps<"/s/[slug]/custom/[reques
     <>
       <SiteHeader storeSlug={store.slug} storeName={store.name} />
       <main className="mx-auto w-full max-w-2xl flex-1 px-6 py-20">
-        <CustomStatus requestId={requestId} makerName={store.ownerName} />
+        <CustomStatus requestId={requestId} makerName={store.ownerName} slug={store.slug} />
       </main>
       <SiteFooter />
     </>

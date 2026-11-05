@@ -200,13 +200,21 @@ export async function buyerView(requestId: string) {
           alternatives: counter.result.acceptable ? [] : counter.result.alternatives.map((x, i) => ({ index: i, quantity: x.quantity, totalUsdCents: x.unitPriceUsdCents * x.quantity, text: x.en })),
         }
       : null,
-    agreement: a ? agreementView(a) : null,
+    agreement: a ? agreementView(a, a.orderId ? await orderTracking(a.orderId) : null) : null,
   };
 }
 
-function agreementView(a: AgreementRow) {
+async function orderTracking(orderId: string) {
+  const d = await db();
+  const [o] = await d.select({ trackingNumber: schema.orders.trackingNumber, trackingCarrier: schema.orders.trackingCarrier }).from(schema.orders).where(eq(schema.orders.id, orderId));
+  return o ?? null;
+}
+
+function agreementView(a: AgreementRow, order?: { trackingNumber: string | null; trackingCarrier: string | null } | null) {
   const t = a.terms as Terms;
   return {
+    progress: a.status === "paid" ? { done: a.piecesDone, total: t.quantity, readyBy: t.completionBy } : null,
+    tracking: order?.trackingNumber ? { number: order.trackingNumber, carrier: order.trackingCarrier } : null,
     id: a.id,
     version: a.version,
     status: a.status,
@@ -319,6 +327,34 @@ export async function sellerApprove(requestId: string, agreementId: string, hash
   const updated = await approveAgreement(agreementId, "seller", hash);
   await logEvent("agreement_approved", { party: "seller", version: a.version, both: updated.status === "approved" }, r.storeId);
   return updated;
+}
+
+/**
+ * After payment she records finished pieces. Booked capacity shrinks as she goes;
+ * when the last piece is done the buyer is told and the order moves to "ready to ship".
+ */
+export async function recordProgress(requestId: string, piecesDone: number) {
+  const r = await loadRequest(requestId);
+  const d = await db();
+  const [a] = await d.select().from(schema.agreements).where(and(eq(schema.agreements.requestId, r.id), eq(schema.agreements.status, "paid")));
+  if (!a) throw new AgreementError("Progress can be recorded once the order is paid.");
+  const total = (a.terms as Terms).quantity;
+  const done = Math.min(total, Math.max(0, Math.round(Number(piecesDone) || 0)));
+  await d.update(schema.agreements).set({ piecesDone: done }).where(eq(schema.agreements.id, a.id));
+  if (done === total && a.piecesDone < total && a.orderId) {
+    await d.insert(schema.messages).values({
+      storeId: r.storeId,
+      orderId: a.orderId,
+      direction: "seller_to_buyer",
+      channel: "autopilot",
+      originalText: `आपके सभी ${total} पीस बन गए हैं। जल्द ही भेज दूँगी और ट्रैकिंग नंबर बताऊँगी।`,
+      originalLanguage: "Hindi",
+      translatedText: `All ${total} of your pieces are finished. I'll ship them soon and send you the tracking number.`,
+      translatedLanguage: "English",
+    });
+  }
+  await logEvent("custom_progress", { done, total }, r.storeId);
+  return { done, total };
 }
 
 export async function declineRequest(requestId: string) {

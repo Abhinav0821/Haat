@@ -268,6 +268,8 @@ export const agreements = pgTable("agreements", {
   /** Capacity is held from approval until this time if unpaid. */
   holdUntil: timestamp("hold_until", { withTimezone: true }),
   orderId: text("order_id"),
+  /** Production progress after payment: pieces finished so far. */
+  piecesDone: integer("pieces_done").notNull().default(0),
   createdAt: createdAt(),
 });
 
