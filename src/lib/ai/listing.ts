@@ -115,3 +115,59 @@ export function suggestUsdCents(stated: ListingDraft["statedPrice"], inrPerUsd: 
   const cents = Math.round(usd * 100);
   return cents >= 1000 ? Math.round(cents / 50) * 50 : cents;
 }
+
+// ── Voice corrections during review ─────────────────────────────────────────
+
+const Correction = z.object({
+  transcript: z.string().describe("What the seller said, verbatim."),
+  title: z.string().max(90).nullable().describe("New English title ONLY if her correction changes it; else null."),
+  description: z.string().nullable().describe("Updated English description ONLY if a stated fact in it changed; else null."),
+  price: z.object({ amount: z.number().positive(), currency: z.enum(["INR", "USD"]) }).nullable().describe("New price exactly as she said it; null if price unchanged."),
+  materials: z.array(z.string()).nullable(),
+  colors: z.array(z.string()).nullable(),
+  dimensions: z.string().nullable(),
+  care: z.string().nullable(),
+  quantity: z.number().int().min(1).nullable().describe("How many pieces she has, if she says so."),
+});
+export type ListingCorrection = z.infer<typeof Correction>;
+
+export async function correctListing(
+  current: { title: string; description: string; priceUsd: string; attributes: ListingDraft["attributes"] },
+  said: { text?: string; audio?: MediaInput },
+): Promise<ListingCorrection> {
+  const { output } = await generateText({
+    model: model(),
+    system:
+      "An artisan is correcting her product listing by voice, usually in Hindi. Return ONLY the fields her words change (null for everything else). If she changes a fact (e.g. material), also fix the English title/description where that fact appears. Never add new claims.",
+    messages: [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: `Current listing (JSON): ${JSON.stringify(current)}` },
+          ...(said.audio ? [{ type: "file" as const, data: said.audio.data, mediaType: said.audio.mediaType }] : []),
+          ...(said.text ? [{ type: "text" as const, text: `Her correction: ${said.text}` }] : []),
+        ],
+      },
+    ],
+    output: Output.object({ schema: Correction, name: "correction" }),
+  });
+  if (!output) throw new Error("could not understand the correction");
+  return output;
+}
+
+/** Fixed-template Hindi read-back of exactly what changed. */
+export function correctionReadbackHi(c: ListingCorrection, newPriceUsdCents: number | null): string {
+  const parts: string[] = [];
+  if (c.price) {
+    const said = c.price.currency === "INR" ? `${c.price.amount.toLocaleString("en-IN")} रुपये` : `${c.price.amount} डॉलर`;
+    parts.push(`दाम ${said}${newPriceUsdCents !== null && c.price.currency === "INR" ? ` (लगभग ${(newPriceUsdCents / 100).toFixed(2)} डॉलर)` : ""}`);
+  }
+  if (c.materials) parts.push(`सामग्री: ${c.materials.join(", ")}`);
+  if (c.colors) parts.push(`रंग: ${c.colors.join(", ")}`);
+  if (c.dimensions) parts.push(`नाप: ${c.dimensions}`);
+  if (c.care) parts.push(`देखभाल: ${c.care}`);
+  if (c.quantity) parts.push(`${c.quantity} पीस`);
+  if (c.title && !parts.length) parts.push("नाम");
+  if (c.description && !parts.length) parts.push("विवरण");
+  return parts.length ? `बदल दिया — ${parts.join("; ")}। बाकी सब पहले जैसा है।` : "कोई बदलाव समझ नहीं आया। फिर से बोलिए।";
+}

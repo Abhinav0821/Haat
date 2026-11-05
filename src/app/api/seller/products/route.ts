@@ -4,7 +4,7 @@ import { requireSeller } from "@/lib/auth/seller";
 import { getPassportsFor } from "@/lib/passport/passport";
 import { getDemoStore } from "@/lib/store";
 
-/** The seller's live pieces with their Handmade Passport status. */
+/** The seller's live pieces with their Maker Evidence status. */
 export async function GET(request: Request) {
   const denied = await requireSeller(request);
   if (denied) return denied;

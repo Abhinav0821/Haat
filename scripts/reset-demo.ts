@@ -27,6 +27,9 @@ async function main() {
   const actions = await d.delete(schema.agentActions).returning({ id: schema.agentActions.id });
   const messages = await d.delete(schema.messages).returning({ id: schema.messages.id });
   const events = await d.delete(schema.webhookEvents).returning({ id: schema.webhookEvents.id });
+  await d.delete(schema.reservations);
+  await d.delete(schema.events);
+  await d.update(schema.products).set({ soldQuantity: 0 });
   const orders = await d.delete(schema.orders).returning({ id: schema.orders.id });
   const notLive = await d.select({ id: schema.products.id }).from(schema.products).where(ne(schema.products.status, "live"));
   if (notLive.length) await d.delete(schema.passports).where(inArray(schema.passports.productId, notLive.map((p) => p.id)));

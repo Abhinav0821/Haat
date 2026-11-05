@@ -2,7 +2,10 @@ import { and, eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { env } from "@/lib/env";
 import { paypal, PayPalApiError } from "@/lib/paypal/client";
+import { randomUUID } from "node:crypto";
 import { CAPTURED_STATUSES, shouldAdvance } from "@/lib/paypal/order-status";
+import { availableQuantity, consume, ensureReservedForCapture, release, reserve, SoldOutError } from "@/lib/inventory";
+import { readEconomics } from "@/lib/economics";
 
 /**
  * Checkout (Orders v2). Deliberately deterministic — no LLM touches this path.
@@ -46,10 +49,31 @@ export async function createCheckoutOrder({
   if (!row) throw new CheckoutError("product not available", 404);
   const { product, store } = row;
 
-  const totalCents = product.priceCents * quantity;
+  const goodsCents = product.priceCents * quantity;
+  const shippingCents = readEconomics(store.policy)?.shippingChargeUsdCents ?? 0;
+  const totalCents = goodsCents + shippingCents;
   const appUrl = env().APP_URL;
 
-  const order = await paypal<{ id: string; status: string; links?: { rel: string; href: string }[] }>("/v2/checkout/orders", {
+  // Hold the piece first (row-locked), so two buyers or agents can't both take it.
+  const orderId = randomUUID();
+  try {
+    await reserve(product.id, quantity, orderId);
+  } catch (e) {
+    if (e instanceof SoldOutError) {
+      const stock = await availableQuantity(product.id);
+      throw new CheckoutError(
+        stock.sold >= stock.total
+          ? "This piece has sold."
+          : "Another buyer is paying for this piece right now. If they don't finish within 20 minutes, it becomes available again.",
+        409,
+      );
+    }
+    throw e;
+  }
+
+  let order: { id: string; status: string; links?: { rel: string; href: string }[] };
+  try {
+    order = await paypal<{ id: string; status: string; links?: { rel: string; href: string }[] }>("/v2/checkout/orders", {
     method: "POST",
     body: {
       intent: "CAPTURE",
@@ -61,7 +85,10 @@ export async function createCheckoutOrder({
           amount: {
             currency_code: product.currency,
             value: usd(totalCents),
-            breakdown: { item_total: { currency_code: product.currency, value: usd(totalCents) } },
+            breakdown: {
+              item_total: { currency_code: product.currency, value: usd(goodsCents) },
+              shipping: { currency_code: product.currency, value: usd(shippingCents) },
+            },
           },
           items: [
             {
@@ -88,14 +115,20 @@ export async function createCheckoutOrder({
       },
     },
   });
+  } catch (e) {
+    await release(orderId); // PayPal didn't create the order — free the piece
+    throw e;
+  }
 
   const [saved] = await d
     .insert(schema.orders)
     .values({
+      id: orderId,
       storeId: store.id,
       paypalOrderId: order.id,
       status: "CREATED",
       amountCents: totalCents,
+      shippingCents,
       currency: product.currency,
       items: [{ productId: product.id, qty: quantity, priceCents: product.priceCents }],
       channel,
@@ -132,7 +165,8 @@ type CaptureResponse = {
   }[];
 };
 
-export async function captureCheckoutOrder(paypalOrderId: string) {
+export async function captureCheckoutOrder(paypalOrderId: string, deps: { paypalCall?: typeof paypal } = {}) {
+  const call = deps.paypalCall ?? paypal;
   if (!/^[A-Z0-9]{10,32}$/.test(paypalOrderId)) throw new CheckoutError("invalid order id");
   const d = await db();
   const [order] = await d.select().from(schema.orders).where(eq(schema.orders.paypalOrderId, paypalOrderId));
@@ -141,9 +175,17 @@ export async function captureCheckoutOrder(paypalOrderId: string) {
     return { orderId: order.id, status: order.status }; // already captured (e.g. webhook got there first)
   }
 
+  // Every capture path (browser, return URL, webhook) re-checks the stock hold.
+  try {
+    await ensureReservedForCapture(order.id);
+  } catch (e) {
+    if (e instanceof SoldOutError) throw new CheckoutError(e.message, 409);
+    throw e;
+  }
+
   let captured: CaptureResponse;
   try {
-    captured = await paypal<CaptureResponse>(`/v2/checkout/orders/${paypalOrderId}/capture`, {
+    captured = await call<CaptureResponse>(`/v2/checkout/orders/${paypalOrderId}/capture`, {
       method: "POST",
       requestId: `capture-${order.id}`,
       body: {},
@@ -152,6 +194,7 @@ export async function captureCheckoutOrder(paypalOrderId: string) {
     if (e instanceof PayPalApiError) {
       const issue = JSON.stringify(e.body);
       if (issue.includes("ORDER_ALREADY_CAPTURED")) {
+        await consume(order.id);
         const [fresh] = await d.select().from(schema.orders).where(eq(schema.orders.id, order.id));
         return { orderId: order.id, status: fresh?.status ?? "COMPLETED" };
       }
@@ -192,6 +235,8 @@ export async function captureCheckoutOrder(paypalOrderId: string) {
     })
     .where(eq(schema.orders.id, order.id));
 
+  if (status === "COMPLETED") await consume(order.id);
+  else if (status === "DENIED") await release(order.id);
   return { orderId: order.id, status };
 }
 

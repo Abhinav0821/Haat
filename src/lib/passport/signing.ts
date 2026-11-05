@@ -1,7 +1,7 @@
 import { createHash, createPrivateKey, createPublicKey, sign, verify, type KeyObject } from "node:crypto";
 
 /**
- * Ed25519 signing for Handmade Passports. Anyone can verify a passport with the
+ * Ed25519 signing for Maker Evidence records. Anyone can verify a passport with the
  * public key (served at /api/passport/public-key); only Haat can issue one.
  *
  * Key: PASSPORT_SIGNING_SEED (any secret string) → SHA-256 → 32-byte Ed25519 seed.

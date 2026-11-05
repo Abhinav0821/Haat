@@ -3,6 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
 import { getBuyerThread, MessageError, postBuyerMessage } from "@/lib/messages";
+import { availableQuantity } from "@/lib/inventory";
 import { getPassportsFor } from "@/lib/passport/passport";
 import { CheckoutError, createCheckoutOrder } from "@/lib/paypal/orders";
 import { MAKER_PROFILES } from "@/lib/store";
@@ -48,6 +49,37 @@ type StoreRow = typeof schema.stores.$inferSelect;
 
 type PassportRow = Awaited<ReturnType<typeof getPassportsFor>> extends Map<string, infer R> ? R : never;
 
+const RESULT_TEXT: Record<string, string> = {
+  passed: "passed",
+  failed: "failed",
+  uncertain: "uncertain",
+  no_match: "no identical retail product found in the visual search",
+  possible_match: "a possibly identical retail product was found",
+  not_run: "not run",
+  no_similar_found: "no similar photo among the Haat listings compared",
+  similar_found: "a similar photo exists in another Haat listing",
+};
+
+/** Report each check's stored result — never a blanket claim. */
+function makerEvidenceFor(passport: PassportRow | undefined, page: string, record: string) {
+  if (!passport || passport.status === "awaiting_photo") return { status: "none" };
+  const checks = passport.checks as { results?: { possession: string; retail: string; photos: string; photosScope: number } } | null;
+  const r = checks?.results;
+  return {
+    status: passport.status === "verified" ? "complete" : passport.status === "needs_review" ? "incomplete" : "failed",
+    checkedAt: passport.verifiedAt?.toISOString() ?? null,
+    checks: r
+      ? [
+          { check: "Photo of the piece beside a one-time handwritten code", result: RESULT_TEXT[r.possession] },
+          { check: "Visual retail search (Channel3)", result: RESULT_TEXT[r.retail] },
+          { check: `Photo comparison with ${r.photosScope} other Haat listings`, result: RESULT_TEXT[r.photos] },
+        ]
+      : [],
+    limitation: "Shows the maker had this piece recently and its photos are original. NOT proof of authorship or handmade production.",
+    ...(passport.status === "verified" ? { page, signedRecord: record } : {}),
+  };
+}
+
 function summarize(p: ProductRow, s: StoreRow, baseUrl: string, passport?: PassportRow) {
   const attrs = p.attributes as { materials?: string[]; colors?: string[]; dimensions?: string | null; origin?: string | null };
   return {
@@ -58,16 +90,7 @@ function summarize(p: ProductRow, s: StoreRow, baseUrl: string, passport?: Passp
     url: `${baseUrl}/s/${s.slug}/p/${p.id}`,
     maker: { name: s.ownerName, shop: s.name, place: MAKER_PROFILES[s.slug]?.place ?? null },
     describedByMakerInHerVoice: Boolean(p.voiceNoteId),
-    provenance:
-      passport?.status === "verified"
-        ? {
-            verifiedHandmade: true,
-            verifiedAt: passport.verifiedAt?.toISOString(),
-            evidence: ["live photo with one-time handwritten code", "no identical mass-market product found", "original photos"],
-            passport: `${baseUrl}/s/${s.slug}/p/${p.id}/passport`,
-            signedRecord: `${baseUrl}/api/passport/${p.id}`,
-          }
-        : { verifiedHandmade: false },
+    makerEvidence: makerEvidenceFor(passport, `${baseUrl}/s/${s.slug}/p/${p.id}/passport`, `${baseUrl}/api/passport/${p.id}`),
     sellerProvided: {
       title: p.title,
       materials: attrs.materials ?? [],
@@ -97,12 +120,15 @@ export function buildMcpServer({ baseUrl, clientKey }: { baseUrl: string; client
       inputSchema: {
         query: z.string().max(200).optional().describe("Keywords, e.g. 'blue block print dupatta'"),
         maxPriceUsd: z.number().positive().max(10_000).optional(),
-        verifiedHandmadeOnly: z.boolean().optional().describe("Only return pieces with a verified Handmade Passport."),
+        withMakerEvidenceOnly: z
+          .boolean()
+          .optional()
+          .describe("Only pieces whose maker completed all evidence checks (possession photo, retail search, photo comparison). Not proof of handmade."),
         limit: z.number().int().min(1).max(20).optional(),
       },
       annotations: { readOnlyHint: true },
     },
-    async ({ query, maxPriceUsd, limit, verifiedHandmadeOnly }) => {
+    async ({ query, maxPriceUsd, limit, withMakerEvidenceOnly }) => {
       const d = await db();
       const rows = await d
         .select({ p: schema.products, s: schema.stores })
@@ -120,9 +146,10 @@ export function buildMcpServer({ baseUrl, clientKey }: { baseUrl: string; client
         .sort((a, b) => b.score - a.score)
         .slice(0, limit ?? 10);
       const passports = await getPassportsFor(scored.map(({ p }) => p.id));
+      const stock = new Map(await Promise.all(scored.map(async ({ p }) => [p.id, (await availableQuantity(p.id)).available] as const)));
       const results = scored
-        .filter(({ p }) => !verifiedHandmadeOnly || passports.get(p.id)?.status === "verified")
-        .map(({ p, s }) => summarize(p, s, baseUrl, passports.get(p.id)));
+        .filter(({ p }) => !withMakerEvidenceOnly || passports.get(p.id)?.status === "verified")
+        .map(({ p, s }) => ({ ...summarize(p, s, baseUrl, passports.get(p.id)), available: stock.get(p.id) ?? 0 }));
       return json({ note: UNTRUSTED_NOTE, results });
     },
   );
@@ -143,7 +170,10 @@ export function buildMcpServer({ baseUrl, clientKey }: { baseUrl: string; client
         .innerJoin(schema.stores, eq(schema.stores.id, schema.products.storeId))
         .where(and(eq(schema.products.id, productId), eq(schema.products.status, "live")));
       if (!row) return fail("Product not found or no longer available.");
-      const base = summarize(row.p, row.s, baseUrl, (await getPassportsFor([row.p.id])).get(row.p.id));
+      const base = {
+        ...summarize(row.p, row.s, baseUrl, (await getPassportsFor([row.p.id])).get(row.p.id)),
+        available: (await availableQuantity(row.p.id)).available,
+      };
       return json({
         note: UNTRUSTED_NOTE,
         ...base,

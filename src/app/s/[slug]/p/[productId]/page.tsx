@@ -7,6 +7,7 @@ import { MessageThread } from "@/components/message-thread";
 import { VoiceButton } from "@/components/voice-button";
 import { env } from "@/lib/env";
 import { formatUsd, getLiveProduct } from "@/lib/queries";
+import { availableQuantity } from "@/lib/inventory";
 import { getPassportsFor } from "@/lib/passport/passport";
 import { MAKER_PROFILES } from "@/lib/store";
 import { PayPalCheckout } from "./paypal-checkout";
@@ -60,6 +61,7 @@ async function Product({ params }: { params: PageProps<"/s/[slug]/p/[productId]"
   ];
   const { PAYPAL_CLIENT_ID, PAYPAL_ENV } = env();
   const verified = (await getPassportsFor([p.id])).get(p.id)?.status === "verified";
+  const stock = await availableQuantity(p.id);
 
   return (
     <>
@@ -91,11 +93,12 @@ async function Product({ params }: { params: PageProps<"/s/[slug]/p/[productId]"
                 href={`/s/${store.slug}/p/${p.id}/passport`}
                 className="mt-4 inline-flex items-center gap-2 border border-leaf px-3 py-1.5 text-xs tracking-wide text-leaf transition hover:bg-leaf hover:text-paper"
               >
-                ✓ Verified handmade · View passport
+                ✓ Maker evidence · See what was checked
               </Link>
             )}
 
             <div className="mt-10">
+              {stock.available > 0 ? (
               <PayPalCheckout
                 productId={p.id}
                 storeSlug={store.slug}
@@ -104,6 +107,14 @@ async function Product({ params }: { params: PageProps<"/s/[slug]/p/[productId]"
                   PAYPAL_ENV === "live" ? "https://www.paypal.com/web-sdk/v6/core" : "https://www.sandbox.paypal.com/web-sdk/v6/core"
                 }
               />
+              ) : (
+                <p className="border border-line px-5 py-4 text-sm">
+                  {stock.sold >= stock.total
+                    ? "Sold — this piece has found its home. Ask the maker below about making another."
+                    : "Reserved — another buyer is completing payment. Check back in about 20 minutes."}
+                </p>
+              )}
+              {stock.available > 1 && <p className="mt-3 text-xs text-muted">{stock.available} pieces available</p>}
               <p className="mt-4 text-xs leading-relaxed text-muted">
                 Secure checkout with PayPal Buyer Protection. Ships from India, with tracking, to the address in your PayPal account.
               </p>

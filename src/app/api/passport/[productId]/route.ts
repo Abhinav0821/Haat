@@ -3,7 +3,7 @@ import { db, schema } from "@/db";
 import { verifyPayload } from "@/lib/passport/signing";
 
 /**
- * Public, machine-readable Handmade Passport. The signature is checked on every
+ * Public, machine-readable Maker Evidence record. The signature is checked on every
  * request; verify it yourself with /api/passport/public-key (Ed25519 over the
  * canonical JSON of `payload`, keys sorted).
  */
@@ -13,10 +13,12 @@ export async function GET(_request: Request, { params }: { params: Promise<{ pro
   const d = await db();
   const [p] = await d.select().from(schema.passports).where(eq(schema.passports.productId, productId));
   if (!p || p.status !== "verified" || !p.payload || !p.signature) {
-    return Response.json({ verifiedHandmade: false }, { status: 404 });
+    return Response.json({ makerEvidence: "none" }, { status: 404 });
   }
   return Response.json({
-    verifiedHandmade: true,
+    makerEvidence: "complete",
+    results: (p.checks as { results?: unknown } | null)?.results ?? null,
+    limitation: (p.payload as { limitation?: string }).limitation ?? null,
     signatureValid: verifyPayload(p.payload, p.signature),
     algorithm: "Ed25519",
     payload: p.payload,

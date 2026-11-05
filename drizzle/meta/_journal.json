@@ -64,6 +64,27 @@
       "when": 1793859882599,
       "tag": "0008_message_attachments",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1793867668082,
+      "tag": "0009_stock_reservations",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1793867725819,
+      "tag": "0010_order_shipping",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1793868042156,
+      "tag": "0011_pilot_events",
+      "breakpoints": true
     }
   ]
 }

@@ -6,13 +6,14 @@ import { Wordmark } from "@/components/craft";
 import { DEMO_STORE } from "@/lib/store-constants";
 
 /** Top bar for the seller studio: add, inbox, view shop, sign out. */
-export function SellerNav({ active }: { active: "list" | "inbox" | "products" | "ask" }) {
+export function SellerNav({ active }: { active: "list" | "inbox" | "products" | "ask" | "rules" }) {
   const router = useRouter();
   const links = [
     { href: "/seller/inbox", hi: "आज का काम", en: "Inbox", key: "inbox" },
     { href: "/seller/ask", hi: "पूछो", en: "Ask", key: "ask" },
     { href: "/seller/products", hi: "सामान", en: "Pieces", key: "products" },
     { href: "/seller/list", hi: "नया", en: "Add", key: "list" },
+    { href: "/seller/rules", hi: "नियम", en: "Rules", key: "rules" },
   ] as const;
 
   async function signOut() {

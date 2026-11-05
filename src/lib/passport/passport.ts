@@ -10,8 +10,8 @@ import { dHash, hamming, SAME_PHOTO_MAX_DISTANCE, sha256Hex } from "./image-hash
 import { signPayload } from "./signing";
 
 /**
- * Handmade Passport — evidence that a listed piece is genuinely handmade by
- * this maker. Three independent checks; code makes the decision:
+ * Maker Evidence (formerly "Handmade Passport") — evidence that the maker had
+ * this piece in hand recently and that its photos are original. Three independent checks; code makes the decision:
  *
  *  1. Live possession: a fresh photo of the piece next to a handwritten,
  *     randomly issued code (read by AI vision, matched by code).
@@ -181,6 +181,12 @@ export async function checkMassMarket(image: Image) {
 
 // ── Check 3: original photos ────────────────────────────────────────────────
 
+async function countOtherListings(productId: string) {
+  const d = await db();
+  const rows = await d.select({ id: schema.products.id }).from(schema.products);
+  return rows.filter((r) => r.id !== productId).length;
+}
+
 async function findReusedPhotos(productId: string, hashes: string[]) {
   const d = await db();
   const others = await d
@@ -202,6 +208,31 @@ async function findReusedPhotos(productId: string, hashes: string[]) {
   return [...hits].map(([id, title]) => ({ productId: id, title }));
 }
 
+
+/** What Maker Evidence does NOT show — displayed in the UI, MCP and the signed record. */
+export const EVIDENCE_LIMITATION = {
+  en: "Evidence that the maker had this piece in hand recently and that its photos are original. It is not proof of who made it or how it was made.",
+  hi: "यह सबूत है कि यह सामान हाल में कारीगर के पास था और फ़ोटो असली हैं। इससे यह साबित नहीं होता कि इसे किसने और कैसे बनाया।",
+};
+
+export type EvidenceResults = {
+  possession: "passed" | "failed" | "uncertain";
+  retail: "no_match" | "possible_match" | "not_run";
+  photos: "no_similar_found" | "similar_found";
+  photosScope: number; // how many other Haat listings were compared
+};
+
+/** Each check's actual result — never inferred from the overall status. */
+export function evidenceResults(i: DecisionInput & { listingsChecked: number }): EvidenceResults {
+  const failed = !i.read.paperWithWritingVisible || !i.codeMatch.digits || i.read.sameItemAsListing === "no";
+  const uncertain = i.read.sameItemAsListing === "unsure" || i.read.photoOfScreenOrPrint;
+  return {
+    possession: failed ? "failed" : uncertain ? "uncertain" : "passed",
+    retail: !i.market.available ? "not_run" : i.market.match ? "possible_match" : "no_match",
+    photos: i.reused.length ? "similar_found" : "no_similar_found",
+    photosScope: i.listingsChecked,
+  };
+}
 
 export type DecisionInput = {
   code: string;
@@ -232,6 +263,13 @@ export function decidePassport({ code: issued, read, codeMatch: code, market, re
     problems.push({ code: "different_item", hi: "फ़ोटो वाला सामान लिस्टिंग वाले सामान से अलग लगता है।", en: "The piece in the proof photo looks different from the listing." });
   } else if (read.sameItemAsListing === "unsure") {
     reviews.push({ code: "item_unclear", hi: "सामान साफ़ नहीं दिखा — पूरे सामान की फ़ोटो लें।", en: "Couldn't confirm it's the same piece — show the whole item." });
+  }
+  if (!market.available) {
+    reviews.push({
+      code: "retail_not_run",
+      hi: "दुकानों में मिलती-जुलती चीज़ की जाँच अभी नहीं हो पाई। थोड़ी देर बाद फिर कोशिश करें।",
+      en: "The retail search couldn't run, so this evidence is incomplete. Try again later.",
+    });
   }
   if (market.available && market.match) {
     reviews.push({
@@ -269,21 +307,25 @@ export async function submitProof(productId: string, storeId: string, proof: Ima
   const listing = listingRows.map((m) => ({ data: m.bytes, mediaType: m.mediaType }));
   const listingHashes = await Promise.all(listingRows.map(async (m) => m.dhash ?? dHash(m.bytes)));
 
-  const [read, market, reused] = await Promise.all([
+  const [read, market, reused, listingsChecked] = await Promise.all([
     readProofPhoto(proof, listing),
     checkMassMarket(listing[0] ?? proof),
     findReusedPhotos(productId, [proofHash, ...listingHashes]),
+    countOtherListings(productId),
   ]);
   const code = codeMatches(read.handwrittenText, passport.code);
 
   // ── Decision (deterministic) ──
   const { status, problems, reviews } = decidePassport({ code: passport.code, read, codeMatch: code, market, reused });
 
+  const results = evidenceResults({ code: passport.code, read, codeMatch: code, market, reused, listingsChecked });
   const checks = {
-    liveness: { passed: !problems.some((p) => ["code_not_found", "screen_photo", "different_item"].includes(p.code)), codeDigits: code.digits, codeWord: code.word, sameItem: read.sameItemAsListing, notes: read.notes },
-    massMarket: market.available ? { checked: true, searched: market.searched, match: market.match ?? null } : { checked: false },
-    originalPhotos: { checked: true, reusedIn: reused },
+    results,
+    possession: { codeDigits: code.digits, codeWord: code.word, sameItem: read.sameItemAsListing, possibleScreenPhoto: read.photoOfScreenOrPrint, notes: read.notes },
+    retail: market.available ? { searched: market.searched, match: market.match ?? null } : { searched: 0, match: null },
+    photos: { comparedWithListings: listingsChecked, similarTo: reused },
     flags: [...problems, ...reviews],
+    limitation: EVIDENCE_LIMITATION,
   };
 
   let payload: Record<string, unknown> | null = null;
@@ -301,7 +343,8 @@ export async function submitProof(productId: string, storeId: string, proof: Ima
       verifiedAt: verifiedAt!.toISOString(),
       proofPhotoSha256: sha256Hex(proof.data),
       listingPhotosSha256: listingRows.map((m) => m.sha256 ?? sha256Hex(m.bytes)),
-      checks: { livePossession: true, massMarketChecked: market.available, massMarketMatch: false, reusedPhotos: false },
+      evidence: results,
+      limitation: EVIDENCE_LIMITATION.en,
     };
     signature = signPayload(payload);
   }

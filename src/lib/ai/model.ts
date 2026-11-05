@@ -39,7 +39,22 @@ function requireKey(name: "GOOGLE_API_KEY" | "OPENAI_API_KEY"): string {
 }
 
 /** Overloaded (503), rate-limited (429) or other transient provider errors. */
+class ModelTimeout extends Error {}
+
+/** A model attempt that hangs is treated like an overloaded one: move on to the next model. */
+const ATTEMPT_TIMEOUT_MS = Number(process.env.AI_ATTEMPT_TIMEOUT_MS ?? 30_000);
+function withTimeout<T>(p: PromiseLike<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    Promise.resolve(p),
+    new Promise<T>((_, reject) => {
+      timer = setTimeout(() => reject(new ModelTimeout(`model attempt exceeded ${ATTEMPT_TIMEOUT_MS} ms`)), ATTEMPT_TIMEOUT_MS);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
+
 function isCapacityError(e: unknown): boolean {
+  if (e instanceof ModelTimeout) return true;
   if (!APICallError.isInstance(e)) return false;
   return e.isRetryable || e.statusCode === 429 || e.statusCode === 503 || e.statusCode === 500;
 }
@@ -57,14 +72,14 @@ function withFallback(primaryId: string, ids: string[], make: (id: string) => Re
       specificationVersion: "v4",
       wrapGenerate: async ({ doGenerate, params }) => {
         try {
-          return await doGenerate();
+          return await withTimeout(doGenerate());
         } catch (e) {
           if (!isCapacityError(e)) throw e;
           let last = e;
           for (const fb of fallbacks) {
             console.warn(`[ai] ${(last as Error).message.slice(0, 50)}… → trying ${fb.id}`);
             try {
-              return await fb.m.doGenerate(params);
+              return await withTimeout(fb.m.doGenerate(params));
             } catch (err) {
               if (!isCapacityError(err)) throw err;
               last = err;

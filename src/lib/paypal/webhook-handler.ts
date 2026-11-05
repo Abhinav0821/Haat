@@ -77,11 +77,13 @@ async function interpret(
 /** Captures an approved order (injected so tests don't call PayPal). */
 export type Capturer = (paypalOrderId: string) => Promise<{ orderId: string; status: string }>;
 
+const defaultConsume = async (orderId: string) => (await import("@/lib/inventory")).consume(orderId);
+
 const defaultCapturer: Capturer = async (id) => (await import("@/lib/paypal/orders")).captureCheckoutOrder(id);
 
 export async function handleWebhookEvent(
   event: PayPalWebhookEvent,
-  deps: { database?: DB; getCapture?: CaptureLoader; capture?: Capturer } = {},
+  deps: { database?: DB; getCapture?: CaptureLoader; capture?: Capturer; consumeStock?: (orderId: string) => Promise<unknown> } = {},
 ): Promise<HandleResult> {
   const d = deps.database ?? (await db());
   const { webhookEvents, orders } = schema;
@@ -105,6 +107,9 @@ export async function handleWebhookEvent(
     result = { status: "recorded", note: `no order state change for ${event.event_type}` };
   } else {
     const [order] = await d.select().from(orders).where(eq(orders.paypalOrderId, target.paypalOrderId));
+    // A completed capture always counts the sale (idempotent) — this also recovers
+    // a capture that succeeded at PayPal but whose database update was interrupted.
+    if (order && target.status === "COMPLETED") await (deps.consumeStock ?? defaultConsume)(order.id);
     if (!order) {
       result = { status: "recorded", note: `order ${target.paypalOrderId} not in our database` };
     } else if (!shouldAdvance(order.status, target.status)) {

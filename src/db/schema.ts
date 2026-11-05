@@ -40,6 +40,9 @@ export const products = pgTable("products", {
   sellerLanguage: text("seller_language"),
   attributes: jsonb("attributes").$type<Record<string, unknown>>().notNull().default({}),
   status: text("status", { enum: ["draft", "live", "archived"] }).notNull().default("draft"),
+  /** Pieces made (handmade work is often one of a kind → 1). */
+  quantity: integer("quantity").notNull().default(1),
+  soldQuantity: integer("sold_quantity").notNull().default(0),
   createdAt: createdAt(),
 });
 
@@ -53,6 +56,8 @@ export const orders = pgTable(
     /** CREATED → APPROVED → COMPLETED (captured) → REFUNDED / PARTIALLY_REFUNDED */
     status: text("status").notNull(),
     amountCents: integer("amount_cents").notNull(),
+    /** Shipping charged to the buyer (part of amountCents). */
+    shippingCents: integer("shipping_cents").notNull().default(0),
     currency: text("currency").notNull(),
     items: jsonb("items").$type<{ productId: string; qty: number; priceCents: number }[]>().notNull(),
     buyerEmail: text("buyer_email"),
@@ -168,7 +173,7 @@ export const messages = pgTable("messages", {
 });
 
 /**
- * Handmade Passport: signed proof that the maker physically has the piece
+ * Maker Evidence: signed record that the maker had the piece in hand recently
  * (live photo with a handwritten code), that it isn't a mass-market item,
  * and that its photos aren't reused.
  */
@@ -190,4 +195,28 @@ export const passports = pgTable("passports", {
   payload: jsonb("payload").$type<Record<string, unknown>>(),
   verifiedAt: timestamp("verified_at", { withTimezone: true }),
   createdAt: createdAt(),
+});
+
+/**
+ * Stock held for an order while the buyer approves payment on PayPal.
+ * Created under a row lock on the product; every capture path re-checks it.
+ * "active" past expiresAt counts as expired (no sweeper needed).
+ */
+export const reservations = pgTable("reservations", {
+  id: id(),
+  productId: text("product_id").notNull().references(() => products.id),
+  orderId: text("order_id").notNull().unique(),
+  qty: integer("qty").notNull(),
+  status: text("status", { enum: ["active", "consumed", "released"] }).notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: createdAt(),
+});
+
+/** Lightweight usage events for the pilot study (timings, corrections). No personal data. */
+export const events = pgTable("events", {
+  id: id(),
+  storeId: text("store_id"),
+  name: text("name").notNull(),
+  props: jsonb("props").$type<Record<string, unknown>>().notNull().default({}),
+  at: createdAt(),
 });

@@ -6,6 +6,7 @@ import { env } from "@/lib/env";
 import { createCatalogProduct } from "@/lib/paypal/catalog";
 import { PayPalApiError } from "@/lib/paypal/client";
 import { getDemoStore } from "@/lib/store";
+import { logEvent } from "@/lib/events";
 
 /** POST: seller-confirmed listing → PayPal catalog product + live product in our store. */
 
@@ -14,6 +15,9 @@ const PublishSchema = z.object({
   title: z.string().trim().min(3).max(127),
   description: z.string().trim().min(10).max(2000),
   priceCents: z.number().int().min(100).max(1_000_000),
+  quantity: z.number().int().min(1).max(100).default(1),
+  /** Client timestamp of the seller's first action (pilot timing). */
+  startedAt: z.number().int().nullable().optional(),
   category: z.string().max(40),
   attributes: z.record(z.string(), z.unknown()).default({}),
   imageIds: z.array(z.string().uuid()).max(4).default([]),
@@ -73,6 +77,7 @@ export async function POST(request: Request) {
       title: input.title,
       description: input.description,
       priceCents: input.priceCents,
+      quantity: input.quantity,
       currency: "USD",
       images: input.imageIds,
       voiceNoteId: input.voiceNoteId,
@@ -90,5 +95,10 @@ export async function POST(request: Request) {
     const [winner] = await d.select().from(schema.products).where(eq(schema.products.publishKey, input.draftId));
     return Response.json({ product: winner, paypalProductId: winner?.paypalProductId }, { status: 200 });
   }
+  await logEvent(
+    "listing_published",
+    { productId: product.id, durationMs: input.startedAt ? Math.max(0, Date.now() - input.startedAt) : null, hasVoiceNote: Boolean(input.voiceNoteId), photos: input.imageIds.length },
+    store.id,
+  );
   return Response.json({ product, paypalProductId: paypalProduct.id }, { status: 201 });
 }

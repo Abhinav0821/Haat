@@ -5,6 +5,7 @@ import { SellerNav } from "@/components/seller-nav";
 import { downscaleImage, speak, startRecording, type Recorder } from "@/lib/client/media";
 import type { ListingDraft } from "@/lib/ai/listing";
 import type { FairPrice } from "@/lib/pricing/fair-price";
+import { computeEarnings, earningsSentenceEn, earningsSentenceHi, type Economics } from "@/lib/economics";
 
 type DraftResponse = {
   draft: ListingDraft;
@@ -13,6 +14,7 @@ type DraftResponse = {
   suggestedPriceCents: number | null;
   inrPerUsd: number;
   fairPrice: FairPrice | null;
+  economics: Economics | null;
 };
 
 type Photo = { blob: Blob; url: string };
@@ -38,6 +40,10 @@ export function SpeakToList() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [price, setPrice] = useState("");
+  const [attributes, setAttributes] = useState<ListingDraft["attributes"] | null>(null);
+  const [quantity, setQuantity] = useState("1");
+  // Pilot timing: from the seller's first action to publishing.
+  const startedAt = useRef<number | null>(null);
 
   useEffect(() => {
     if (!recording) return;
@@ -93,6 +99,7 @@ export function SpeakToList() {
     setError(null);
     draftId.current = crypto.randomUUID();
     setPhase({ name: "thinking" });
+    startedAt.current ??= Date.now();
     const form = new FormData();
     if (voice) form.append("audio", voice.blob, "voice.wav");
     photos.forEach((p, i) => form.append("images", p.blob, `photo-${i}.jpg`));
@@ -104,6 +111,8 @@ export function SpeakToList() {
       setTitle(data.draft.title);
       setDescription(data.draft.description);
       setPrice(data.suggestedPriceCents ? (data.suggestedPriceCents / 100).toFixed(2) : "");
+      setAttributes(data.draft.attributes);
+      setQuantity("1");
       setPhase({ name: "review", data });
       if (data.draft.spokenSummary) speak(data.draft.spokenSummary, data.draft.sellerLanguage);
     } catch (e) {
@@ -131,7 +140,9 @@ export function SpeakToList() {
           description,
           priceCents,
           category: draft.category,
-          attributes: draft.attributes,
+          attributes: attributes ?? draft.attributes,
+          quantity: Math.max(1, parseInt(quantity, 10) || 1),
+          startedAt: startedAt.current,
           imageIds: data.imageIds,
           voiceNoteId: data.voiceNoteId,
           sellerTranscript: draft.transcript || null,
@@ -156,6 +167,8 @@ export function SpeakToList() {
     setVoice(null);
     setError(null);
     draftId.current = null;
+    startedAt.current = null;
+    setAttributes(null);
     setPhase({ name: "compose" });
   }
 
@@ -260,6 +273,10 @@ export function SpeakToList() {
           onTitle={setTitle}
           onDescription={setDescription}
           onPrice={setPrice}
+          attributes={attributes ?? phase.data.draft.attributes}
+          onAttributes={setAttributes}
+          quantity={quantity}
+          onQuantity={setQuantity}
           onPublish={() => publish(phase.data)}
           onRestart={reset}
         />
@@ -279,7 +296,7 @@ export function SpeakToList() {
             href="/seller/products"
             className="block border border-ink px-4 py-4 text-sm tracking-wide transition hover:bg-ink hover:text-paper"
           >
-            हाथ से बने होने का प्रमाण पाएँ · Get Handmade Passport →
+            कारीगर का सबूत जोड़ें · Add maker evidence →
           </a>
           <button type="button" onClick={reset} className="w-full bg-ink px-4 py-4 tracking-wide text-paper">
             एक और जोड़ें · List another
@@ -309,18 +326,22 @@ function Review(props: {
   onTitle: (v: string) => void;
   onDescription: (v: string) => void;
   onPrice: (v: string) => void;
+  attributes: ListingDraft["attributes"];
+  onAttributes: (a: ListingDraft["attributes"]) => void;
+  quantity: string;
+  onQuantity: (v: string) => void;
   onPublish: () => void;
   onRestart: () => void;
 }) {
-  const { draft, imageIds, inrPerUsd, fairPrice } = props.data;
+  const { draft, imageIds, inrPerUsd, fairPrice, economics } = props.data;
   const [showTranslation, setShowTranslation] = useState(false);
   const priceNum = parseFloat(props.price);
   const attrs = [
-    ...draft.attributes.materials,
-    ...draft.attributes.colors,
-    draft.attributes.dimensions,
-    draft.attributes.origin,
-    draft.attributes.handmade ? "handmade" : null,
+    ...props.attributes.materials,
+    ...props.attributes.colors,
+    props.attributes.dimensions,
+    props.attributes.origin,
+    props.attributes.handmade ? "handmade" : null,
   ].filter(Boolean) as string[];
 
   return (
@@ -352,6 +373,22 @@ function Review(props: {
 
       <section className="space-y-5 border border-line bg-card p-5">
         <p className="eyebrow">What buyers will see</p>
+        <VoiceCorrection
+          current={{ title: props.title, description: props.description, priceUsd: props.price, attributes: props.attributes }}
+          onApply={(c, priceUsdCents) => {
+            if (c.title) props.onTitle(c.title);
+            if (c.description) props.onDescription(c.description);
+            if (priceUsdCents) props.onPrice((priceUsdCents / 100).toFixed(2));
+            if (c.quantity) props.onQuantity(String(c.quantity));
+            props.onAttributes({
+              ...props.attributes,
+              ...(c.materials ? { materials: c.materials } : {}),
+              ...(c.colors ? { colors: c.colors } : {}),
+              ...(c.dimensions ? { dimensions: c.dimensions } : {}),
+              ...(c.care ? { care: c.care } : {}),
+            });
+          }}
+        />
         {imageIds.length > 0 && (
           <div className="flex gap-2 overflow-x-auto">
             {imageIds.map((id) => (
@@ -406,6 +443,16 @@ function Review(props: {
             </span>
           )}
         </label>
+        <label className="block">
+          <span className="text-sm text-muted">कितने पीस हैं · Pieces available</span>
+          <input
+            inputMode="numeric"
+            value={props.quantity}
+            onChange={(e) => props.onQuantity(e.target.value.replace(/[^0-9]/g, ""))}
+            className="mt-1 block w-20 border-0 border-b border-line bg-transparent px-0 py-2 focus:border-ink focus:outline-none"
+          />
+        </label>
+        <EarningsCard economics={economics} priceUsd={props.price} inrPerUsd={inrPerUsd} />
       </section>
 
       {draft.photoAdvice.length > 0 && (
@@ -504,5 +551,131 @@ function FairPriceCard({ fp, inrPerUsd, onUse }: { fp: FairPrice; inrPerUsd: num
       </ul>
       <p className="mt-3 text-[11px] text-muted">Live prices of similar products via Channel3. You decide the price.</p>
     </section>
+  );
+}
+
+function EarningsCard({ economics, priceUsd, inrPerUsd }: { economics: Economics | null; priceUsd: string; inrPerUsd: number }) {
+  const cents = Math.round((parseFloat(priceUsd) || 0) * 100);
+  if (!economics) {
+    return (
+      <p className="border-l-2 border-marigold bg-marigold-soft px-4 py-3 text-sm" lang="hi">
+        आपकी कमाई जानने के लिए पहले अपने खर्च बताइए →{" "}
+        <a href="/seller/rules" className="underline underline-offset-4">
+          मेरे नियम
+        </a>
+        <span className="block text-xs text-muted">Tell Haat your costs to see what this price leaves for your work.</span>
+      </p>
+    );
+  }
+  if (cents < 100) return null;
+  const x = computeEarnings(economics, { unitPriceUsdCents: cents, pieces: 1, inrPerUsd });
+  if (!("verdict" in x)) {
+    return (
+      <p className="border-l-2 border-marigold bg-marigold-soft px-4 py-3 text-sm" lang="hi">
+        बताना बाकी है: {x.missing.join(", ")} —{" "}
+        <a href="/seller/rules" className="underline underline-offset-4">
+          मेरे नियम
+        </a>
+      </p>
+    );
+  }
+  const tone = x.verdict === "loss" ? "border-danger bg-danger-soft" : x.verdict === "below_minimum" ? "border-marigold bg-marigold-soft" : "border-leaf bg-leaf-soft";
+  const hi = earningsSentenceHi(x, economics.minimumInr);
+  return (
+    <section className={`border-l-2 px-4 py-3 text-sm ${tone}`}>
+      <div className="flex items-baseline justify-between gap-3">
+        <p className="eyebrow">आपकी कमाई · Left for your work</p>
+        <button type="button" onClick={() => speak(hi, "hindi")} className="text-sm underline underline-offset-4">
+          🔊 सुनें
+        </button>
+      </div>
+      <p className="mt-2 font-display text-2xl">
+        {x.leftForWorkInr < 0 ? "−" : ""}₹{Math.abs(x.perPieceInr).toLocaleString("en-IN")}
+        <span className="ml-2 font-sans text-xs text-muted">per piece, estimated</span>
+      </p>
+      <p className="mt-1" lang="hi">
+        {hi}
+      </p>
+      <p className="text-xs text-muted">{earningsSentenceEn(x, economics.minimumInr)}</p>
+      <p className="mt-2 text-xs text-muted">
+        Buyer pays ${(x.buyerPaysUsdCents / 100).toFixed(2)} (incl. ${(x.shippingChargedUsdCents / 100).toFixed(2)} shipping) − est. PayPal fee $
+        {(x.estFeeUsdCents / 100).toFixed(2)} → ≈ ₹{x.estInrAfterPayPal.toLocaleString("en-IN")} − your costs ₹{x.costs.total.toLocaleString("en-IN")} (materials{" "}
+        {x.costs.materials}, packing {x.costs.packaging}, courier {x.costs.shipping}
+        {x.costs.other ? `, other ${x.costs.other}` : ""})
+      </p>
+      <p className="mt-1 text-[11px] text-muted">{x.assumptions.join(" · ")}</p>
+    </section>
+  );
+}
+
+type Correction = {
+  title: string | null;
+  description: string | null;
+  materials: string[] | null;
+  colors: string[] | null;
+  dimensions: string | null;
+  care: string | null;
+  quantity: number | null;
+};
+
+function VoiceCorrection({
+  current,
+  onApply,
+}: {
+  current: { title: string; description: string; priceUsd: string; attributes: ListingDraft["attributes"] };
+  onApply: (c: Correction, priceUsdCents: number | null) => void;
+}) {
+  const rec = useRef<Recorder | null>(null);
+  const [recording, setRecording] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+
+  async function toggle() {
+    if (recording) {
+      const r = rec.current;
+      rec.current = null;
+      setRecording(false);
+      if (!r) return;
+      setBusy(true);
+      setNote(null);
+      try {
+        const form = new FormData();
+        form.append("audio", await r.stop(), "correction.wav");
+        form.append("current", JSON.stringify(current));
+        const res = await fetch("/api/listings/correct", { method: "POST", body: form });
+        const body = await res.json();
+        if (!res.ok) throw new Error(body.error);
+        onApply(body.correction, body.priceUsdCents);
+        setNote(body.readbackHi);
+        speak(body.readbackHi, "hindi");
+      } catch (e) {
+        setNote((e as Error).message);
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+    try {
+      rec.current = await startRecording();
+      setRecording(true);
+    } catch {
+      setNote("माइक्रोफ़ोन की अनुमति दें · Allow microphone access");
+    }
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-3 border border-dashed border-line px-4 py-3">
+      <button
+        type="button"
+        onClick={toggle}
+        disabled={busy}
+        className={`px-4 py-2 text-sm text-paper disabled:opacity-40 ${recording ? "animate-pulse bg-danger" : "bg-ink hover:bg-ink/85"}`}
+      >
+        {recording ? "■ रुकें" : busy ? "…" : "🎙 कुछ बदलना है? बोलिए"}
+      </button>
+      <span className="text-xs text-muted" lang="hi">
+        {note ?? "जैसे: “दाम 1800 कर दो” या “यह सूती है, रेशम नहीं” · Speak a correction"}
+      </span>
+    </div>
   );
 }

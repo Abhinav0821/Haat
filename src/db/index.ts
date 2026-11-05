@@ -45,3 +45,19 @@ export function db(): Promise<DB> {
 }
 
 export { schema };
+
+// ── Transactions ────────────────────────────────────────────────────────────
+// PGlite runs every query over ONE connection, so two concurrent transactions
+// would interleave their statements. Serialise them in-process. (Real Postgres
+// gives each transaction its own connection and row locks do the work.)
+let txQueue: Promise<unknown> = Promise.resolve();
+
+export type Tx = Parameters<Parameters<DB["transaction"]>[0]>[0];
+
+export async function withTx<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {
+  const d = await db();
+  if (process.env.DATABASE_URL) return d.transaction(fn);
+  const run = txQueue.then(() => d.transaction(fn));
+  txQueue = run.catch(() => undefined);
+  return run;
+}

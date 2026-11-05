@@ -6,6 +6,7 @@ import { Assurances, ProductArt, SiteFooter, SiteHeader } from "@/components/cra
 import { VoiceButton } from "@/components/voice-button";
 import { formatUsd, getStore, listLiveProducts } from "@/lib/queries";
 import { getPassportsFor } from "@/lib/passport/passport";
+import { availableQuantity } from "@/lib/inventory";
 import { MAKER_PROFILES } from "@/lib/store";
 
 export async function generateMetadata(props: PageProps<"/s/[slug]">): Promise<Metadata> {
@@ -32,6 +33,7 @@ async function Store({ params }: { params: PageProps<"/s/[slug]">["params"] }) {
   const profile = MAKER_PROFILES[store.slug];
   const voiced = products.find((p) => p.voiceNoteId && p.sellerTranscript);
   const passports = await getPassportsFor(products.map((p) => p.id));
+  const stock = new Map(await Promise.all(products.map(async (p) => [p.id, await availableQuantity(p.id)] as const)));
 
   return (
     <>
@@ -92,8 +94,11 @@ async function Store({ params }: { params: PageProps<"/s/[slug]">["params"] }) {
                       {attrs.materials?.length ? (
                         <p className="mt-1 text-sm capitalize text-muted">{attrs.materials.slice(0, 2).join(", ")}</p>
                       ) : null}
-                      <p className="mt-2 text-sm">{formatUsd(p.priceCents)}</p>
-                      {passports.get(p.id)?.status === "verified" && <p className="eyebrow mt-2 text-leaf">✓ Verified handmade</p>}
+                      <p className="mt-2 text-sm">
+                        {formatUsd(p.priceCents)}
+                        {stock.get(p.id)?.available === 0 && <span className="eyebrow ml-3">{(stock.get(p.id)?.sold ?? 0) >= p.quantity ? "Sold" : "Reserved"}</span>}
+                      </p>
+                      {passports.get(p.id)?.status === "verified" && <p className="eyebrow mt-2 text-leaf">✓ Maker evidence</p>}
                     </Link>
                   </li>
                 );

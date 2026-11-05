@@ -4,6 +4,7 @@ import { env } from "@/lib/env";
 import { draftListing, suggestUsdCents, type MediaInput } from "@/lib/ai/listing";
 import { analyzeFairPrice, selectComparables } from "@/lib/pricing/fair-price";
 import { searchComparables } from "@/lib/pricing/channel3";
+import { readEconomics } from "@/lib/economics";
 import { dHash, sha256Hex } from "@/lib/passport/image-hash";
 import { getDemoStore } from "@/lib/store";
 
@@ -66,7 +67,7 @@ export async function POST(request: Request) {
           kind: "image" as const,
           mediaType: i.mediaType,
           bytes: i.data,
-          dhash: await dHash(i.data).catch(() => null), // fingerprint for the Handmade Passport duplicate check
+          dhash: await dHash(i.data).catch(() => null), // fingerprint for the Maker Evidence photo comparison
           sha256: sha256Hex(i.data),
         })),
       )),
@@ -90,6 +91,7 @@ export async function POST(request: Request) {
       suggestedPriceCents,
       inrPerUsd,
       fairPrice,
+      economics: readEconomics(store.policy),
     });
   } catch (e) {
     console.error("[listings/draft] AI draft failed:", e);

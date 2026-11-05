@@ -41,8 +41,8 @@ export function Products() {
           मेरा सामान <span className="font-sans text-base font-light text-muted">My pieces</span>
         </h1>
         <p className="mt-3 text-sm leading-relaxed text-muted">
-          “हाथ से बना” प्रमाण पत्र ख़रीदारों और AI एजेंटों को भरोसा दिलाता है कि यह सचमुच आपका बनाया है।
-          <span className="block text-xs">A Handmade Passport shows buyers — and their AI agents — that you really made it.</span>
+          “कारीगर का सबूत” ख़रीदारों और AI एजेंटों को दिखाता है कि यह सामान आपके पास है और फ़ोटो असली हैं।
+          <span className="block text-xs">Maker Evidence shows buyers and their AI agents that you have this piece and its photos are original — not who made it.</span>
         </p>
       </header>
       {pieces === null && <p className="text-muted">लोड हो रहा है…</p>}
@@ -115,7 +115,7 @@ function PieceCard({ p, slug, onChange }: { p: Piece; slug: string; onChange: ()
           <p className="mt-1 text-sm text-muted">${(p.priceCents / 100).toFixed(2)}</p>
           {status === "verified" && (
             <a href={`/s/${slug}/p/${p.id}/passport`} className="mt-2 inline-block text-sm text-leaf underline underline-offset-4">
-              ✓ हाथ से बना — प्रमाणित · Verified handmade
+              ✓ कारीगर का सबूत · Maker evidence complete
             </a>
           )}
         </div>
@@ -137,7 +137,7 @@ function PieceCard({ p, slug, onChange }: { p: Piece; slug: string; onChange: ()
 
       {status !== "verified" && !code && (
         <button type="button" onClick={start} disabled={busy} className="mt-5 bg-ink px-5 py-3 text-sm text-paper hover:bg-ink/85 disabled:opacity-40">
-          {status ? "फिर कोशिश करें · Try again" : "हाथ से बने होने का प्रमाण पाएँ · Get Handmade Passport"}
+          {status ? "फिर कोशिश करें · Try again" : "कारीगर का सबूत जोड़ें · Add maker evidence"}
         </button>
       )}
 

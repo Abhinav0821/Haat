@@ -1,0 +1,50 @@
+# Render blueprint — deploys the web app + a managed Postgres.
+# Secrets are marked sync: false and must be entered in the Render dashboard.
+services:
+  - type: web
+    name: haat
+    runtime: node
+    plan: starter
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: haat-db
+          property: connectionString
+      - key: PAYPAL_ENV
+        value: sandbox
+      - key: PAYPAL_CLIENT_ID
+        sync: false
+      - key: PAYPAL_CLIENT_SECRET
+        sync: false
+      - key: PAYPAL_WEBHOOK_ID
+        sync: false
+      - key: AI_PROVIDER
+        value: google
+      - key: GOOGLE_API_KEY
+        sync: false
+      - key: GOOGLE_MODEL
+        value: gemini-3.6-flash
+      - key: GOOGLE_FALLBACK_MODELS
+        value: gemini-3.5-flash,gemini-3.7-flash,gemini-3.1-flash-lite
+      - key: CHANNEL3_API_KEY
+        sync: false
+      - key: SELLER_PASSCODE
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: PASSPORT_SIGNING_SEED
+        generateValue: true
+      - key: APP_URL
+        sync: false # e.g. https://haat.onrender.com
+      - key: INR_PER_USD
+        value: "88"
+
+databases:
+  - name: haat-db
+    plan: basic-256mb
+    databaseName: haat

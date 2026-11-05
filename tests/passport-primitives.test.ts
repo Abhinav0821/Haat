@@ -79,9 +79,27 @@ test("passport decision: every outcome", async () => {
   assert.equal(decidePassport({ ...good, reused: [{ productId: "x", title: "Other listing" }] }).status, "needs_review");
   // A hard failure wins over soft signals
   assert.equal(decidePassport({ ...good, codeMatch: { digits: false, word: false }, reused: [{ productId: "x", title: "y" }] }).status, "rejected");
-  // Retail search being unavailable doesn't block an otherwise good proof
-  assert.equal(decidePassport({ ...good, market: { available: false } }).status, "verified");
+  // Missing evidence is never "complete": retail search not run → held for review
+  assert.equal(decidePassport({ ...good, market: { available: false } }).status, "needs_review");
   // Every flag is bilingual
   for (const f of decidePassport({ ...good, codeMatch: { digits: false, word: false }, read: { ...good.read, photoOfScreenOrPrint: true } }).problems)
     assert.ok(f.hi && f.en);
+});
+
+test("each check reports its own result and scope", async () => {
+  const { evidenceResults } = await import("@/lib/passport/passport");
+  const base = {
+    code: "कमल 4821",
+    read: { handwrittenText: "कमल 4821", paperWithWritingVisible: true, sameItemAsListing: "yes" as const, photoOfScreenOrPrint: false, notes: "" },
+    codeMatch: { digits: true, word: true },
+    market: { available: true, match: null },
+    reused: [],
+    listingsChecked: 7,
+  };
+  assert.deepEqual(evidenceResults(base), { possession: "passed", retail: "no_match", photos: "no_similar_found", photosScope: 7 });
+  assert.equal(evidenceResults({ ...base, market: { available: false } }).retail, "not_run");
+  assert.equal(evidenceResults({ ...base, market: { available: true, match: { domain: "x.com", title: "y" } } }).retail, "possible_match");
+  assert.equal(evidenceResults({ ...base, read: { ...base.read, sameItemAsListing: "unsure" } }).possession, "uncertain");
+  assert.equal(evidenceResults({ ...base, codeMatch: { digits: false, word: true } }).possession, "failed");
+  assert.equal(evidenceResults({ ...base, reused: [{ productId: "p", title: "t" }] }).photos, "similar_found");
 });
