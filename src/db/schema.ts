@@ -112,3 +112,29 @@ export const media = pgTable("media", {
   bytes: bytea("bytes").notNull(),
   createdAt: createdAt(),
 });
+
+/** Buyer ↔ seller messages, stored in both languages, with the Scam Shield verdict. */
+export const messages = pgTable("messages", {
+  id: id(),
+  storeId: text("store_id").notNull().references(() => stores.id),
+  orderId: text("order_id").references(() => orders.id),
+  productId: text("product_id").references(() => products.id),
+  /** Reply threading: seller replies point at the buyer message they answer. */
+  parentId: text("parent_id"),
+  direction: text("direction", { enum: ["buyer_to_seller", "seller_to_buyer"] }).notNull(),
+  /** "web" | "mcp" (sent by a buyer's AI agent) | "voice" (seller spoke the reply) */
+  channel: text("channel").notNull().default("web"),
+  buyerEmail: text("buyer_email"),
+  originalText: text("original_text").notNull(),
+  originalLanguage: text("original_language"),
+  translatedText: text("translated_text"),
+  translatedLanguage: text("translated_language"),
+  /** Scam Shield verdict for buyer messages. */
+  shield: jsonb("shield").$type<{
+    level: "safe" | "caution" | "danger";
+    flags: { code: string; hi: string; en: string }[];
+    checkedAgainstPayPal: boolean;
+  }>(),
+  readAt: timestamp("read_at", { withTimezone: true }),
+  createdAt: createdAt(),
+});

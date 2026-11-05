@@ -15,14 +15,22 @@ export const DEMO_STORE = {
 } as const;
 
 /** Presentation details for the demo maker (would live on the store row in a multi-seller build). */
-export const MAKER_PROFILES: Record<string, { place: string; craft: string; taglineHi: string; taglineEn: string }> = {
+export const MAKER_PROFILES: Record<
+  string,
+  { place: string; craft: string; taglineHi: string; taglineEn: string; language: string }
+> = {
   [DEMO_STORE.slug]: {
+    language: "Hindi",
     place: "Bagru, Jaipur · Rajasthan",
     craft: "Hand block printing with natural dyes",
     taglineHi: "हाथ से बना, दिल से बेचा",
     taglineEn: "Made by hand, sold from the heart",
   },
 };
+
+export function sellerLanguage(slug: string): string {
+  return MAKER_PROFILES[slug]?.language ?? "Hindi";
+}
 
 export async function getDemoStore() {
   const d = await db();

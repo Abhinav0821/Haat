@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { db, schema, type DB } from "@/db";
 import { paypal } from "@/lib/paypal/client";
+import { shouldAdvance } from "@/lib/paypal/order-status";
 
 /**
  * Applies verified PayPal webhook events to our database.
@@ -24,24 +25,7 @@ export type HandleResult =
   | { status: "applied"; orderId: string; orderStatus: string }
   | { status: "recorded"; note: string };
 
-/** Higher rank = later in the lifecycle. Terminal states share the top rank. */
-const STATUS_RANK: Record<string, number> = {
-  CREATED: 0,
-  APPROVED: 1,
-  PENDING: 2,
-  DENIED: 3,
-  COMPLETED: 3,
-  PARTIALLY_REFUNDED: 4,
-  REFUNDED: 5,
-  REVERSED: 5,
-};
-
-export function shouldAdvance(from: string, to: string): boolean {
-  // Partial refunds can repeat (each one is a new fact) and end in a full refund.
-  if (from === "PARTIALLY_REFUNDED" && to === "PARTIALLY_REFUNDED") return true;
-  if (from === to) return false;
-  return (STATUS_RANK[to] ?? -1) > (STATUS_RANK[from] ?? -1);
-}
+export { shouldAdvance } from "@/lib/paypal/order-status";
 
 type Capture = { id: string; status: string; supplementary_data?: { related_ids?: { order_id?: string } } };
 export type CaptureLoader = (captureId: string) => Promise<Capture>;
@@ -90,9 +74,14 @@ async function interpret(
   }
 }
 
+/** Captures an approved order (injected so tests don't call PayPal). */
+export type Capturer = (paypalOrderId: string) => Promise<{ orderId: string; status: string }>;
+
+const defaultCapturer: Capturer = async (id) => (await import("@/lib/paypal/orders")).captureCheckoutOrder(id);
+
 export async function handleWebhookEvent(
   event: PayPalWebhookEvent,
-  deps: { database?: DB; getCapture?: CaptureLoader } = {},
+  deps: { database?: DB; getCapture?: CaptureLoader; capture?: Capturer } = {},
 ): Promise<HandleResult> {
   const d = deps.database ?? (await db());
   const { webhookEvents, orders } = schema;
@@ -130,6 +119,13 @@ export async function handleWebhookEvent(
         })
         .where(eq(orders.id, order.id));
       result = { status: "applied", orderId: order.id, orderStatus: target.status };
+
+      // Agent-initiated (MCP) orders: the human approves on PayPal and may never come
+      // back to our site, so the approval webhook triggers the (idempotent) capture.
+      if (target.status === "APPROVED" && order.channel === "mcp") {
+        const captured = await (deps.capture ?? defaultCapturer)(order.paypalOrderId);
+        result = { status: "applied", orderId: order.id, orderStatus: captured.status };
+      }
     }
   }
 

@@ -159,7 +159,12 @@ export function SpeakToList() {
   return (
     <div className="mx-auto w-full max-w-md px-6 pb-20 pt-10">
       <header className="mb-10 border-b border-line pb-8">
-        <p className="eyebrow">Seller studio · विक्रेता</p>
+        <div className="flex items-baseline justify-between">
+          <p className="eyebrow">Seller studio · विक्रेता</p>
+          <a href="/seller/inbox" className="eyebrow text-ink underline underline-offset-4">
+            संदेश · Inbox
+          </a>
+        </div>
         <h1 className="mt-3 font-display text-4xl font-normal leading-tight">
           नया सामान जोड़ें
           <span className="mt-1 block font-sans text-base font-light text-muted">Add a new piece</span>

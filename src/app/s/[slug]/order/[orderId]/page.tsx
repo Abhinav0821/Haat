@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { SiteFooter, SiteHeader } from "@/components/craft";
+import { MessageThread } from "@/components/message-thread";
 import { formatUsd, getOrderWithStore } from "@/lib/queries";
 
 export default function OrderPage(props: PageProps<"/s/[slug]/order/[orderId]">) {
@@ -60,6 +61,9 @@ async function Order({ params }: { params: PageProps<"/s/[slug]/order/[orderId]"
       <Link href={`/s/${store.slug}`} className="eyebrow mt-12 inline-block text-ink underline underline-offset-8 hover:text-muted">
         Back to {store.name}
       </Link>
+      <div className="mt-16 border-t border-line pt-10 text-left">
+        <MessageThread makerName={store.ownerName} orderId={order.id} title={`Message ${store.ownerName}`} />
+      </div>
     </div>
   );
 }

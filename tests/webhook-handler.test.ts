@@ -15,14 +15,14 @@ let shouldAdvance: typeof HandlerModule.shouldAdvance;
 let database: DB;
 let seq = 0;
 
-async function seedOrder(paypalOrderId: string, status = "CREATED") {
+async function seedOrder(paypalOrderId: string, status = "CREATED", channel = "storefront") {
   const [store] = await database
     .insert(schema.stores)
     .values({ slug: `store-${++seq}`, name: "Test", ownerName: "Meera" })
     .returning();
   const [order] = await database
     .insert(schema.orders)
-    .values({ storeId: store.id, paypalOrderId, status, amountCents: 4200, currency: "USD", items: [] })
+    .values({ storeId: store.id, paypalOrderId, status, amountCents: 4200, currency: "USD", items: [], channel })
     .returning();
   return order;
 }
@@ -119,4 +119,25 @@ test("status ranking", () => {
   assert.equal(shouldAdvance("REFUNDED", "COMPLETED"), false);
   assert.equal(shouldAdvance("PARTIALLY_REFUNDED", "PARTIALLY_REFUNDED"), true);
   assert.equal(shouldAdvance("COMPLETED", "COMPLETED"), false);
+});
+
+test("agent (MCP) orders are captured when the approval webhook arrives", async () => {
+  await seedOrder("ORD-MCP", "CREATED", "mcp");
+  const captured: string[] = [];
+  const r = await handleWebhookEvent(
+    { id: "WH-MCP", event_type: "CHECKOUT.ORDER.APPROVED", resource: { id: "ORD-MCP" } },
+    { database, capture: async (id) => (captured.push(id), { orderId: "x", status: "COMPLETED" }) },
+  );
+  assert.deepEqual(captured, ["ORD-MCP"]);
+  assert.equal(r.status === "applied" && r.orderStatus, "COMPLETED");
+});
+
+test("storefront orders are not auto-captured by the webhook (the browser captures them)", async () => {
+  await seedOrder("ORD-WEB", "CREATED", "storefront");
+  let called = false;
+  await handleWebhookEvent(
+    { id: "WH-WEB", event_type: "CHECKOUT.ORDER.APPROVED", resource: { id: "ORD-WEB" } },
+    { database, capture: async () => ((called = true), { orderId: "x", status: "COMPLETED" }) },
+  );
+  assert.equal(called, false);
 });

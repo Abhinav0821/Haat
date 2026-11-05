@@ -2,7 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { env } from "@/lib/env";
 import { paypal, PayPalApiError } from "@/lib/paypal/client";
-import { shouldAdvance } from "@/lib/paypal/webhook-handler";
+import { CAPTURED_STATUSES, shouldAdvance } from "@/lib/paypal/order-status";
 
 /**
  * Checkout (Orders v2). Deliberately deterministic — no LLM touches this path.
@@ -49,7 +49,7 @@ export async function createCheckoutOrder({
   const totalCents = product.priceCents * quantity;
   const appUrl = env().APP_URL;
 
-  const order = await paypal<{ id: string; status: string }>("/v2/checkout/orders", {
+  const order = await paypal<{ id: string; status: string; links?: { rel: string; href: string }[] }>("/v2/checkout/orders", {
     method: "POST",
     body: {
       intent: "CAPTURE",
@@ -80,7 +80,8 @@ export async function createCheckoutOrder({
             brand_name: store.name.slice(0, 127),
             shipping_preference: "GET_FROM_FILE",
             user_action: "PAY_NOW",
-            return_url: `${appUrl}/s/${store.slug}/p/${product.id}?paypal=return`,
+            // PayPal appends ?token=<order id>&PayerID=… — used by redirect flows (AI-agent checkout links).
+            return_url: `${appUrl}/api/checkout/return`,
             cancel_url: `${appUrl}/s/${store.slug}/p/${product.id}?paypal=cancel`,
           },
         },
@@ -101,7 +102,8 @@ export async function createCheckoutOrder({
     })
     .returning();
 
-  return { paypalOrderId: order.id, orderId: saved.id, storeSlug: store.slug, amountCents: totalCents };
+  const approveUrl = order.links?.find((l) => l.rel === "payer-action" || l.rel === "approve")?.href ?? null;
+  return { paypalOrderId: order.id, orderId: saved.id, storeSlug: store.slug, amountCents: totalCents, approveUrl, product };
 }
 
 type CaptureResponse = {
@@ -129,7 +131,7 @@ export async function captureCheckoutOrder(paypalOrderId: string) {
   const d = await db();
   const [order] = await d.select().from(schema.orders).where(eq(schema.orders.paypalOrderId, paypalOrderId));
   if (!order) throw new CheckoutError("unknown order", 404);
-  if (order.status === "COMPLETED" || order.status === "PARTIALLY_REFUNDED" || order.status === "REFUNDED") {
+  if (CAPTURED_STATUSES.has(order.status)) {
     return { orderId: order.id, status: order.status }; // already captured (e.g. webhook got there first)
   }
 

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { ProductArt, SiteFooter, SiteHeader } from "@/components/craft";
+import { MessageThread } from "@/components/message-thread";
 import { VoiceButton } from "@/components/voice-button";
 import { env } from "@/lib/env";
 import { formatUsd, getLiveProduct } from "@/lib/queries";
@@ -116,6 +117,10 @@ async function Product({ params }: { params: PageProps<"/s/[slug]/p/[productId]"
                 </p>
               </section>
             )}
+
+            <div className="mt-14 border-t border-line pt-10">
+              <MessageThread makerName={store.ownerName} productId={p.id} />
+            </div>
           </div>
         </div>
       </main>

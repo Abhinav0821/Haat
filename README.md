@@ -31,6 +31,24 @@ npm run dev                  # http://localhost:3000
 
 Everything runs against the **PayPal sandbox**. No real money moves.
 
+## Shop with an AI agent (MCP)
+
+Haat exposes a remote MCP server at `/api/mcp` (Streamable HTTP). Add it as a custom connector in Claude or ChatGPT, e.g. `https://<your-host>/api/mcp`.
+
+| Tool | What it does |
+|---|---|
+| `search_products` | Search the makers' live products by keyword / max price |
+| `get_product` | Details, plus the maker's own words (original language + English) |
+| `create_checkout` | Creates a PayPal order **at the shop's price** and returns a PayPal link the **human must approve**; the agent can never pay |
+| `get_order_status` | CREATED → APPROVED → COMPLETED |
+| `message_maker` / `get_messages` | Ask the maker; she reads it in her language and replies by voice, translated back |
+
+Seller-written text is returned under `sellerProvided` and labelled as data, so a crafted product description can't instruct the buyer's agent.
+
+## Scam Shield
+
+Every buyer message is translated into the maker's language and checked for the scams that target new cross-border sellers: fake "I already paid" claims (verified against **PayPal's own order status**), ship-to-another-address requests (which void Seller Protection), off-PayPal payment, overpayment refunds, pressure tactics and attempts to instruct the AI. Warnings come from fixed Hindi/English templates and are read aloud first; buyers never see the verdict.
+
 ## How PayPal and AI are used
 
 | Capability | PayPal technology | AI role |
