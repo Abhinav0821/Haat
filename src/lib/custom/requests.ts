@@ -390,11 +390,14 @@ export async function recordProgress(requestId: string, piecesDone: number) {
   return { done, total };
 }
 
-export async function declineRequest(requestId: string) {
+export async function declineRequest(requestId: string, hooks: import("./agreement").Hooks = {}) {
   const r = await loadRequest(requestId);
   await withTx(async (tx) => {
+    // Lock order shared with revision and capture: request, then its agreements — then read.
     await tx.execute(sql`select id from custom_requests where id = ${r.id} for update`);
+    await tx.execute(sql`select id from agreements where request_id = ${r.id} for update`);
     const versions = await tx.select({ status: schema.agreements.status }).from(schema.agreements).where(eq(schema.agreements.requestId, r.id));
+    await hooks.afterRead?.();
     if (versions.some((v) => v.status === "paying")) throw new AgreementError("A payment is being processed — wait for it to finish.");
     if (versions.some((v) => v.status === "paid")) throw new AgreementError("Already paid.");
     await tx.update(schema.customRequests).set({ status: "declined", updatedAt: new Date() }).where(eq(schema.customRequests.id, r.id));

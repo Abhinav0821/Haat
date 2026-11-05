@@ -6,6 +6,7 @@ import { env } from "@/lib/env";
 import { logEvent } from "@/lib/events";
 import { canonical } from "@/lib/passport/signing";
 import { paypal } from "@/lib/paypal/client";
+import type { PayPalOrderSnapshot } from "@/lib/paypal/finalize";
 import type { CustomSpec, OptionVerdict } from "./quote";
 
 /**
@@ -180,17 +181,32 @@ export async function effectiveBacklog(
   return e.backlogPieces + rows.filter((r) => r.requestId !== opts.excludeRequestId).reduce((s, r) => s + remaining(r), 0);
 }
 
+/**
+ * LOCK ORDER — the same everywhere an agreement's state changes (revise, decline,
+ * approve, start/finish/end a capture): the custom request row FIRST, then the
+ * agreement row. Consistent order means these operations serialise instead of
+ * interleaving (or deadlocking), and state is re-read only after both locks.
+ */
+const lockRequest = (tx: Tx, requestId: string) => tx.execute(sql`select id from custom_requests where id = ${requestId} for update`);
 const lockAgreement = async (tx: Tx, id: string) => {
+  const [ref] = await tx.select({ requestId: schema.agreements.requestId }).from(schema.agreements).where(eq(schema.agreements.id, id)); // immutable
+  if (!ref) return undefined;
+  await lockRequest(tx, ref.requestId);
   await tx.execute(sql`select id from agreements where id = ${id} for update`);
   const [a] = await tx.select().from(schema.agreements).where(eq(schema.agreements.id, id));
   return a;
 };
 
-export async function proposeAgreement(requestId: string, storeId: string, terms: Terms) {
+/** Test-only pause points, used to force interleavings in concurrency tests. */
+export type Hooks = { afterRead?: () => Promise<void> };
+
+export async function proposeAgreement(requestId: string, storeId: string, terms: Terms, hooks: Hooks = {}) {
   return withTx(async (tx) => {
-    // Serialise changes to this request's terms.
-    await tx.execute(sql`select id from custom_requests where id = ${requestId} for update`);
+    // Same lock order as capture: request, then its agreements — then read.
+    await lockRequest(tx, requestId);
+    await tx.execute(sql`select id from agreements where request_id = ${requestId} for update`);
     const versions = await tx.select().from(schema.agreements).where(eq(schema.agreements.requestId, requestId)).orderBy(desc(schema.agreements.version));
+    await hooks.afterRead?.();
     if (versions.some((a) => a.status === "paying")) throw new AgreementError("A payment for the current terms is being processed — the terms can't change now.");
     if (versions.some((a) => a.status === "paid")) throw new AgreementError("This order is already paid.");
     const current = versions.find((a) => a.status === "proposed" || a.status === "approved");
@@ -200,7 +216,13 @@ export async function proposeAgreement(requestId: string, storeId: string, terms
       .values({ id, storeId, requestId, version: (versions[0]?.version ?? 0) + 1, terms, termsHash: hashTerms(terms), status: "proposed" })
       .returning();
     if (current) {
-      await tx.update(schema.agreements).set({ status: "superseded", supersededById: id }).where(eq(schema.agreements.id, current.id));
+      // Conditional as a second guard: only a version that is still proposed/approved can be superseded.
+      const superseded = await tx
+        .update(schema.agreements)
+        .set({ status: "superseded", supersededById: id })
+        .where(and(eq(schema.agreements.id, current.id), inArray(schema.agreements.status, ["proposed", "approved"])))
+        .returning({ id: schema.agreements.id });
+      if (!superseded.length) throw new AgreementError("The current terms changed while revising — please try again.");
     }
     await tx.update(schema.customRequests).set({ status: "agreement", updatedAt: new Date() }).where(eq(schema.customRequests.id, requestId));
     return created;
@@ -386,11 +408,11 @@ export async function beginAgreementCapture(order: OrderRef, now = new Date()): 
 /** The capture definitely did not take money: the terms go back to approved (still held, if the hold hasn't lapsed). */
 export async function endAgreementCapture(order: OrderRef) {
   if (!order.agreementId) return;
-  const d = await db();
-  await d
-    .update(schema.agreements)
-    .set({ status: "approved", payingSince: null, orderId: null })
-    .where(and(eq(schema.agreements.id, order.agreementId), eq(schema.agreements.status, "paying"), eq(schema.agreements.orderId, order.id)));
+  await withTx(async (tx) => {
+    const a = await lockAgreement(tx, order.agreementId!);
+    if (!a || a.status !== "paying" || a.orderId !== order.id) return;
+    await tx.update(schema.agreements).set({ status: "approved", payingSince: null, orderId: null }).where(eq(schema.agreements.id, a.id));
+  });
 }
 
 /**
@@ -418,16 +440,22 @@ export async function markAgreementPaid(order: OrderRef) {
   });
 }
 
-type PayPalOrderView = { status?: string; purchase_units?: { payments?: { captures?: { status?: string }[] } }[] };
+/** PayPal order states in which no capture can have happened. */
+const NEVER_CAPTURED = new Set(["CREATED", "SAVED", "APPROVED", "PAYER_ACTION_REQUIRED", "VOIDED"]);
 
 /**
- * A "paying" agreement whose capture outcome never arrived (crash, timeout) is
- * reconciled with PayPal's own record once it's stale: captured → paid,
- * otherwise back to approved. Pending captures stay "paying".
+ * A "paying" agreement whose capture outcome never arrived (crash, timeout, lost
+ * webhook) is reconciled with PayPal's own order record once it's stale, through
+ * the same finalisation as every other capture path (order status, capture id,
+ * capture time, fees, buyer/shipping details, stock, agreement):
+ *  - capture COMPLETED → paid;  capture PENDING → stays "paying";
+ *  - capture DENIED → back to approved;
+ *  - no capture and PayPal says the order was never captured → back to approved;
+ *  - anything ambiguous (e.g. order COMPLETED but no capture record) → stays "paying".
  */
 export async function reconcileIfStale<T extends AgreementRow | undefined>(
   a: T,
-  deps: { now?: Date; lookup?: (paypalOrderId: string) => Promise<PayPalOrderView> } = {},
+  deps: { now?: Date; lookup?: (paypalOrderId: string) => Promise<PayPalOrderSnapshot> } = {},
 ): Promise<T> {
   const now = deps.now ?? new Date();
   if (!a || a.status !== "paying" || !a.payingSince || now.getTime() - a.payingSince.getTime() < PAYING_STALE_MS || !a.orderId) return a;
@@ -435,11 +463,11 @@ export async function reconcileIfStale<T extends AgreementRow | undefined>(
   const [order] = await d.select().from(schema.orders).where(eq(schema.orders.id, a.orderId));
   if (!order) return a;
   try {
-    const pp = await (deps.lookup ?? ((id: string) => paypal<PayPalOrderView>(`/v2/checkout/orders/${encodeURIComponent(id)}`)))(order.paypalOrderId);
-    const capture = pp.purchase_units?.[0]?.payments?.captures?.[0]?.status;
-    if (pp.status === "COMPLETED" || capture === "COMPLETED") await markAgreementPaid(order);
-    else if (capture === "PENDING") return a;
-    else await endAgreementCapture(order);
+    const pp = await (deps.lookup ?? ((id: string) => paypal<PayPalOrderSnapshot>(`/v2/checkout/orders/${encodeURIComponent(id)}`)))(order.paypalOrderId);
+    const { finalizePayment, captureOutcome } = await import("@/lib/paypal/finalize");
+    if (captureOutcome(pp).outcome !== "UNKNOWN") await finalizePayment(order.id, pp, now);
+    else if (!pp.purchase_units?.[0]?.payments?.captures?.length && NEVER_CAPTURED.has(pp.status ?? "")) await endAgreementCapture(order);
+    // else: ambiguous — keep the terms locked rather than guess.
   } catch (e) {
     console.warn("[agreement] reconcile failed:", (e as Error).message);
     return a;

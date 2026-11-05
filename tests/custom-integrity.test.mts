@@ -113,11 +113,12 @@ test("1b. a definite decline releases the lock; an unknown outcome is reconciled
   assert.equal((await agreement(a.id)).status, "paying", "unknown outcome: stays locked");
   await assert.rejects(svc.chooseOption(r.id, { kind: "option", index: 1 }), /being processed/);
 
+  const captured = { status: "COMPLETED", purchase_units: [{ payments: { captures: [{ id: "CAP-1B", status: "COMPLETED" }] } }] };
   // Fresh: not reconciled yet. Stale: PayPal says it was captured → paid.
-  const fresh = await ag.reconcileIfStale(await agreement(a.id), { lookup: async () => ({ status: "COMPLETED" }) });
+  const fresh = await ag.reconcileIfStale(await agreement(a.id), { lookup: async () => captured });
   assert.equal(fresh?.status, "paying");
   const later = new Date(Date.now() + ag.PAYING_STALE_MS + 1000);
-  const settled = await ag.reconcileIfStale(await agreement(a.id), { now: later, lookup: async () => ({ status: "COMPLETED" }) });
+  const settled = await ag.reconcileIfStale(await agreement(a.id), { now: later, lookup: async () => captured });
   assert.equal(settled?.status, "paid");
 });
 
@@ -230,4 +231,155 @@ test("6. concurrent sale confirmations count stock once", async () => {
   assert.equal(results.filter(Boolean).length, 1, "exactly one caller counts the sale");
   const [after] = await d.select().from(schema.products).where(eq(schema.products.id, p.id));
   assert.equal(after.soldQuantity, 2);
+});
+
+// ── Forced interleavings (follow-up review) ─────────────────────────────────
+// Revision/decline pause right after their first read while a capture starts.
+// Correct behaviour: the capture waits for them (same lock, same order), then sees
+// the changed terms and refuses — PayPal is never called. On PGlite this ordering is
+// guaranteed by its single connection; on PostgreSQL it depends on the locks.
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+async function approvedWithOrder() {
+  const s = await shop();
+  const { r, a } = await proposed(s.id);
+  await svc.buyerApprove(r.id, a.id, a.termsHash);
+  await svc.sellerApprove(r.id, a.id, a.termsHash);
+  const o = await orderFor(s.id, a);
+  return { s, r, a, o };
+}
+
+test("7. a revision paused after its read and a capture started meanwhile: one consistent winner, PayPal not called", async () => {
+  const { s, r, a, o } = await approvedWithOrder();
+  let paypalCalled = false;
+  let capture: Promise<string> = Promise.resolve("not started");
+  const newTerms = { ...(a.terms as import("@/lib/custom/agreement").Terms), unitPriceUsdCents: 2500, totalUsdCents: 2500 };
+  const revision = ag
+    .proposeAgreement(r.id, s.id, newTerms, {
+      afterRead: async () => {
+        capture = captureCheckoutOrder(o.paypalOrderId, {
+          paypalCall: (async () => {
+            paypalCalled = true;
+            return completed;
+          }) as never,
+        }).then(
+          () => "captured",
+          (e) => `refused: ${(e as Error).message}`,
+        );
+        await sleep(400);
+      },
+    })
+    .then(
+      () => "revised",
+      (e) => `refused: ${(e as Error).message}`,
+    );
+  const rev = await revision;
+  const cap = await capture;
+  assert.equal(rev, "revised", "the revision that read first completes");
+  assert.match(cap, /^refused: .*(replaced|changed)/, "the capture then sees the new terms and refuses");
+  assert.equal(paypalCalled, false, "nobody was charged");
+  assert.equal((await agreement(a.id)).status, "superseded");
+});
+
+test("7b. a decline paused after its read and a capture started meanwhile: capture refused, PayPal not called", async () => {
+  const { r, a, o } = await approvedWithOrder();
+  let paypalCalled = false;
+  let capture: Promise<string> = Promise.resolve("not started");
+  const decline = svc
+    .declineRequest(r.id, {
+      afterRead: async () => {
+        capture = captureCheckoutOrder(o.paypalOrderId, {
+          paypalCall: (async () => {
+            paypalCalled = true;
+            return completed;
+          }) as never,
+        }).then(
+          () => "captured",
+          (e) => `refused: ${(e as Error).message}`,
+        );
+        await sleep(400);
+      },
+    })
+    .then(
+      () => "declined",
+      (e) => `refused: ${(e as Error).message}`,
+    );
+  assert.equal(await decline, "declined");
+  assert.match(await capture, /^refused:/);
+  assert.equal(paypalCalled, false);
+  assert.equal((await agreement(a.id)).status, "cancelled");
+});
+
+test("8. reconciliation records the whole payment, not just the agreement — and downstream work sees it", async () => {
+  const { r, a, o } = await approvedWithOrder();
+  await ag.beginAgreementCapture(o);
+  const later = new Date(Date.now() + ag.PAYING_STALE_MS + 1000);
+  const pp = {
+    id: o.paypalOrderId,
+    status: "COMPLETED",
+    payer: { email_address: "ana@example.com", name: { given_name: "Ana", surname: "Lima" } },
+    purchase_units: [
+      {
+        shipping: { name: { full_name: "Ana Lima" }, address: { address_line_1: "1 Main St", admin_area_2: "Austin", admin_area_1: "TX", postal_code: "78701", country_code: "US" } },
+        payments: { captures: [{ id: "CAP-RECONCILED", status: "COMPLETED", create_time: "2026-11-05T10:00:00Z", seller_receivable_breakdown: { paypal_fee: { value: "1.08" }, net_amount: { value: "18.92" } } }] },
+      },
+    ],
+  };
+  const settled = await ag.reconcileIfStale(await agreement(a.id), { now: later, lookup: async () => pp });
+  assert.equal(settled?.status, "paid");
+  const [order] = await d.select().from(schema.orders).where(eq(schema.orders.id, o.id));
+  assert.equal(order.status, "COMPLETED");
+  assert.equal(order.paypalCaptureId, "CAP-RECONCILED");
+  assert.equal(order.capturedAt?.toISOString(), "2026-11-05T10:00:00.000Z");
+  assert.equal(order.feeCents, 108);
+  assert.equal(order.netCents, 1892);
+  assert.equal(order.buyerName, "Ana Lima");
+  assert.equal(order.shippingAddress?.countryCode, "US");
+  assert.equal((await svc.loadRequest(r.id)).status, "paid");
+
+  // Downstream: production → ready to ship (needs a capture id) → refundable capture on record.
+  const { getAutopilotBoard } = await import("@/lib/autopilot/refunds");
+  await svc.recordProgress(r.id, 1);
+  const board = await getAutopilotBoard(order.storeId);
+  assert.ok(board.toShip.some((x) => x.id === o.id && x.shipTo === "Austin, US"), "ready to ship with the buyer's address");
+
+  // Idempotent: reconciling / finalising again changes nothing.
+  const { finalizePayment } = await import("@/lib/paypal/finalize");
+  await finalizePayment(o.id, pp);
+  const [again] = await d.select().from(schema.orders).where(eq(schema.orders.id, o.id));
+  assert.equal(again.capturedAt?.toISOString(), order.capturedAt?.toISOString());
+});
+
+test("9. completion is decided by the capture record: order COMPLETED + capture PENDING is not paid; no capture record is not paid", async () => {
+  const later = new Date(Date.now() + ag.PAYING_STALE_MS + 1000);
+  for (const pp of [
+    { status: "COMPLETED", purchase_units: [{ payments: { captures: [{ id: "CAP-P", status: "PENDING" }] } }] },
+    { status: "COMPLETED", purchase_units: [{}] },
+    { status: "COMPLETED" },
+  ]) {
+    const { a, o } = await approvedWithOrder();
+    await ag.beginAgreementCapture(o);
+    const settled = await ag.reconcileIfStale(await agreement(a.id), { now: later, lookup: async () => pp });
+    assert.equal(settled?.status, "paying", `stays locked for ${JSON.stringify(pp).slice(0, 80)}`);
+    const [order] = await d.select().from(schema.orders).where(eq(schema.orders.id, o.id));
+    assert.equal(order.capturedAt, null);
+    assert.notEqual(order.status, "COMPLETED");
+  }
+});
+
+test("9b. a PENDING capture from PayPal's capture call waits for the webhook, which then completes it", async () => {
+  const { a, o } = await approvedWithOrder();
+  const pending = { status: "COMPLETED", purchase_units: [{ payments: { captures: [{ id: "CAP-PEND", status: "PENDING" }] } }] };
+  const res = await captureCheckoutOrder(o.paypalOrderId, { paypalCall: (async () => pending) as never });
+  assert.equal(res.status, "PENDING");
+  assert.equal((await agreement(a.id)).status, "paying");
+  const done = await handleWebhookEvent(
+    { id: `WH-${randomUUID()}`, event_type: "PAYMENT.CAPTURE.COMPLETED", resource: { id: "CAP-PEND", status: "COMPLETED", create_time: "2026-11-05T11:00:00Z", supplementary_data: { related_ids: { order_id: o.paypalOrderId } } } },
+    { database: d },
+  );
+  assert.equal(done.status, "applied");
+  assert.equal((await agreement(a.id)).status, "paid");
+  const [order] = await d.select().from(schema.orders).where(eq(schema.orders.id, o.id));
+  assert.equal(order.status, "COMPLETED");
+  assert.equal(order.capturedAt?.toISOString(), "2026-11-05T11:00:00.000Z");
 });

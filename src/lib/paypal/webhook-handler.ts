@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm";
+import { finalizePayment, snapshotFromCapture, type PayPalCapture, type PayPalOrderSnapshot } from "@/lib/paypal/finalize";
 import { db, schema, type DB } from "@/db";
 import { paypal } from "@/lib/paypal/client";
 import { shouldAdvance } from "@/lib/paypal/order-status";
@@ -40,7 +41,7 @@ function str(v: unknown): string | undefined {
 async function interpret(
   event: PayPalWebhookEvent,
   getCapture: CaptureLoader,
-): Promise<{ paypalOrderId: string; status: string; captureId?: string } | null> {
+): Promise<{ paypalOrderId: string; status: string; captureId?: string; snapshot?: PayPalOrderSnapshot } | null> {
   const r = event.resource;
   const relatedOrder = (res: Record<string, unknown>) =>
     str((res.supplementary_data as Capture["supplementary_data"])?.related_ids?.order_id);
@@ -49,14 +50,16 @@ async function interpret(
     case "CHECKOUT.ORDER.APPROVED":
       return str(r.id) ? { paypalOrderId: str(r.id)!, status: "APPROVED" } : null;
     case "CHECKOUT.ORDER.COMPLETED":
-      return str(r.id) ? { paypalOrderId: str(r.id)!, status: "COMPLETED" } : null;
+      // The resource is the order: its capture record decides whether it's paid.
+      return str(r.id) ? { paypalOrderId: str(r.id)!, status: "COMPLETED", snapshot: r as PayPalOrderSnapshot } : null;
     case "PAYMENT.CAPTURE.COMPLETED":
     case "PAYMENT.CAPTURE.PENDING":
     case "PAYMENT.CAPTURE.DENIED":
     case "PAYMENT.CAPTURE.REVERSED": {
       const orderId = relatedOrder(r);
       const status = event.event_type.split(".").pop()!;
-      return orderId ? { paypalOrderId: orderId, status, captureId: str(r.id) } : null;
+      const snapshot = status === "REVERSED" ? undefined : snapshotFromCapture(r as PayPalCapture);
+      return orderId ? { paypalOrderId: orderId, status, captureId: str(r.id), snapshot } : null;
     }
     case "PAYMENT.CAPTURE.REFUNDED": {
       // Resource is the *refund*; its "up" link points at the capture, whose
@@ -77,13 +80,11 @@ async function interpret(
 /** Captures an approved order (injected so tests don't call PayPal). */
 export type Capturer = (paypalOrderId: string) => Promise<{ orderId: string; status: string }>;
 
-const defaultConsume = async (orderId: string) => (await import("@/lib/inventory")).consume(orderId);
-
 const defaultCapturer: Capturer = async (id) => (await import("@/lib/paypal/orders")).captureCheckoutOrder(id);
 
 export async function handleWebhookEvent(
   event: PayPalWebhookEvent,
-  deps: { database?: DB; getCapture?: CaptureLoader; capture?: Capturer; consumeStock?: (orderId: string) => Promise<unknown> } = {},
+  deps: { database?: DB; getCapture?: CaptureLoader; capture?: Capturer } = {},
 ): Promise<HandleResult> {
   const d = deps.database ?? (await db());
   const { webhookEvents, orders } = schema;
@@ -106,17 +107,16 @@ export async function handleWebhookEvent(
   if (!target) {
     result = { status: "recorded", note: `no order state change for ${event.event_type}` };
   } else {
-    const [order] = await d.select().from(orders).where(eq(orders.paypalOrderId, target.paypalOrderId));
-    // A completed capture always counts the sale (idempotent) — this also recovers
-    // a capture that succeeded at PayPal but whose database update was interrupted.
-    if (order && target.status === "COMPLETED") {
-      await (deps.consumeStock ?? defaultConsume)(order.id);
-      if (order.agreementId) await (await import("@/lib/custom/agreement")).markAgreementPaid(order);
-    }
-    // A denied capture releases the terms that were locked for it.
-    if (order?.agreementId && target.status === "DENIED") await (await import("@/lib/custom/agreement")).endAgreementCapture(order);
+    const [found] = await d.select().from(orders).where(eq(orders.paypalOrderId, target.paypalOrderId));
+    // Capture outcomes go through the same finalisation as every other path (order
+    // record, capture time, fees, stock, agreement) — idempotent, and it also recovers
+    // a capture whose own response was lost.
+    const finalized = found && target.snapshot ? await finalizePayment(found.id, target.snapshot) : null;
+    const [order] = found ? await d.select().from(orders).where(eq(orders.id, found.id)) : [];
 
-    if (!order) {
+    if (finalized && finalized.outcome !== "UNKNOWN") {
+      result = { status: "applied", orderId: order!.id, orderStatus: finalized.status };
+    } else if (!order) {
       result = { status: "recorded", note: `order ${target.paypalOrderId} not in our database` };
     } else if (!shouldAdvance(order.status, target.status)) {
       result = { status: "recorded", note: `kept ${order.status} (event implied ${target.status})` };

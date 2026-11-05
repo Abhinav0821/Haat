@@ -3,9 +3,10 @@ import { db, schema } from "@/db";
 import { env } from "@/lib/env";
 import { paypal, PayPalApiError } from "@/lib/paypal/client";
 import { randomUUID } from "node:crypto";
-import { CAPTURED_STATUSES, shouldAdvance } from "@/lib/paypal/order-status";
-import { AgreementError, beginAgreementCapture, endAgreementCapture, markAgreementPaid } from "@/lib/custom/agreement";
-import { availableQuantity, consume, ensureReservedForCapture, release, reserve, SoldOutError } from "@/lib/inventory";
+import { CAPTURED_STATUSES } from "@/lib/paypal/order-status";
+import { AgreementError, beginAgreementCapture, endAgreementCapture } from "@/lib/custom/agreement";
+import { finalizePayment, type PayPalOrderSnapshot } from "@/lib/paypal/finalize";
+import { availableQuantity, ensureReservedForCapture, release, reserve, SoldOutError } from "@/lib/inventory";
 import { readEconomics } from "@/lib/economics";
 
 /**
@@ -140,31 +141,7 @@ export async function createCheckoutOrder({
   return { paypalOrderId: order.id, orderId: saved.id, storeSlug: store.slug, amountCents: totalCents, approveUrl, product };
 }
 
-type CaptureResponse = {
-  id: string;
-  status: string;
-  payer?: { email_address?: string; name?: { given_name?: string; surname?: string } };
-  purchase_units?: {
-    shipping?: {
-      name?: { full_name?: string };
-      address?: {
-        address_line_1?: string;
-        address_line_2?: string;
-        admin_area_2?: string;
-        admin_area_1?: string;
-        postal_code?: string;
-        country_code?: string;
-      };
-    };
-    payments?: {
-      captures?: {
-        id: string;
-        status: string;
-        seller_receivable_breakdown?: { paypal_fee?: { value: string }; net_amount?: { value: string } };
-      }[];
-    };
-  }[];
-};
+type CaptureResponse = PayPalOrderSnapshot;
 
 export async function captureCheckoutOrder(paypalOrderId: string, deps: { paypalCall?: typeof paypal } = {}) {
   const call = deps.paypalCall ?? paypal;
@@ -198,10 +175,10 @@ export async function captureCheckoutOrder(paypalOrderId: string, deps: { paypal
     if (e instanceof PayPalApiError) {
       const issue = JSON.stringify(e.body);
       if (issue.includes("ORDER_ALREADY_CAPTURED")) {
-        await consume(order.id);
-        await markAgreementPaid(order);
-        const [fresh] = await d.select().from(schema.orders).where(eq(schema.orders.id, order.id));
-        return { orderId: order.id, status: fresh?.status ?? "COMPLETED" };
+        // Captured earlier (a lost response, or another path got there first): record it from PayPal's own data.
+        const pp = await call<PayPalOrderSnapshot>(`/v2/checkout/orders/${paypalOrderId}`);
+        const done = await finalizePayment(order.id, pp);
+        return { orderId: order.id, status: done.status };
       }
       // Definite refusals: no money moved, so the terms are no longer "paying".
       if (issue.includes("INSTRUMENT_DECLINED")) {
@@ -218,52 +195,9 @@ export async function captureCheckoutOrder(paypalOrderId: string, deps: { paypal
     throw e;
   }
 
-  const unit = captured.purchase_units?.[0];
-  const capture = unit?.payments?.captures?.[0];
-  const status = capture?.status === "COMPLETED" ? "COMPLETED" : capture?.status === "PENDING" ? "PENDING" : "DENIED";
-  const a = unit?.shipping?.address;
-
-  const [current] = await d.select().from(schema.orders).where(eq(schema.orders.id, order.id));
-  await d
-    .update(schema.orders)
-    .set({
-      ...(current && shouldAdvance(current.status, status) ? { status } : {}),
-      paypalCaptureId: capture?.id ?? order.paypalCaptureId,
-      buyerEmail: captured.payer?.email_address ?? null,
-      buyerName: [captured.payer?.name?.given_name, captured.payer?.name?.surname].filter(Boolean).join(" ") || null,
-      shippingAddress: a
-        ? {
-            name: unit?.shipping?.name?.full_name,
-            lines: [a.address_line_1, a.address_line_2].filter((l): l is string => !!l),
-            city: a.admin_area_2,
-            state: a.admin_area_1,
-            postalCode: a.postal_code,
-            countryCode: a.country_code,
-          }
-        : null,
-      capturedAt: status === "COMPLETED" ? new Date() : null,
-      ...feesFrom(capture?.seller_receivable_breakdown),
-      updatedAt: new Date(),
-    })
-    .where(eq(schema.orders.id, order.id));
-
-  if (status === "COMPLETED") {
-    await consume(order.id);
-    await markAgreementPaid(order);
-  } else if (status === "DENIED") {
-    await release(order.id);
-    await endAgreementCapture(order);
-  } // PENDING: the agreement stays "paying" until PayPal's webhook reports the outcome.
-  return { orderId: order.id, status };
+  // Record the outcome from the CAPTURE record (pending ≠ paid; no capture record ≠ paid or failed).
+  const done = await finalizePayment(order.id, captured);
+  return { orderId: order.id, status: done.status };
 }
 
-/** PayPal's own fee/net for a capture, in cents (undefined fields are left untouched). */
-export function feesFrom(b?: { paypal_fee?: { value: string }; net_amount?: { value: string } }) {
-  const cents = (v?: string) => (v === undefined ? undefined : Math.round(parseFloat(v) * 100));
-  const out: { feeCents?: number; netCents?: number } = {};
-  const fee = cents(b?.paypal_fee?.value);
-  const net = cents(b?.net_amount?.value);
-  if (fee !== undefined) out.feeCents = fee;
-  if (net !== undefined) out.netCents = net;
-  return out;
-}
+export { feesFrom } from "@/lib/paypal/finalize";
