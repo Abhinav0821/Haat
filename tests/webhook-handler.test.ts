@@ -79,6 +79,51 @@ test("out-of-order delivery never moves an order backwards", async () => {
   assert.equal((await statusOf(o.id)).status, "COMPLETED");
 });
 
+test("an approval overlapping completion preserves payment details and never captures again", async () => {
+  const { finalizePayment } = await import("@/lib/paypal/finalize");
+  // Exercise both browser checkout and agent checkout: neither may regress or recapture.
+  for (const channel of ["storefront", "mcp"]) {
+    const paypalOrderId = `ORD-OVERLAP-${channel}`;
+    const o = await seedOrder(paypalOrderId, "CREATED", channel);
+    const capturedAt = "2026-11-05T10:00:00Z";
+    let captureCalls = 0;
+    const result = await handleWebhookEvent(
+      { id: `WH-OVERLAP-${channel}`, event_type: "CHECKOUT.ORDER.APPROVED", resource: { id: paypalOrderId } },
+      {
+        database,
+        afterStatusRead: async () => {
+          // The approval handler already read CREATED. The browser/another webhook
+          // records completion before that handler tries to write APPROVED.
+          await finalizePayment(o.id, {
+            id: paypalOrderId,
+            status: "COMPLETED",
+            payer: { email_address: "buyer@example.com" },
+            purchase_units: [{ payments: { captures: [{
+              id: `CAP-${paypalOrderId}`,
+              status: "COMPLETED",
+              create_time: capturedAt,
+              seller_receivable_breakdown: { paypal_fee: { value: "2.00" }, net_amount: { value: "40.00" } },
+            }] } }],
+          });
+        },
+        capture: async () => {
+          captureCalls++;
+          throw new Error("an already completed payment must not be captured again");
+        },
+      },
+    );
+    assert.deepEqual(result, { status: "recorded", note: "kept COMPLETED (event implied APPROVED)" });
+    const row = await statusOf(o.id);
+    assert.equal(row.status, "COMPLETED");
+    assert.equal(row.paypalCaptureId, `CAP-${paypalOrderId}`);
+    assert.equal(row.capturedAt?.toISOString(), "2026-11-05T10:00:00.000Z");
+    assert.equal(row.buyerEmail, "buyer@example.com");
+    assert.equal(row.feeCents, 200);
+    assert.equal(row.netCents, 4000);
+    assert.equal(captureCalls, 0);
+  }
+});
+
 test("PAYMENT.CAPTURE.REFUNDED reads the capture to tell partial from full refunds", async () => {
   const o = await seedOrder("ORD-E", "COMPLETED");
   const refundEvent = (id: string) => ({

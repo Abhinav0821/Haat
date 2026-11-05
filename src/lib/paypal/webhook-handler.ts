@@ -1,6 +1,6 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { finalizePayment, snapshotFromCapture, type PayPalCapture, type PayPalOrderSnapshot } from "@/lib/paypal/finalize";
-import { db, schema, type DB } from "@/db";
+import { db, schema, withTx, type DB } from "@/db";
 import { paypal } from "@/lib/paypal/client";
 import { shouldAdvance } from "@/lib/paypal/order-status";
 
@@ -88,7 +88,14 @@ const defaultCapturer: Capturer = async (id) => (await import("@/lib/paypal/orde
 
 export async function handleWebhookEvent(
   event: PayPalWebhookEvent,
-  deps: { database?: DB; getCapture?: CaptureLoader; getOrder?: OrderLoader; capture?: Capturer } = {},
+  deps: {
+    database?: DB;
+    getCapture?: CaptureLoader;
+    getOrder?: OrderLoader;
+    capture?: Capturer;
+    /** Test-only pause after the initial order read, before a non-capture status change. */
+    afterStatusRead?: () => Promise<void>;
+  } = {},
 ): Promise<HandleResult> {
   const d = deps.database ?? (await db());
   const { webhookEvents, orders } = schema;
@@ -125,24 +132,34 @@ export async function handleWebhookEvent(
       }
     }
     const [order] = found ? await d.select().from(orders).where(eq(orders.id, found.id)) : [];
+    if (order && !finalized) await deps.afterStatusRead?.();
 
     if (finalized) {
       // Capture-bearing events: the order status comes ONLY from finalisation (the capture record).
       result = { status: "applied", orderId: order!.id, orderStatus: finalized.status };
     } else if (!order) {
       result = { status: "recorded", note: `order ${target.paypalOrderId} not in our database` };
-    } else if (!shouldAdvance(order.status, target.status)) {
-      result = { status: "recorded", note: `kept ${order.status} (event implied ${target.status})` };
     } else {
-      await d
-        .update(orders)
-        .set({
-          status: target.status,
-          paypalCaptureId: target.captureId ?? order.paypalCaptureId,
-          updatedAt: new Date(),
-        })
-        .where(eq(orders.id, order.id));
-      result = { status: "applied", orderId: order.id, orderStatus: target.status };
+      // Non-capture events share the finaliser's order lock. The earlier read
+      // can be stale if a browser capture or another webhook completed meanwhile.
+      result = await withTx<HandleResult>(async (tx) => {
+        await tx.execute(sql`select id from orders where id = ${order.id} for update`);
+        const [current] = await tx.select().from(orders).where(eq(orders.id, order.id));
+        if (!current) return { status: "recorded", note: `order ${target.paypalOrderId} not in our database` };
+        if (!shouldAdvance(current.status, target.status)) {
+          return { status: "recorded", note: `kept ${current.status} (event implied ${target.status})` };
+        }
+        await tx
+          .update(orders)
+          .set({
+            status: target.status,
+            // An approval has no capture ID; never copy a stale null over one.
+            ...(target.captureId ? { paypalCaptureId: target.captureId } : {}),
+            updatedAt: new Date(),
+          })
+          .where(eq(orders.id, current.id));
+        return { status: "applied", orderId: current.id, orderStatus: target.status };
+      }, d);
     }
 
     // Unfinished payment work is separate from status bookkeeping: an order the

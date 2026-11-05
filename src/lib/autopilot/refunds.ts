@@ -1,7 +1,7 @@
-import { and, desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { generateText, stepCountIs, tool } from "ai";
 import { z } from "zod";
-import { db, schema } from "@/db";
+import { db, schema, withTx } from "@/db";
 import { model } from "@/lib/ai/model";
 import { env } from "@/lib/env";
 import { paypal } from "@/lib/paypal/client";
@@ -247,7 +247,7 @@ export async function rejectProposal(actionId: string) {
 }
 
 /** Runs an approved refund on PayPal. Atomic status flip + idempotency key = never twice. */
-async function executeRefund(actionId: string, approvedBy: "seller_voice" | "policy"): Promise<Action> {
+export async function executeRefund(actionId: string, approvedBy: "seller_voice" | "policy", deps: { paypalCall?: typeof paypal } = {}): Promise<Action> {
   const d = await db();
   // Claim the action: only one caller can move it out of "proposed".
   const [claimed] = await d
@@ -278,7 +278,7 @@ async function executeRefund(actionId: string, approvedBy: "seller_voice" | "pol
   }
 
   try {
-    const refund = await paypal<{ id: string; status: string }>(`/v2/payments/captures/${encodeURIComponent(input.captureId)}/refund`, {
+    const refund = await (deps.paypalCall ?? paypal)<{ id: string; status: string }>(`/v2/payments/captures/${encodeURIComponent(input.captureId)}/refund`, {
       method: "POST",
       requestId: `refund-${actionId}`,
       body: {
@@ -286,12 +286,18 @@ async function executeRefund(actionId: string, approvedBy: "seller_voice" | "pol
         note_to_payer: "Refund from the maker, via Haat.",
       },
     });
-    const refunded = order.refundedCents + input.amountCents;
-    const status = refunded >= order.amountCents ? "REFUNDED" : "PARTIALLY_REFUNDED";
-    await d
-      .update(schema.orders)
-      .set({ refundedCents: refunded, ...(shouldAdvance(order.status, status) ? { status } : {}), updatedAt: new Date() })
-      .where(eq(schema.orders.id, order.id));
+    // Record it against the order as it is NOW (under its row lock): another refund or
+    // PayPal's own refund webhook may have landed while PayPal processed this one.
+    await withTx(async (tx) => {
+      await tx.execute(sql`select id from orders where id = ${order.id} for update`);
+      const [current] = await tx.select().from(schema.orders).where(eq(schema.orders.id, order.id));
+      const refunded = current.refundedCents + input.amountCents;
+      const status = refunded >= current.amountCents ? "REFUNDED" : "PARTIALLY_REFUNDED";
+      await tx
+        .update(schema.orders)
+        .set({ refundedCents: refunded, ...(shouldAdvance(current.status, status) ? { status } : {}), updatedAt: new Date() })
+        .where(eq(schema.orders.id, current.id));
+    });
     // Tell the buyer, in English, in the maker's name.
     await d.insert(schema.messages).values({
       storeId: claimed.storeId,

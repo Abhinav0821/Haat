@@ -42,11 +42,12 @@ Everything runs against the **PayPal sandbox**. No real money moves.
 
 | Command | What it does |
 |---|---|
-| `npm test` | 137 tests: refund policy, webhooks, Scam Shield, code words, pricing, brief, auth, stock races, custom-order rules and agreements. Pass on embedded PGlite and on PostgreSQL 18 (`DATABASE_URL=… npm test`) |
+| `npm test` | 139 tests: refund policy, webhooks (including approval/completion overlap), refund bookkeeping under overlap, Scam Shield, code words, pricing, brief, auth, stock races, custom-order rules and agreements. Pass on embedded PGlite and on PostgreSQL 18 (`DATABASE_URL=… npm test`) |
 | `npm run smoke` | Live connectivity check: PayPal Orders/Invoicing/Disputes/Reporting, Gemini, Agent Toolkit |
 | `npm run tunnel` | Public HTTPS URL for PayPal webhooks and for connecting AI agents to `/api/mcp` |
 | `npm run demo:reset` | Clear test orders/messages/custom requests (backs up the local DB and archives pilot events first; stop `npm run dev` before running) |
 | `npm run pilot:report` | Pilot metrics from logged events (`-- --from <archive.json>` for a past session) |
+| `npm run reconcile` | Manual payment recovery: record PayPal’s own outcome for stuck orders (`-- <paypalOrderId…>` or `-- --stale`), through the shared finaliser |
 | `npm run db:migrate` | Apply migrations (runs automatically in the Vercel build) |
 
 **Deploying:** free on Vercel + Neon — step by step in [DEPLOY.md](DEPLOY.md).
@@ -148,6 +149,7 @@ Being explicit about scope:
 - **Export readiness.** PayPal India requires identity verification, PAN, bank details, purpose codes and (for goods) an IEC. Haat doesn't collect or automate these.
 - **Shipping logistics.** No labels, customs forms or courier booking — only the shipping charge, her shipping cost, and tracking.
 - **Dispute resolution.** Dispute events are recorded and surfaced; there is no full evidence-and-response workflow.
+- **Automatic reconciliation for storefront orders.** Custom-order payments with an unknown outcome are reconciled automatically; for a storefront or agent order whose capture response was lost *and* whose webhooks were exhausted (PayPal retries for up to 3 days), recovery is manual: `npm run reconcile -- --stale`.
 - **Notifications and buyer accounts.** Buyers see updates when they open their request or order page; Haat sends no email or SMS. The request link (an unguessable id) is the access control.
 - **Multiple sellers.** The demo runs one maker; tables are keyed by store for later separation.
 - **Languages.** Hindi is tested end to end; other Indian languages are supported by the model but not validated with users.

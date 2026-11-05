@@ -90,8 +90,8 @@ let txQueue: Promise<unknown> = Promise.resolve();
 
 export type Tx = Parameters<Parameters<DB["transaction"]>[0]>[0];
 
-export async function withTx<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {
-  const d = await db();
+export async function withTx<T>(fn: (tx: Tx) => Promise<T>, database?: DB): Promise<T> {
+  const d = database ?? (await db());
   if (process.env.DATABASE_URL) return d.transaction(fn);
   const run = txQueue.then(() => d.transaction(fn));
   txQueue = run.catch(() => undefined);
