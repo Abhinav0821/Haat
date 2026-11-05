@@ -194,20 +194,23 @@ export function SpeakToList() {
         <div>
           <div className="grid gap-5 lg:grid-cols-2 lg:gap-8">
             <StepCard n={1} done={photos.length > 0} hi="फ़ोटो लें" en="Take photos" hintHi="2–4 फ़ोटो, दिन की रोशनी में, सादे पीछे के साथ" hintEn="2–4 photos in daylight, on a plain background">
-              {photos.length === 0 ? (
-                <PhotoPicker onFiles={addPhotos} large />
-              ) : (
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-2">
-                  {photos.map((p, i) => (
-                    <img key={p.url} src={p.url} alt={`Photo ${i + 1}`} className="aspect-square w-full border border-line object-cover" />
-                  ))}
-                  {photos.length < 4 && <PhotoPicker onFiles={addPhotos} />}
-                </div>
-              )}
+              <div className="h-80">
+                {photos.length === 0 ? (
+                  <PhotoPicker onFiles={addPhotos} large />
+                ) : (
+                  // Always a 2×2 grid filling the same height: photos, then the add tile.
+                  <div className="grid h-full grid-cols-2 grid-rows-2 gap-3">
+                    {photos.map((p, i) => (
+                      <img key={p.url} src={p.url} alt={`Photo ${i + 1}`} className="h-full min-h-0 w-full border border-line object-cover" />
+                    ))}
+                    {photos.length < 4 && <PhotoPicker onFiles={addPhotos} />}
+                  </div>
+                )}
+              </div>
             </StepCard>
 
             <StepCard n={2} done={described} hi="बताइए" en="Describe it" hintHi="क्या है, किससे बना है, नाप, रंग और कीमत — बोलकर या लिखकर" hintEn="What it is, material, size, colour and your price — speak or type">
-              <div className="flex h-full flex-col gap-3">
+              <div className="flex h-80 flex-col gap-3">
                 <div role="tablist" aria-label="Describe by" className="grid grid-cols-2 border border-line bg-paper/60 p-1 text-sm">
                   {(
                     [
@@ -231,13 +234,13 @@ export function SpeakToList() {
                 </div>
 
                 {describeBy === "speak" ? (
-                  <div className="flex min-h-56 flex-1 flex-col items-center justify-center gap-4 border border-dashed border-line bg-paper/60 px-4 py-8 text-center">
+                  <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 border border-dashed border-line bg-paper/60 px-4 py-4 text-center">
                     <button
                       type="button"
                       onClick={toggleRecording}
                       aria-pressed={recording}
                       aria-label={recording ? "Stop recording" : "Start recording"}
-                      className={`flex h-24 w-24 items-center justify-center rounded-full text-4xl text-paper shadow-sm transition focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ink ${
+                      className={`flex h-20 w-20 shrink-0 items-center justify-center rounded-full text-3xl text-paper shadow-sm transition focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ink ${
                         recording ? "animate-pulse bg-danger" : "bg-ink hover:bg-ink/85"
                       }`}
                     >
@@ -253,16 +256,16 @@ export function SpeakToList() {
                     {voice && !recording && <audio controls src={voice.url} className="w-full max-w-sm" />}
                   </div>
                 ) : (
-                  <label className="flex min-h-56 flex-1 flex-col">
+                  <label className="relative flex min-h-0 flex-1 flex-col">
                     <span className="sr-only">Describe the piece</span>
                     <textarea
                       value={typed}
                       onChange={(e) => setTyped(e.target.value.slice(0, 2000))}
                       placeholder="जैसे: नील रंग का हाथ से छपा सूती दुपट्टा, ढाई मीटर लंबा, दाबू छपाई। दाम 2800 रुपये। · Hindi, English or both"
                       lang="hi"
-                      className="min-h-56 w-full flex-1 resize-none border border-line bg-paper/60 p-4 text-base leading-relaxed placeholder:text-muted/70 focus:border-ink focus:outline-none"
+                      className="h-full w-full resize-none overflow-y-auto border border-line bg-paper/60 p-4 pb-8 text-base leading-relaxed placeholder:text-muted/70 focus:border-ink focus:outline-none"
                     />
-                    <span className="mt-1 text-right text-xs text-muted">{typed.length}/2000</span>
+                    <span className="pointer-events-none absolute bottom-2 right-3 bg-paper/80 px-1 text-xs text-muted">{typed.length}/2000</span>
                   </label>
                 )}
               </div>
@@ -393,7 +396,7 @@ function PhotoPicker({ onFiles, large = false }: { onFiles: (files: FileList | n
       }}
       className={`flex cursor-pointer flex-col items-center justify-center gap-2 border border-dashed text-center transition focus-within:border-ink hover:border-ink hover:text-ink ${
         over ? "border-ink bg-paper-deep/60 text-ink" : "border-muted/50 bg-paper/60 text-muted"
-      } ${large ? "h-full min-h-56 px-4 py-8" : "aspect-square"}`}
+      } ${large ? "h-full px-4 py-8" : "h-full min-h-0"}`}
     >
       <span className={large ? "text-3xl" : "text-2xl"} aria-hidden>
         +
@@ -402,7 +405,11 @@ function PhotoPicker({ onFiles, large = false }: { onFiles: (files: FileList | n
         {large ? "फ़ोटो जोड़ें" : "और फ़ोटो"}
       </span>
       {large && <span className="text-xs">Tap to take or choose photos · or drop them here</span>}
-      <input type="file" accept="image/*" capture="environment" multiple className="sr-only" onChange={(e) => onFiles(e.target.files)} />
+      <input type="file" accept="image/*" capture="environment" multiple className="sr-only" onChange={(e) => {
+          onFiles(e.target.files);
+          e.target.value = ""; // allow picking the same file again
+        }}
+      />
     </label>
   );
 }
