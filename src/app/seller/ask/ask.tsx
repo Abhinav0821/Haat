@@ -61,7 +61,7 @@ export function Ask() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col px-4 pb-10 pt-8 sm:px-6 lg:px-10">
+    <div className="mx-auto flex w-full max-w-7xl flex-1 flex-col px-4 pb-10 pt-8 sm:px-6 lg:px-10 xl:px-12">
       <SellerNav active="ask" />
       <StudioHeader hi="पूछो हाट" en="Ask Haat">
         <p>
@@ -70,7 +70,7 @@ export function Ask() {
         </p>
       </StudioHeader>
 
-      <div className="flex flex-1 flex-col lg:grid lg:grid-cols-[minmax(0,1fr)_18rem] lg:items-start lg:gap-12">
+      <div className="flex flex-1 flex-col lg:grid lg:grid-cols-[minmax(0,1fr)_18rem] lg:items-start lg:gap-12 xl:grid-cols-[minmax(0,1fr)_21rem] xl:gap-16">
       <div className="flex min-h-[55vh] flex-col">
       <div className="w-full flex-1 space-y-6">
         {turns.length === 0 && (

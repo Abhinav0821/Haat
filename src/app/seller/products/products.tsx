@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { ProductArt } from "@/components/craft";
-import { SellerNav, STUDIO, StudioHeader } from "@/components/seller-nav";
+import { EmptyState, SellerNav, STUDIO, StudioHeader } from "@/components/seller-nav";
 import { downscaleImage, speak } from "@/lib/client/media";
 
 type Flag = { code: string; hi: string; en: string };
@@ -45,15 +45,18 @@ export function Products() {
       </StudioHeader>
       {pieces === null && <p className="text-muted">लोड हो रहा है…</p>}
       {pieces?.length === 0 && (
-        <div className="border border-dashed border-line bg-card p-8 text-center">
-          <p lang="hi">अभी कोई सामान नहीं।</p>
-          <p className="text-sm text-muted">No pieces yet.</p>
-          <a href="/seller/list" className="mt-5 inline-block bg-ink px-6 py-3 text-sm text-paper hover:bg-ink/85">
+        <EmptyState
+          hi="अभी कोई सामान नहीं"
+          en="No pieces yet"
+          detailHi="फ़ोटो लेकर और बोलकर या लिखकर अपना पहला सामान जोड़ें। फिर यहाँ उसका कारीगर-सबूत जोड़ सकती हैं।"
+          detailEn="Add your first piece with a photo and a description — spoken or typed. Then add its maker evidence here."
+        >
+          <a href="/seller/list" className="inline-block bg-ink px-6 py-3 text-sm text-paper hover:bg-ink/85">
             नया सामान जोड़ें · Add a piece
           </a>
-        </div>
+        </EmptyState>
       )}
-      <ol className="grid gap-5 sm:grid-cols-2 lg:gap-8 xl:grid-cols-3">
+      <ol className="grid gap-5 sm:grid-cols-2 lg:gap-8 xl:grid-cols-3 xl:gap-10">
         {pieces?.map((p) => (
           <PieceCard key={p.id} p={p} slug={slug} onChange={() => setRefresh((n) => n + 1)} />
         ))}

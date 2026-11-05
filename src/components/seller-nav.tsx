@@ -9,7 +9,7 @@ import { DEMO_STORE } from "@/lib/store-constants";
  * The seller studio's page frame: one column on phones (she works on her phone);
  * on laptops and wider, a wide canvas that each page splits into columns.
  */
-export const STUDIO = "mx-auto w-full max-w-6xl px-4 pb-24 pt-8 sm:px-6 lg:px-10";
+export const STUDIO = "mx-auto w-full max-w-7xl px-4 pb-24 pt-8 sm:px-6 lg:px-10 xl:px-12";
 
 /** The same page header on every studio page: Hindi title, English subtitle, optional intro. */
 export function StudioHeader({ hi, en, children }: { hi: string; en: string; children?: React.ReactNode }) {
@@ -20,6 +20,23 @@ export function StudioHeader({ hi, en, children }: { hi: string; en: string; chi
       </h1>
       {children && <div className="mt-3 max-w-2xl space-y-3 text-sm leading-relaxed text-muted">{children}</div>}
     </header>
+  );
+}
+
+/** Empty list, explained: what will appear here and why — same look on every studio page. */
+export function EmptyState({ hi, en, detailHi, detailEn, children }: { hi: string; en: string; detailHi: string; detailEn: string; children?: React.ReactNode }) {
+  return (
+    <div className="border border-dashed border-line bg-card px-6 py-10 text-center sm:px-10 sm:py-12">
+      <p className="font-display text-xl" lang="hi">
+        {hi}
+      </p>
+      <p className="text-sm text-muted">{en}</p>
+      <p className="mx-auto mt-4 max-w-md text-sm leading-relaxed text-ink/80" lang="hi">
+        {detailHi}
+      </p>
+      <p className="mx-auto mt-1 max-w-md text-xs leading-relaxed text-muted">{detailEn}</p>
+      {children && <div className="mt-6">{children}</div>}
+    </div>
   );
 }
 

@@ -141,7 +141,7 @@ export function Rules() {
         </p>
       </StudioHeader>
 
-      <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)] lg:items-start lg:gap-14">
+      <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)] lg:items-start lg:gap-14 xl:grid-cols-[minmax(0,1fr)_minmax(0,27rem)] xl:gap-16">
       <div>
       <div className="flex items-center gap-4">
         <button

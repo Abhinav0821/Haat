@@ -1,6 +1,6 @@
 "use client";
 
-import { SellerNav, STUDIO, StudioHeader } from "@/components/seller-nav";
+import { EmptyState, SellerNav, STUDIO, StudioHeader } from "@/components/seller-nav";
 import { useEffect, useRef, useState } from "react";
 import { speak, startRecording, type Recorder } from "@/lib/client/media";
 import { Autopilot } from "./autopilot";
@@ -78,7 +78,7 @@ export function Inbox() {
         )}
       </StudioHeader>
 
-      <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] lg:items-start lg:gap-14">
+      <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] lg:items-start lg:gap-14 xl:gap-16">
       <div className="lg:sticky lg:top-8">
       <DailyBrief refreshKey={refresh} />
       <Autopilot refreshKey={refresh} onChange={() => setRefresh((n) => n + 1)} />
@@ -88,7 +88,16 @@ export function Inbox() {
       <h2 className="eyebrow mt-14 border-t border-line pt-10 text-ink lg:mt-0 lg:border-t-0 lg:pt-0"><span className="deva">ख़रीदारों के संदेश</span> · Buyer messages</h2>
       {error && <p className="text-sm text-danger">{error}</p>}
       {messages === null && !error && <p className="text-muted">लोड हो रहा है…</p>}
-      {messages?.length === 0 && <p className="text-muted">अभी कोई संदेश नहीं · No messages yet</p>}
+      {messages?.length === 0 && (
+        <div className="mt-6">
+          <EmptyState
+            hi="अभी कोई संदेश नहीं"
+            en="No messages yet"
+            detailHi="ख़रीदारों के सवाल यहाँ हिंदी में आएँगे, धोखे की जाँच के साथ। आप बोलकर या लिखकर जवाब दे सकती हैं।"
+            detailEn="Buyer questions arrive here in Hindi, checked for scams. Reply by voice or by typing — Haat translates for the buyer."
+          />
+        </div>
+      )}
 
       <ol className="mt-6 space-y-10">
         {messages?.map((m) => (

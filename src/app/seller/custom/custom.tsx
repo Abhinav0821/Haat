@@ -2,7 +2,7 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { SellerNav, STUDIO, StudioHeader } from "@/components/seller-nav";
+import { EmptyState, SellerNav, STUDIO, StudioHeader } from "@/components/seller-nav";
 import { MakingCard } from "@/app/seller/inbox/autopilot";
 import { speak, startRecording, type Recorder } from "@/lib/client/media";
 
@@ -176,14 +176,17 @@ export function CustomRequests() {
         </p>
       </StudioHeader>
 
-      <div className="lg:grid lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)] lg:items-start lg:gap-14">
+      <div className="lg:grid lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)] lg:items-start lg:gap-14 xl:grid-cols-[minmax(0,25rem)_minmax(0,1fr)] xl:gap-16">
       <div className={`lg:sticky lg:top-8 ${selected ? "hidden lg:block" : ""}`}>
       {items === null ? (
         <p className="text-muted">…</p>
       ) : items.length === 0 ? (
-        <p className="bg-card p-6 text-muted" lang="hi">
-          अभी कोई फ़रमाइश नहीं। · No custom requests yet.
-        </p>
+        <EmptyState
+          hi="अभी कोई फ़रमाइश नहीं"
+          en="No custom requests yet"
+          detailHi="जब कोई ख़रीदार या उसका AI एजेंट कुछ बनवाना चाहेगा, वह यहाँ दिखेगा — आपके नियमों के हिसाब से क्या हो सकता है, उसके साथ।"
+          detailEn="When a buyer (or their AI agent) asks for something made, it appears here — with what your own rules allow."
+        />
       ) : (
         <ul className="divide-y divide-line border-y border-line">
           {items.map((it) => (

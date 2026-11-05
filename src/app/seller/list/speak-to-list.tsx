@@ -192,25 +192,28 @@ export function SpeakToList() {
 
       {phase.name === "compose" && (
         <div>
-          <div className="grid gap-5 lg:grid-cols-2 lg:gap-8">
+          <div className="grid gap-5 lg:grid-cols-2 lg:gap-8 xl:gap-10">
             <StepCard n={1} done={photos.length > 0} hi="फ़ोटो लें" en="Take photos" hintHi="2–4 फ़ोटो, दिन की रोशनी में, सादे पीछे के साथ" hintEn="2–4 photos in daylight, on a plain background">
-              <div className="h-80">
+              <div data-step-content className="h-80 xl:h-[22rem]">
                 {photos.length === 0 ? (
                   <PhotoPicker onFiles={addPhotos} large />
                 ) : (
-                  // Always a 2×2 grid filling the same height: photos, then the add tile.
+                  // A 2×2 grid at a fixed height that always looks full: with 2 tiles both span the
+                  // height; with 3 the first does; with 4 it's a plain 2×2. (Tiles = photos + add tile.)
                   <div className="grid h-full grid-cols-2 grid-rows-2 gap-3">
-                    {photos.map((p, i) => (
-                      <img key={p.url} src={p.url} alt={`Photo ${i + 1}`} className="h-full min-h-0 w-full border border-line object-cover" />
-                    ))}
-                    {photos.length < 4 && <PhotoPicker onFiles={addPhotos} />}
+                    {photos.map((p, i) => {
+                      const tiles = photos.length + (photos.length < 4 ? 1 : 0);
+                      const tall = tiles === 2 || (tiles === 3 && i === 0);
+                      return <img key={p.url} src={p.url} alt={`Photo ${i + 1}`} className={`h-full min-h-0 w-full border border-line object-cover ${tall ? "row-span-2" : ""}`} />;
+                    })}
+                    {photos.length < 4 && <PhotoPicker onFiles={addPhotos} tall={photos.length === 1} />}
                   </div>
                 )}
               </div>
             </StepCard>
 
             <StepCard n={2} done={described} hi="बताइए" en="Describe it" hintHi="क्या है, किससे बना है, नाप, रंग और कीमत — बोलकर या लिखकर" hintEn="What it is, material, size, colour and your price — speak or type">
-              <div className="flex h-80 flex-col gap-3">
+              <div data-step-content className="flex h-80 flex-col gap-3 xl:h-[22rem]">
                 <div role="tablist" aria-label="Describe by" className="grid grid-cols-2 border border-line bg-paper/60 p-1 text-sm">
                   {(
                     [
@@ -380,7 +383,7 @@ function StepCard({ n, done, hi, en, hintHi, hintEn, children }: { n: number; do
 }
 
 /** Add photos by tapping (camera on phones) or by dropping files (laptops). */
-function PhotoPicker({ onFiles, large = false }: { onFiles: (files: FileList | null) => void; large?: boolean }) {
+function PhotoPicker({ onFiles, large = false, tall = false }: { onFiles: (files: FileList | null) => void; large?: boolean; tall?: boolean }) {
   const [over, setOver] = useState(false);
   return (
     <label
@@ -396,7 +399,7 @@ function PhotoPicker({ onFiles, large = false }: { onFiles: (files: FileList | n
       }}
       className={`flex cursor-pointer flex-col items-center justify-center gap-2 border border-dashed text-center transition focus-within:border-ink hover:border-ink hover:text-ink ${
         over ? "border-ink bg-paper-deep/60 text-ink" : "border-muted/50 bg-paper/60 text-muted"
-      } ${large ? "h-full px-4 py-8" : "h-full min-h-0"}`}
+      } ${large ? "h-full px-4 py-8" : "h-full min-h-0"} ${tall ? "row-span-2" : ""}`}
     >
       <span className={large ? "text-3xl" : "text-2xl"} aria-hidden>
         +
@@ -461,7 +464,7 @@ function Review(props: {
   );
 
   return (
-    <div className="space-y-5 lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)] lg:items-start lg:gap-12 lg:space-y-0">
+    <div className="space-y-5 lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)] lg:items-start lg:gap-12 lg:space-y-0 xl:grid-cols-[minmax(0,1fr)_minmax(0,27rem)] xl:gap-16">
       <div className="space-y-5">
       {draft.transcript && (
         <section className="border border-line bg-card p-5 sm:p-6">
