@@ -2,7 +2,7 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { SellerNav, STUDIO } from "@/components/seller-nav";
+import { SellerNav, STUDIO, StudioHeader } from "@/components/seller-nav";
 import { MakingCard } from "@/app/seller/inbox/autopilot";
 import { speak, startRecording, type Recorder } from "@/lib/client/media";
 
@@ -169,18 +169,15 @@ export function CustomRequests() {
   return (
     <div className={STUDIO}>
       <SellerNav active="custom" />
-      <header className="mb-8">
-        <h1 className="font-display text-4xl font-normal">
-          फ़रमाइश <span className="font-sans text-base font-light text-muted">Custom requests</span>
-        </h1>
-        <p className="mt-3 text-sm leading-relaxed text-muted" lang="hi">
+      <StudioHeader hi="फ़रमाइश" en="Custom requests">
+        <p lang="hi">
           ख़रीदार जो बनवाना चाहते हैं। आप बोलकर जवाब दें — हाट हर दाम और तारीख़ आपके नियमों से जाँचेगा।
           <span className="block text-xs">Answer by voice; every price and date is checked against your rules before the buyer sees it.</span>
         </p>
-      </header>
+      </StudioHeader>
 
       <div className="lg:grid lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)] lg:items-start lg:gap-14">
-      <div className="lg:sticky lg:top-8">
+      <div className={`lg:sticky lg:top-8 ${selected ? "hidden lg:block" : ""}`}>
       {items === null ? (
         <p className="text-muted">…</p>
       ) : items.length === 0 ? (
@@ -207,8 +204,18 @@ export function CustomRequests() {
       </div>
 
       {selected && view ? (
-        <article className="mt-10 lg:mt-0">
-          <section className="border-l-2 border-ink bg-card p-5">
+        <article>
+          <button
+            type="button"
+            onClick={() => {
+              setView(null);
+              router.replace("/seller/custom");
+            }}
+            className="mb-5 text-sm text-muted underline underline-offset-4 hover:text-ink lg:hidden"
+          >
+            ← <span lang="hi">सभी फ़रमाइश</span> · All requests
+          </button>
+          <section className="border border-line bg-card p-5 sm:p-6">
             <div className="flex items-baseline justify-between gap-3">
               <p className="eyebrow deva">{view.buyerName ?? "ख़रीदार"}{view.channel === "mcp" ? " · via AI agent" : ""}</p>
               {view.summaryHi && (

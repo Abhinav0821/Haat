@@ -11,6 +11,18 @@ import { DEMO_STORE } from "@/lib/store-constants";
  */
 export const STUDIO = "mx-auto w-full max-w-6xl px-4 pb-24 pt-8 sm:px-6 lg:px-10";
 
+/** The same page header on every studio page: Hindi title, English subtitle, optional intro. */
+export function StudioHeader({ hi, en, children }: { hi: string; en: string; children?: React.ReactNode }) {
+  return (
+    <header className="mb-8 sm:mb-10">
+      <h1 className="font-display text-3xl font-normal leading-tight sm:text-4xl">
+        <span lang="hi">{hi}</span> <span className="whitespace-nowrap font-sans text-base font-light text-muted">{en}</span>
+      </h1>
+      {children && <div className="mt-3 max-w-2xl space-y-3 text-sm leading-relaxed text-muted">{children}</div>}
+    </header>
+  );
+}
+
 /** Top bar for the seller studio: add, inbox, view shop, sign out. */
 export function SellerNav({ active }: { active: "list" | "inbox" | "products" | "ask" | "rules" | "custom" }) {
   const router = useRouter();
@@ -34,7 +46,7 @@ export function SellerNav({ active }: { active: "list" | "inbox" | "products" | 
         <Wordmark />
       </Link>
       {/* Phones: links get their own row and scroll sideways, so the page never overflows. */}
-      <div className="-mx-4 flex w-[calc(100%+2rem)] items-center gap-5 overflow-x-auto whitespace-nowrap px-4 pb-1 text-sm sm:-mx-6 sm:w-[calc(100%+3rem)] sm:px-6 lg:mx-0 lg:w-auto lg:gap-6 lg:overflow-visible lg:px-0 lg:pb-0">
+      <div className="-mx-4 flex w-[calc(100%+2rem)] items-center gap-5 overflow-x-auto whitespace-nowrap px-4 pb-1 text-sm sm:-mx-6 sm:w-[calc(100%+3rem)] sm:px-6 lg:mx-0 lg:w-auto lg:gap-6 lg:overflow-visible lg:px-0 lg:pb-0 [mask-image:linear-gradient(to_right,black_85%,transparent)] lg:[mask-image:none]">
         {links.map((l) => (
           <Link
             key={l.key}

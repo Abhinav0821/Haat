@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { SellerNav, STUDIO } from "@/components/seller-nav";
+import { ProductArt } from "@/components/craft";
+import { SellerNav, STUDIO, StudioHeader } from "@/components/seller-nav";
 import { downscaleImage, speak } from "@/lib/client/media";
 
 type Flag = { code: string; hi: string; en: string };
@@ -36,17 +37,23 @@ export function Products() {
   return (
     <div className={STUDIO}>
       <SellerNav active="products" />
-      <header className="mb-10">
-        <h1 className="font-display text-4xl font-normal">
-          मेरा सामान <span className="font-sans text-base font-light text-muted">My pieces</span>
-        </h1>
-        <p className="mt-3 max-w-3xl text-sm leading-relaxed text-muted">
+      <StudioHeader hi="मेरा सामान" en="My pieces">
+        <p className="max-w-3xl text-sm leading-relaxed text-muted">
           “कारीगर का सबूत” ख़रीदारों और AI एजेंटों को दिखाता है कि यह सामान आपके पास है और फ़ोटो असली हैं।
           <span className="block text-xs">Maker Evidence shows buyers and their AI agents that you have this piece and its photos are original — not who made it.</span>
         </p>
-      </header>
+      </StudioHeader>
       {pieces === null && <p className="text-muted">लोड हो रहा है…</p>}
-      <ol className="space-y-8 lg:grid lg:grid-cols-2 lg:gap-10 lg:space-y-0 xl:grid-cols-3">
+      {pieces?.length === 0 && (
+        <div className="border border-dashed border-line bg-card p-8 text-center">
+          <p lang="hi">अभी कोई सामान नहीं।</p>
+          <p className="text-sm text-muted">No pieces yet.</p>
+          <a href="/seller/list" className="mt-5 inline-block bg-ink px-6 py-3 text-sm text-paper hover:bg-ink/85">
+            नया सामान जोड़ें · Add a piece
+          </a>
+        </div>
+      )}
+      <ol className="grid gap-5 sm:grid-cols-2 lg:gap-8 xl:grid-cols-3">
         {pieces?.map((p) => (
           <PieceCard key={p.id} p={p} slug={slug} onChange={() => setRefresh((n) => n + 1)} />
         ))}
@@ -105,21 +112,28 @@ function PieceCard({ p, slug, onChange }: { p: Piece; slug: string; onChange: ()
   }
 
   return (
-    <li className="border-t border-line pt-6">
-      <div className="flex gap-4">
-        <div className="h-20 w-16 shrink-0 bg-paper-deep">
-          {p.image && <img src={`/api/media/${p.image}`} alt="" className="h-full w-full object-cover" />}
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="font-display text-xl leading-snug">{p.title}</p>
-          <p className="mt-1 text-sm text-muted">${(p.priceCents / 100).toFixed(2)}</p>
-          {status === "verified" && (
-            <a href={`/s/${slug}/p/${p.id}/passport`} className="mt-2 inline-block text-sm text-leaf underline underline-offset-4">
-              ✓ कारीगर का सबूत · Maker evidence complete
-            </a>
-          )}
-        </div>
+    <li className="flex flex-col border border-line bg-card">
+      <div className="aspect-[4/3] overflow-hidden bg-paper-deep">
+        {p.image ? <img src={`/api/media/${p.image}`} alt="" className="h-full w-full object-cover" /> : <ProductArt className="h-full w-full" />}
       </div>
+      <div className="flex flex-1 flex-col p-5 sm:p-6">
+      <div className="flex items-start justify-between gap-4">
+        <p className="min-w-0 font-display text-xl leading-snug">{p.title}</p>
+        <p className="shrink-0 pt-1 text-sm">${(p.priceCents / 100).toFixed(2)}</p>
+      </div>
+      <p className="mt-2 text-xs">
+        {status === "verified" ? (
+          <a href={`/s/${slug}/p/${p.id}/passport`} className="text-leaf underline underline-offset-4">
+            ✓ कारीगर का सबूत पूरा · Maker evidence complete
+          </a>
+        ) : status === "needs_review" ? (
+          <span className="text-marigold">जाँच के लिए रुका · Held for review</span>
+        ) : status === "rejected" ? (
+          <span className="text-danger">प्रमाण नहीं मिला · Not verified</span>
+        ) : (
+          <span className="text-muted">कारीगर का सबूत बाकी · No maker evidence yet</span>
+        )}
+      </p>
 
       {(status === "needs_review" || status === "rejected") && p.passport!.flags.length > 0 && (
         <div className={`mt-4 border-l-2 px-4 py-3 text-sm ${status === "rejected" ? "border-danger bg-danger-soft text-danger" : "border-marigold bg-marigold-soft"}`}>
@@ -135,9 +149,10 @@ function PieceCard({ p, slug, onChange }: { p: Piece; slug: string; onChange: ()
         </div>
       )}
 
+      <div className="flex-1" aria-hidden />
       {status !== "verified" && !code && (
-        <button type="button" onClick={start} disabled={busy} className="mt-5 bg-ink px-5 py-3 text-sm text-paper hover:bg-ink/85 disabled:opacity-40">
-          {status ? "फिर कोशिश करें · Try again" : "कारीगर का सबूत जोड़ें · Add maker evidence"}
+        <button type="button" onClick={start} disabled={busy} className="mt-6 w-full bg-ink px-5 py-3 text-sm text-paper hover:bg-ink/85 disabled:opacity-40">
+          {status ? "फिर कोशिश करें · Try again" : "सबूत जोड़ें · Add maker evidence"}
         </button>
       )}
 
@@ -163,6 +178,7 @@ function PieceCard({ p, slug, onChange }: { p: Piece; slug: string; onChange: ()
         </div>
       )}
       {error && <p className="mt-3 text-sm text-danger">{error}</p>}
+      </div>
     </li>
   );
 }

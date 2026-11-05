@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { SellerNav, STUDIO } from "@/components/seller-nav";
+import { SellerNav, STUDIO, StudioHeader } from "@/components/seller-nav";
 import { speak, startRecording, type Recorder } from "@/lib/client/media";
 import { computeEarnings, earningsSentenceEn, earningsSentenceHi, type Economics } from "@/lib/economics";
 
@@ -133,15 +133,12 @@ export function Rules() {
   return (
     <div className={STUDIO}>
       <SellerNav active="rules" />
-      <header className="mb-8">
-        <h1 className="font-display text-4xl font-normal">
-          मेरे नियम <span className="font-sans text-base font-light text-muted">My costs &amp; rules</span>
-        </h1>
-        <p className="mt-3 text-sm leading-relaxed text-muted">
+      <StudioHeader hi="मेरे नियम" en="My costs & rules">
+        <p>
           अपने खर्च और शर्तें बोलकर बताइए। हाट हर दाम और हर ऑर्डर इन्हीं से जाँचेगा।
           <span className="block text-xs">Say your costs and conditions. Haat checks every price and order against them — they only apply after you approve.</span>
         </p>
-      </header>
+      </StudioHeader>
 
       <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)] lg:items-start lg:gap-14">
       <div>
@@ -162,7 +159,7 @@ export function Rules() {
       {heard && <p className="mt-4 bg-paper-deep/60 px-4 py-3 text-sm" lang="hi">“{heard}”</p>}
 
       {readback && (
-        <section className="mt-6 border-l-2 border-ink bg-card p-5">
+        <section className="mt-6 border border-line bg-card p-5 sm:p-6">
           <div className="flex items-baseline justify-between gap-3">
             <p className="eyebrow deva">{dirty ? "मैंने यह समझा · Please check" : "अभी के नियम · Current rules"}</p>
             <button type="button" onClick={() => speak(readback, "hindi")} className="text-sm underline underline-offset-4">
@@ -199,7 +196,7 @@ export function Rules() {
             </label>
           );
         })}
-        <label className="flex items-center gap-3 text-sm sm:col-span-2">
+        <label className="flex items-start gap-3 text-sm sm:col-span-2 [&>input]:mt-1">
           <input
             type="checkbox"
             checked={rules.askBeforeChanges}
@@ -208,15 +205,17 @@ export function Rules() {
               setDirty(true);
             }}
           />
-          <span lang="hi">रंग या सामान बदलने से पहले मुझसे पूछें</span>
-          <span className="text-xs text-muted">Ask me before changing colour or material</span>
+          <span>
+            <span lang="hi">रंग या सामान बदलने से पहले मुझसे पूछें</span>
+            <span className="block text-xs text-muted">Ask me before changing colour or material</span>
+          </span>
         </label>
       </section>
 
       </div>
 
-      <aside className="lg:sticky lg:top-8">
-      <section className="mt-10 bg-card p-5 text-sm lg:mt-0">
+      <aside className="max-lg:contents lg:sticky lg:top-8">
+      <section className="mt-10 border border-line bg-card p-5 text-sm sm:p-6 lg:mt-0">
         <p className="eyebrow"><span className="deva">उदाहरण</span> · Example</p>
         <label className="mt-3 flex items-center gap-2">
           <span lang="hi">अगर दाम हो</span> $
@@ -241,7 +240,7 @@ export function Rules() {
         )}
       </section>
 
-      <div className="mt-8 flex gap-3">
+      <div className="sticky bottom-0 z-10 -mx-4 mt-8 flex gap-3 border-t border-line bg-paper/95 px-4 py-3 backdrop-blur sm:-mx-6 sm:px-6 lg:static lg:mx-0 lg:mt-6 lg:border-t-0 lg:bg-transparent lg:px-0 lg:py-0 lg:backdrop-blur-none">
         <button type="button" onClick={approve} disabled={busy || !dirty} className="flex-1 bg-ink px-5 py-4 text-paper hover:bg-ink/85 disabled:opacity-30">
           सही है, सेव करें · Approve &amp; save
         </button>

@@ -1,6 +1,6 @@
 "use client";
 
-import { SellerNav, STUDIO } from "@/components/seller-nav";
+import { SellerNav, STUDIO, StudioHeader } from "@/components/seller-nav";
 import { useEffect, useRef, useState } from "react";
 import { speak, startRecording, type Recorder } from "@/lib/client/media";
 import { Autopilot } from "./autopilot";
@@ -69,17 +69,14 @@ export function Inbox() {
   return (
     <div className={STUDIO}>
       <SellerNav active="inbox" />
-      <header className="mb-10">
-        <h1 className="font-display text-4xl font-normal">
-          आज का काम <span className="font-sans text-base font-light text-muted">Today’s inbox</span>
-        </h1>
+      <StudioHeader hi="आज का काम" en="Today’s inbox">
         {dangers > 0 && (
-          <p className="mt-4 border-l-2 border-danger bg-danger-soft px-4 py-3 text-sm text-danger">
+          <p className="border-l-2 border-danger bg-danger-soft px-4 py-3 text-sm text-danger">
             {dangers} संदेशों में धोखे के संकेत हैं। पहले उन्हें सुनें।
             <span className="block text-xs opacity-80">{dangers} messages show scam warning signs.</span>
           </p>
         )}
-      </header>
+      </StudioHeader>
 
       <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] lg:items-start lg:gap-14">
       <div className="lg:sticky lg:top-8">

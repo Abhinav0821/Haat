@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { SellerNav } from "@/components/seller-nav";
+import { SellerNav, StudioHeader } from "@/components/seller-nav";
 import { speak, startRecording, type Recorder } from "@/lib/client/media";
 import type { Card } from "@/lib/ask/agent";
 
@@ -63,19 +63,26 @@ export function Ask() {
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col px-4 pb-10 pt-8 sm:px-6 lg:px-10">
       <SellerNav active="ask" />
-      <header className="w-full lg:mx-auto lg:max-w-3xl">
-        <h1 className="font-display text-4xl font-normal">
-          पूछो हाट <span className="font-sans text-base font-light text-muted">Ask Haat</span>
-        </h1>
-        <p className="mt-2 text-sm text-muted">
+      <StudioHeader hi="पूछो हाट" en="Ask Haat">
+        <p>
           अपनी दुकान के बारे में कुछ भी पूछिए, या बिल बनवाइए। पैसे से जुड़ा हर काम आपकी मंज़ूरी से ही होगा।
           <span className="block text-xs">Ask anything about your shop, or have Haat draft an invoice. Nothing is sent without your tap.</span>
         </p>
-      </header>
+      </StudioHeader>
 
-      <div className="mt-8 w-full flex-1 space-y-6 lg:mx-auto lg:max-w-3xl">
+      <div className="flex flex-1 flex-col lg:grid lg:grid-cols-[minmax(0,1fr)_18rem] lg:items-start lg:gap-12">
+      <div className="flex min-h-[55vh] flex-col">
+      <div className="w-full flex-1 space-y-6">
         {turns.length === 0 && (
-          <div className="flex flex-wrap gap-2">
+          <div className="hidden h-full min-h-64 flex-col items-center justify-center border border-dashed border-line text-center lg:flex">
+            <p className="font-display text-2xl" lang="hi">
+              बोलकर पूछिए
+            </p>
+            <p className="mt-1 text-sm text-muted">Tap the mic below and ask in Hindi — or type, or pick a question on the right.</p>
+          </div>
+        )}
+        {turns.length === 0 && (
+          <div className="flex flex-wrap gap-2 lg:hidden">
             {EXAMPLES.map((q) => (
               <button
                 key={q}
@@ -116,7 +123,7 @@ export function Ask() {
         <div ref={end} />
       </div>
 
-      <div className="sticky bottom-0 mt-8 w-full bg-paper pb-2 pt-4 lg:mx-auto lg:max-w-3xl">
+      <div className="sticky bottom-0 mt-8 w-full border-t border-line bg-paper pb-3 pt-4">
         <div className="flex items-center gap-3">
           <button
             type="button"
@@ -150,6 +157,36 @@ export function Ask() {
             </button>
           </form>
         </div>
+      </div>
+      </div>
+
+      <aside className="hidden space-y-6 lg:sticky lg:top-8 lg:block">
+        <section className="border border-line bg-card p-5">
+          <p className="eyebrow"><span className="deva">पूछकर देखिए</span> · Try asking</p>
+          <div className="mt-4 flex flex-col gap-2">
+            {EXAMPLES.map((q) => (
+              <button
+                key={q}
+                type="button"
+                onClick={() => ask({ text: q })}
+                disabled={busy}
+                className="border border-line bg-paper/60 px-3 py-2 text-left text-sm transition hover:border-ink disabled:opacity-40"
+                lang="hi"
+              >
+                {q}
+              </button>
+            ))}
+          </div>
+        </section>
+        <section className="border border-line bg-card p-5 text-sm">
+          <p className="eyebrow"><span className="deva">हाट क्या कर सकता है</span> · What Haat can do</p>
+          <ul className="mt-3 space-y-2">
+            <li lang="hi">कमाई और PayPal के पैसे बताना<span className="block text-xs text-muted">Earnings and PayPal payments</span></li>
+            <li lang="hi">फ़रमाइश और बाकी काम बताना<span className="block text-xs text-muted">Custom requests and pending work</span></li>
+            <li lang="hi">बिल और जवाब तैयार करना<span className="block text-xs text-muted">Draft invoices and replies — you confirm</span></li>
+          </ul>
+        </section>
+      </aside>
       </div>
     </div>
   );

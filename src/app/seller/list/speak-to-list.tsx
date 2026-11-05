@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { SellerNav, STUDIO } from "@/components/seller-nav";
+import { SellerNav, STUDIO, StudioHeader } from "@/components/seller-nav";
 import { downscaleImage, speak, startRecording, type Recorder } from "@/lib/client/media";
 import type { ListingDraft } from "@/lib/ai/listing";
 import type { FairPrice } from "@/lib/pricing/fair-price";
@@ -175,12 +175,7 @@ export function SpeakToList() {
   return (
     <div className={STUDIO}>
       <SellerNav active="list" />
-      <header className="mb-10">
-        <h1 className="font-display text-4xl font-normal leading-tight">
-          नया सामान जोड़ें
-          <span className="mt-1 block font-sans text-base font-light text-muted">Add a new piece</span>
-        </h1>
-      </header>
+      <StudioHeader hi="नया सामान जोड़ें" en="Add a new piece" />
 
       {error && (
         <p role="alert" className="mb-6 border-l-2 border-danger bg-danger-soft px-4 py-3 text-sm text-danger">
@@ -189,69 +184,72 @@ export function SpeakToList() {
       )}
 
       {phase.name === "compose" && (
-        <div className="space-y-6 lg:grid lg:grid-cols-2 lg:items-start lg:gap-x-14 lg:gap-y-10 lg:space-y-0">
-          <section>
-            <StepLabel n={1} hi="फ़ोटो लें" en="Take photos" />
-            <div className="grid grid-cols-4 gap-2 lg:grid-cols-3 lg:gap-3">
-              {photos.map((p, i) => (
-                <img key={p.url} src={p.url} alt={`Photo ${i + 1}`} className="aspect-square w-full object-cover" />
-              ))}
-              {photos.length < 4 && (
-                <label className="flex aspect-square cursor-pointer flex-col items-center justify-center border border-dashed border-muted/50 bg-card text-muted transition hover:border-ink hover:text-ink">
-                  <span className="text-2xl" aria-hidden>
-                    +
-                  </span>
-                  <span className="text-[11px]">फ़ोटो · Photo</span>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    capture="environment"
-                    multiple
-                    className="sr-only"
-                    onChange={(e) => addPhotos(e.target.files)}
-                  />
-                </label>
+        <div>
+          <div className="grid gap-5 lg:grid-cols-2 lg:gap-8">
+            <StepCard n={1} done={photos.length > 0} hi="फ़ोटो लें" en="Take photos" hintHi="2–4 फ़ोटो, दिन की रोशनी में, सादे पीछे के साथ" hintEn="2–4 photos in daylight, on a plain background">
+              {photos.length === 0 ? (
+                <PhotoPicker onFiles={addPhotos} large />
+              ) : (
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-2">
+                  {photos.map((p, i) => (
+                    <img key={p.url} src={p.url} alt={`Photo ${i + 1}`} className="aspect-square w-full border border-line object-cover" />
+                  ))}
+                  {photos.length < 4 && <PhotoPicker onFiles={addPhotos} />}
+                </div>
               )}
-            </div>
-          </section>
+            </StepCard>
 
-          <section>
-            <StepLabel n={2} hi="अपनी भाषा में बताइए" en="Describe it in your language" />
-            <p className="mb-4 text-sm text-muted">
-              क्या है, किससे बना है, नाप, रंग, और कीमत।
-              <span className="block">What it is, material, size, colour and your price.</span>
+            <StepCard n={2} done={!!voice} hi="बोलकर बताइए" en="Describe it by voice" hintHi="क्या है, किससे बना है, नाप, रंग और कीमत" hintEn="What it is, material, size, colour and your price">
+              <div className="flex h-full min-h-56 flex-col items-center justify-center gap-4 border border-dashed border-line bg-paper/60 px-4 py-8 text-center">
+                <button
+                  type="button"
+                  onClick={toggleRecording}
+                  aria-pressed={recording}
+                  aria-label={recording ? "Stop recording" : "Start recording"}
+                  className={`flex h-24 w-24 items-center justify-center rounded-full text-4xl text-paper shadow-sm transition focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ink ${
+                    recording ? "animate-pulse bg-danger" : "bg-ink hover:bg-ink/85"
+                  }`}
+                >
+                  {recording ? "■" : "🎙"}
+                </button>
+                <p className="text-sm text-muted" aria-live="polite">
+                  {recording
+                    ? `बोलिए… ${seconds}s · Listening — tap to stop`
+                    : voice
+                      ? "रिकॉर्ड हो गया ✓ · Recorded — tap to record again"
+                      : "टैप करें और बोलें · Tap and speak"}
+                </p>
+                {voice && !recording && <audio controls src={voice.url} className="w-full max-w-sm" />}
+              </div>
+            </StepCard>
+          </div>
+
+          <div className="sticky bottom-0 z-10 -mx-4 mt-6 flex flex-col gap-3 border-t border-line bg-paper/95 px-4 py-3 backdrop-blur sm:-mx-6 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:static lg:mx-0 lg:mt-8 lg:bg-transparent lg:px-0 lg:pb-0 lg:pt-6 lg:backdrop-blur-none">
+            <p className="text-sm text-ink/80" aria-live="polite">
+              {(() => {
+                const [hi, en] =
+                  photos.length > 0 && voice
+                    ? ["दोनों तैयार हैं।", "Photos and voice ready."]
+                    : photos.length > 0 || voice
+                      ? ["दूसरा भी जोड़ें तो लिस्टिंग बेहतर बनेगी।", "Adding both gives the best listing."]
+                      : ["शुरू करने के लिए फ़ोटो या आवाज़ जोड़ें।", "Add a photo or a voice note to begin."];
+                return (
+                  <>
+                    <span lang="hi">{hi}</span>
+                    <span className="block text-xs text-muted">{en}</span>
+                  </>
+                );
+              })()}
             </p>
-            <div className="flex flex-col items-center gap-3">
-              <button
-                type="button"
-                onClick={toggleRecording}
-                aria-pressed={recording}
-                aria-label={recording ? "Stop recording" : "Start recording"}
-                className={`flex h-28 w-28 items-center justify-center rounded-full text-4xl text-paper transition ${
-                  recording ? "animate-pulse bg-danger" : "bg-ink hover:bg-ink/85"
-                }`}
-              >
-                {recording ? "■" : "🎙"}
-              </button>
-              <p className="text-sm text-muted" aria-live="polite">
-                {recording
-                  ? `बोलिए… ${seconds}s · Listening — tap to stop`
-                  : voice
-                    ? "रिकॉर्ड हो गया ✓ · Recorded — tap to record again"
-                    : "टैप करें और बोलें · Tap and speak"}
-              </p>
-              {voice && !recording && <audio controls src={voice.url} className="w-full" />}
-            </div>
-          </section>
-
-          <button
-            type="button"
-            disabled={recording || (!voice && photos.length === 0)}
-            onClick={createDraft}
-            className="w-full bg-ink px-4 py-4 text-base tracking-wide text-paper transition hover:bg-ink/85 disabled:opacity-30 lg:col-span-2 lg:mx-auto lg:max-w-md"
-          >
-            लिस्टिंग बनाएँ · Create listing
-          </button>
+            <button
+              type="button"
+              disabled={recording || (!voice && photos.length === 0)}
+              onClick={createDraft}
+              className="w-full bg-ink px-8 py-4 text-base tracking-wide text-paper transition hover:bg-ink/85 disabled:cursor-not-allowed disabled:opacity-30 sm:w-auto sm:min-w-72"
+            >
+              लिस्टिंग बनाएँ · Create listing
+            </button>
+          </div>
         </div>
       )}
 
@@ -307,13 +305,60 @@ export function SpeakToList() {
   );
 }
 
-function StepLabel({ n, hi, en }: { n: number; hi: string; en: string }) {
+/** One step of the task: numbered, titled, with a short instruction; ticks when done. Cards in a row share height. */
+function StepCard({ n, done, hi, en, hintHi, hintEn, children }: { n: number; done: boolean; hi: string; en: string; hintHi: string; hintEn: string; children: React.ReactNode }) {
   return (
-    <h2 className="mb-4 flex items-baseline gap-3 font-display text-2xl">
-      <span className="eyebrow shrink-0 text-ink">0{n}</span>
-      {hi}
-      <span className="font-sans text-sm font-light text-muted">{en}</span>
-    </h2>
+    <section className="flex flex-col border border-line bg-card p-5 sm:p-7">
+      <div className="flex items-start gap-4">
+        <span
+          aria-hidden
+          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border text-sm transition ${done ? "border-leaf bg-leaf text-paper" : "border-ink text-ink"}`}
+        >
+          {done ? "✓" : n}
+        </span>
+        <div className="min-w-0">
+          <h2 className="font-display text-2xl leading-tight">
+            <span lang="hi">{hi}</span> <span className="whitespace-nowrap font-sans text-sm font-light text-muted">{en}</span>
+          </h2>
+          <p className="mt-1 text-sm text-ink/80" lang="hi">
+            {hintHi}
+          </p>
+          <p className="text-xs text-muted">{hintEn}</p>
+        </div>
+      </div>
+      <div className="mt-5 flex-1">{children}</div>
+    </section>
+  );
+}
+
+/** Add photos by tapping (camera on phones) or by dropping files (laptops). */
+function PhotoPicker({ onFiles, large = false }: { onFiles: (files: FileList | null) => void; large?: boolean }) {
+  const [over, setOver] = useState(false);
+  return (
+    <label
+      onDragOver={(e) => {
+        e.preventDefault();
+        setOver(true);
+      }}
+      onDragLeave={() => setOver(false)}
+      onDrop={(e) => {
+        e.preventDefault();
+        setOver(false);
+        onFiles(e.dataTransfer.files);
+      }}
+      className={`flex cursor-pointer flex-col items-center justify-center gap-2 border border-dashed text-center transition focus-within:border-ink hover:border-ink hover:text-ink ${
+        over ? "border-ink bg-paper-deep/60 text-ink" : "border-muted/50 bg-paper/60 text-muted"
+      } ${large ? "h-full min-h-56 px-4 py-8" : "aspect-square"}`}
+    >
+      <span className={large ? "text-3xl" : "text-2xl"} aria-hidden>
+        +
+      </span>
+      <span className={large ? "text-sm" : "text-xs"} lang="hi">
+        {large ? "फ़ोटो जोड़ें" : "और फ़ोटो"}
+      </span>
+      {large && <span className="text-xs">Tap to take or choose photos · or drop them here</span>}
+      <input type="file" accept="image/*" capture="environment" multiple className="sr-only" onChange={(e) => onFiles(e.target.files)} />
+    </label>
   );
 }
 
@@ -344,11 +389,30 @@ function Review(props: {
     props.attributes.handmade ? "handmade" : null,
   ].filter(Boolean) as string[];
 
+  const actions = (
+    <div>
+      <div className="grid grid-cols-[auto_1fr] gap-3">
+        <button type="button" onClick={props.onRestart} disabled={props.busy} className="border border-ink px-5 py-3.5 transition hover:bg-ink hover:text-paper sm:py-4">
+          फिर से · Redo
+        </button>
+        <button
+          type="button"
+          onClick={props.onPublish}
+          disabled={props.busy}
+          className="bg-ink px-4 py-3.5 tracking-wide text-paper transition hover:bg-ink/85 disabled:opacity-40 sm:py-4"
+        >
+          {props.busy ? "डाल रहे हैं… · Publishing…" : "PayPal पर डालें · Publish"}
+        </button>
+      </div>
+      {!(priceNum > 0) && <p className="mt-2 text-center text-xs text-muted">Add a USD price to publish.</p>}
+    </div>
+  );
+
   return (
     <div className="space-y-5 lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)] lg:items-start lg:gap-12 lg:space-y-0">
       <div className="space-y-5">
       {draft.transcript && (
-        <section className="border-l-2 border-ink bg-card p-5">
+        <section className="border border-line bg-card p-5 sm:p-6">
           <div className="mb-2 flex items-center justify-between gap-2">
             <h2 className="font-semibold">
               क्या मैंने सही समझा?
@@ -372,7 +436,7 @@ function Review(props: {
         </section>
       )}
 
-      <section className="space-y-5 border border-line bg-card p-5">
+      <section className="space-y-5 border border-line bg-card p-5 sm:p-6">
         <p className="eyebrow">What buyers will see</p>
         <VoiceCorrection
           current={{ title: props.title, description: props.description, priceUsd: props.price, attributes: props.attributes }}
@@ -459,10 +523,10 @@ function Review(props: {
 
       <aside className="space-y-5 lg:sticky lg:top-8">
       {draft.photoAdvice.length > 0 && (
-        <section className="border-l-2 border-line bg-card p-5">
+        <section className="border border-line bg-card p-5 sm:p-6">
           <div className="flex items-baseline justify-between gap-3">
             <p className="eyebrow"><span className="deva">फ़ोटो सुझाव</span> · Photo tips</p>
-            <button type="button" onClick={() => speak(draft.photoAdvice.map((a) => a.hi).join(" "), "hindi")} className="text-sm underline underline-offset-4">
+            <button type="button" onClick={() => speak(draft.photoAdvice.map((a) => a.hi).join(" "), "hindi")} className="shrink-0 whitespace-nowrap text-sm underline underline-offset-4">
               🔊 सुनें
             </button>
           </div>
@@ -480,7 +544,7 @@ function Review(props: {
       {fairPrice && <FairPriceCard fp={fairPrice} inrPerUsd={inrPerUsd} onUse={(c) => props.onPrice((c / 100).toFixed(2))} />}
 
       {draft.followUpQuestions.length > 0 && (
-        <section className="border border-line p-5 text-sm">
+        <section className="border border-line bg-card p-5 sm:p-6 text-sm">
           <p className="mb-1 font-semibold">ख़रीदार ये भी पूछ सकते हैं · Buyers may also ask</p>
           <ul className="list-disc space-y-1 pl-5">
             {draft.followUpQuestions.map((q) => (
@@ -490,21 +554,9 @@ function Review(props: {
         </section>
       )}
 
-      <div className="flex gap-3">
-        <button type="button" onClick={props.onRestart} disabled={props.busy} className="border border-ink px-5 py-4 transition hover:bg-ink hover:text-paper">
-          फिर से · Redo
-        </button>
-        <button
-          type="button"
-          onClick={props.onPublish}
-          disabled={props.busy}
-          className="flex-1 bg-ink px-4 py-4 tracking-wide text-paper transition hover:bg-ink/85 disabled:opacity-40"
-        >
-          {props.busy ? "डाल रहे हैं… · Publishing…" : "PayPal पर डालें · Publish"}
-        </button>
-      </div>
-      {!(priceNum > 0) && <p className="text-center text-xs text-muted">Add a USD price to publish.</p>}
+      <div className="hidden lg:block">{actions}</div>
       </aside>
+      <div className="sticky bottom-0 z-10 -mx-4 border-t border-line bg-paper/95 px-4 py-3 backdrop-blur sm:-mx-6 sm:px-6 lg:static lg:mx-0 lg:border-t-0 lg:bg-transparent lg:px-0 lg:py-0 lg:backdrop-blur-none lg:hidden">{actions}</div>
     </div>
   );
 }
@@ -515,10 +567,10 @@ const wholeInr = (c: number, rate: number) => `₹${Math.round((c / 100) * rate)
 function FairPriceCard({ fp, inrPerUsd, onUse }: { fp: FairPrice; inrPerUsd: number; onUse: (cents: number) => void }) {
   const suggested = fp.suggestedCents;
   return (
-    <section className={`border-l-2 ${fp.verdict === "under" ? "border-marigold" : "border-line"} bg-card p-5`}>
+    <section className={`${fp.verdict === "under" ? "border-l-4 border-l-marigold" : ""} border border-line bg-card p-5 sm:p-6`}>
       <div className="flex items-baseline justify-between gap-3">
         <p className="eyebrow"><span className="deva">उचित दाम</span> · Fair price</p>
-        <button type="button" onClick={() => speak(fp.hi, "hindi")} className="text-sm underline underline-offset-4">
+        <button type="button" onClick={() => speak(fp.hi, "hindi")} className="shrink-0 whitespace-nowrap text-sm underline underline-offset-4">
           🔊 सुनें
         </button>
       </div>
@@ -589,7 +641,7 @@ function EarningsCard({ economics, priceUsd, inrPerUsd }: { economics: Economics
     <section className={`border-l-2 px-4 py-3 text-sm ${tone}`}>
       <div className="flex items-baseline justify-between gap-3">
         <p className="eyebrow"><span className="deva">आपकी कमाई</span> · Left for your work</p>
-        <button type="button" onClick={() => speak(hi, "hindi")} className="text-sm underline underline-offset-4">
+        <button type="button" onClick={() => speak(hi, "hindi")} className="shrink-0 whitespace-nowrap text-sm underline underline-offset-4">
           🔊 सुनें
         </button>
       </div>
