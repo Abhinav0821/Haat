@@ -1,42 +1,31 @@
 @import "tailwindcss";
 
-/* Haat palette: indigo dye, marigold, handmade paper. */
+/*
+ * Haat — quiet, editorial, light. Ivory canvas, charcoal type, one indigo accent.
+ * (Inspired by the restraint of brands like Aesop: whitespace and photography do the work.)
+ */
 :root {
-  --paper: #fbf7ef;
-  --card: #ffffff;
-  --ink: #1d1b2e;
-  --muted: #6b6878;
-  --line: #e7e0d2;
-  --indigo: #27357a;
-  --indigo-soft: #e8ebf8;
-  --marigold: #e8970c;
-  --marigold-soft: #fdf1da;
-  --leaf: #2f7d4f;
-  --leaf-soft: #e3f3e9;
-  --danger: #b4232a;
-  --danger-soft: #fbe6e6;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --paper: #14131c;
-    --card: #1d1c28;
-    --ink: #f1eee6;
-    --muted: #a7a3b4;
-    --line: #2f2d3d;
-    --indigo: #9fb0ff;
-    --indigo-soft: #232a4d;
-    --marigold: #f5b244;
-    --marigold-soft: #3a2c12;
-    --leaf: #6fd19a;
-    --leaf-soft: #17321f;
-    --danger: #ff8a8a;
-    --danger-soft: #3b1a1c;
-  }
+  --paper: #f6f3ee;
+  --paper-deep: #ebe5da;
+  --card: #fbf9f5;
+  --ink: #1d1b18;
+  --muted: #6f6a62;
+  --line: #dcd5c9;
+  --indigo: #26335f;
+  --indigo-soft: #e8e9ef;
+  --marigold: #a87a2a;
+  --marigold-soft: #f2eadb;
+  --madder: #8f3a2b;
+  --leaf: #3d6b4f;
+  --leaf-soft: #e5eee7;
+  --danger: #9f2b2b;
+  --danger-soft: #f5e3e1;
+  color-scheme: light;
 }
 
 @theme inline {
   --color-paper: var(--paper);
+  --color-paper-deep: var(--paper-deep);
   --color-card: var(--card);
   --color-ink: var(--ink);
   --color-muted: var(--muted);
@@ -45,15 +34,29 @@
   --color-indigo-soft: var(--indigo-soft);
   --color-marigold: var(--marigold);
   --color-marigold-soft: var(--marigold-soft);
+  --color-madder: var(--madder);
   --color-leaf: var(--leaf);
   --color-leaf-soft: var(--leaf-soft);
   --color-danger: var(--danger);
   --color-danger-soft: var(--danger-soft);
   --font-sans: var(--font-geist-sans), var(--font-devanagari), system-ui, sans-serif;
+  --font-display: var(--font-cormorant), var(--font-devanagari), Georgia, serif;
   --font-mono: var(--font-geist-mono);
 }
 
 body {
   background: var(--paper);
   color: var(--ink);
+}
+
+/* Small, letterspaced uppercase labels used throughout. */
+@utility eyebrow {
+  font-size: 0.6875rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; }
 }

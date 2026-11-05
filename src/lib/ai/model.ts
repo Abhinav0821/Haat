@@ -62,7 +62,7 @@ function withFallback(primaryId: string, ids: string[], make: (id: string) => Re
           if (!isCapacityError(e)) throw e;
           let last = e;
           for (const fb of fallbacks) {
-            console.warn(`[ai] ${primaryId} unavailable (${(last as Error).message.slice(0, 60)}…) → trying ${fb.id}`);
+            console.warn(`[ai] ${(last as Error).message.slice(0, 50)}… → trying ${fb.id}`);
             try {
               return await fb.m.doGenerate(params);
             } catch (err) {
@@ -80,7 +80,7 @@ function withFallback(primaryId: string, ids: string[], make: (id: string) => Re
           if (!isCapacityError(e)) throw e;
           let last = e;
           for (const fb of fallbacks) {
-            console.warn(`[ai] ${primaryId} unavailable → streaming from ${fb.id}`);
+            console.warn(`[ai] ${(last as Error).message.slice(0, 50)}… → streaming from ${fb.id}`);
             try {
               return await fb.m.doStream(params);
             } catch (err) {

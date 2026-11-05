@@ -18,6 +18,7 @@ const PublishSchema = z.object({
   imageIds: z.array(z.string().uuid()).max(4).default([]),
   voiceNoteId: z.string().uuid().nullable().default(null),
   sellerTranscript: z.string().max(4000).nullable().default(null),
+  sellerTranslation: z.string().max(4000).nullable().default(null),
   sellerLanguage: z.string().max(40).nullable().default(null),
 });
 
@@ -73,6 +74,7 @@ export async function POST(request: Request) {
       images: input.imageIds,
       voiceNoteId: input.voiceNoteId,
       sellerTranscript: input.sellerTranscript,
+      sellerTranslation: input.sellerTranslation,
       sellerLanguage: input.sellerLanguage,
       attributes: { ...input.attributes, category: input.category },
       status: "live",

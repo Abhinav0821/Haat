@@ -14,6 +14,16 @@ export const DEMO_STORE = {
   policy: { refundWindowDays: 30, autoRefundMaxCents: 0, photoEvidenceAboveCents: 2000 },
 } as const;
 
+/** Presentation details for the demo maker (would live on the store row in a multi-seller build). */
+export const MAKER_PROFILES: Record<string, { place: string; craft: string; taglineHi: string; taglineEn: string }> = {
+  [DEMO_STORE.slug]: {
+    place: "Bagru, Jaipur · Rajasthan",
+    craft: "Hand block printing with natural dyes",
+    taglineHi: "हाथ से बना, दिल से बेचा",
+    taglineEn: "Made by hand, sold from the heart",
+  },
+};
+
 export async function getDemoStore() {
   const d = await db();
   const [existing] = await d.select().from(schema.stores).where(eq(schema.stores.slug, DEMO_STORE.slug));

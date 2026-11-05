@@ -36,6 +36,7 @@ export const products = pgTable("products", {
   /** Seller's original voice note (media id), transcript and language — shown as "Meet the maker". */
   voiceNoteId: text("voice_note_id"),
   sellerTranscript: text("seller_transcript"),
+  sellerTranslation: text("seller_translation"),
   sellerLanguage: text("seller_language"),
   attributes: jsonb("attributes").$type<Record<string, unknown>>().notNull().default({}),
   status: text("status", { enum: ["draft", "live", "archived"] }).notNull().default("draft"),
@@ -55,6 +56,17 @@ export const orders = pgTable(
     currency: text("currency").notNull(),
     items: jsonb("items").$type<{ productId: string; qty: number; priceCents: number }[]>().notNull(),
     buyerEmail: text("buyer_email"),
+    buyerName: text("buyer_name"),
+    /** Shipping address PayPal confirmed for this order — the only address Seller Protection covers. */
+    shippingAddress: jsonb("shipping_address").$type<{
+      name?: string;
+      lines: string[];
+      city?: string;
+      state?: string;
+      postalCode?: string;
+      countryCode?: string;
+    }>(),
+    capturedAt: timestamp("captured_at", { withTimezone: true }),
     /** "storefront" | "mcp" (bought by an AI agent) | "chat" */
     channel: text("channel").notNull().default("storefront"),
     createdAt: createdAt(),
