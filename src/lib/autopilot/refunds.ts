@@ -65,6 +65,13 @@ export async function runRefundAutopilot(messageId: string) {
   const { m, o, s } = row;
   if (!o.paypalCaptureId || !["COMPLETED", "PARTIALLY_REFUNDED"].includes(o.status)) return null;
 
+  // Photo evidence that survived Screenshot Shield (same product, not reused elsewhere).
+  const reusedFlag = (m.shield?.flags ?? []).some((f) => f.code === "reused_evidence" || f.code === "photo_not_this_product");
+  const credible = reusedFlag
+    ? []
+    : (m.attachments ?? []).filter((a) => a.kind === "product_damage" && a.damage && a.damage.severity !== "none" && a.damage.sameProductAsListing !== "no");
+  const photoEvidence = credible.length ? credible.map((a) => `${a.damage!.severity}: ${a.damage!.description}`).join("; ") : null;
+
   // One open refund proposal per order at a time.
   const open = await d
     .select({ id: schema.agentActions.id })
@@ -85,6 +92,9 @@ export async function runRefundAutopilot(messageId: string) {
       `Order (our records): PayPal order ${o.paypalOrderId}, paid ${usd(o.amountCents)} ${o.currency}, already refunded ${usd(o.refundedCents)},`,
       `paid on ${o.capturedAt?.toISOString().slice(0, 10) ?? "unknown"}, tracking ${o.trackingNumber ? `${o.trackingCarrier} ${o.trackingNumber}` : "not added yet"}.`,
       `Buyer's message, translated for the seller: ${m.translatedText ?? "(none)"}`,
+      photoEvidence
+        ? `Buyer attached photo evidence (verified as the same product, not reused): ${photoEvidence}`
+        : "No usable photo evidence was attached.",
       `<buyer_message>\n${m.originalText}\n</buyer_message>`,
     ].join("\n"),
     tools: {
@@ -140,7 +150,7 @@ export async function runRefundAutopilot(messageId: string) {
     {
       requestedCents: amountCents,
       order: { status: o.status, amountCents: o.amountCents, refundedCents: o.refundedCents, capturedAt: o.capturedAt ?? o.createdAt },
-      hasPhotoEvidence: false, // buyer photo uploads aren't supported yet → larger claims always go to the seller
+      hasPhotoEvidence: Boolean(photoEvidence),
     },
     parsePolicy(s.policy),
   );

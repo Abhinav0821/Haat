@@ -66,6 +66,14 @@ const FLAGS: Record<string, { level: ShieldLevel } & Omit<ShieldFlag, "code">> =
 
 const RANK: Record<ShieldLevel, number> = { safe: 0, caution: 1, danger: 2 };
 
+export function levelOf(code: string): ShieldLevel {
+  return FLAGS[code]?.level ?? "caution";
+}
+
+export function maxLevel(levels: ShieldLevel[]): ShieldLevel {
+  return levels.reduce<ShieldLevel>((m, l) => (RANK[l] > RANK[m] ? l : m), "safe");
+}
+
 const SIGNALS = [
   "claimsPaymentSent",
   "requestsAddressChange",

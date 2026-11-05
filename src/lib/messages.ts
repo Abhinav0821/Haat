@@ -1,10 +1,12 @@
-import { and, asc, desc, eq, or } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, or } from "drizzle-orm";
 import { generateText, Output } from "ai";
 import { after } from "next/server";
 import { z } from "zod";
 import { db, schema } from "@/db";
 import { model } from "@/lib/ai/model";
-import { shieldBuyerMessage } from "@/lib/shield/scam-shield";
+import { analyzeAttachments, damageEvidence, findReusedPhotos, verifyPaymentScreenshots, type AttachmentAnalysis, type Image } from "@/lib/shield/attachments";
+import { levelOf, maxLevel, shieldBuyerMessage, type ShieldLevel } from "@/lib/shield/scam-shield";
+import { dHash } from "@/lib/passport/image-hash";
 import { sellerLanguage } from "@/lib/store";
 
 /**
@@ -23,6 +25,7 @@ export class MessageError extends Error {
 }
 
 const MAX_LEN = 2000;
+const PRODUCT_PHOTO = new Set(["product_damage", "product_other"]);
 
 export async function postBuyerMessage(input: {
   orderId?: string;
@@ -30,6 +33,7 @@ export async function postBuyerMessage(input: {
   text: string;
   buyerEmail?: string;
   channel?: "web" | "mcp";
+  images?: Image[];
 }) {
   const text = input.text.trim();
   if (text.length < 2 || text.length > MAX_LEN) throw new MessageError("message must be 2–2000 characters");
@@ -65,11 +69,97 @@ export async function postBuyerMessage(input: {
   }
 
   const language = sellerLanguage(storeSlug);
-  const { read, verdict } = await shieldBuyerMessage(text, {
-    targetLanguage: language,
-    order: order
-      ? { paypalOrderId: order.paypalOrderId, status: order.status, hasPayPalAddress: !!order.shippingAddress }
-      : null,
+  const images = (input.images ?? []).slice(0, 3);
+
+  // Store the buyer's photos (with fingerprints for the reused-photo check).
+  const stored = images.length
+    ? await d
+        .insert(schema.media)
+        .values(
+          await Promise.all(
+            images.map(async (img) => ({
+              storeId,
+              kind: "image" as const,
+              mediaType: img.mediaType,
+              bytes: img.data,
+              dhash: await dHash(img.data).catch(() => null),
+            })),
+          ),
+        )
+        .returning({ id: schema.media.id, dhash: schema.media.dhash })
+    : [];
+
+  // Listing photos let the AI judge whether a damage photo shows the same product.
+  let listing: Image[] = [];
+  if (images.length && productId) {
+    const [prod] = await d.select({ images: schema.products.images }).from(schema.products).where(eq(schema.products.id, productId));
+    if (prod?.images.length) {
+      const rows = await d.select().from(schema.media).where(inArray(schema.media.id, prod.images.slice(0, 2)));
+      listing = rows.map((r) => ({ data: r.bytes, mediaType: r.mediaType }));
+    }
+  }
+
+  const [{ read, verdict: textVerdict }, analyses] = await Promise.all([
+    shieldBuyerMessage(text, {
+      targetLanguage: language,
+      order: order ? { paypalOrderId: order.paypalOrderId, status: order.status, hasPayPalAddress: !!order.shippingAddress } : null,
+    }),
+    images.length
+      ? analyzeAttachments(images, listing, text).catch((e): AttachmentAnalysis[] | null => {
+          console.warn("[shield] attachment analysis failed:", (e as Error).message);
+          return null;
+        })
+      : Promise.resolve([] as AttachmentAnalysis[]),
+  ]);
+
+  // Screenshot Shield + damage evidence.
+  const screenshotClaims = (analyses ?? []).filter((a) => a.kind === "payment_screenshot" && a.payment).map((a) => a.payment!);
+  const shot = screenshotClaims.length
+    ? await verifyPaymentScreenshots(
+        screenshotClaims,
+        order ? { amountCents: order.amountCents, status: order.status, paypalCaptureId: order.paypalCaptureId } : null,
+      )
+    : { flags: [], checkedAgainstPayPal: false };
+  const earlierHashes = stored.length
+    ? (
+        await d
+          .select({ attachments: schema.messages.attachments })
+          .from(schema.messages)
+          .where(isNotNull(schema.messages.attachments))
+      ).flatMap((r) =>
+        (r.attachments ?? [])
+          .filter((a) => PRODUCT_PHOTO.has(a.kind))
+          .map((a) => a.dhash)
+          .filter((h): h is string => !!h),
+      )
+    : [];
+  // Re-use only matters for product/damage photos — every PayPal screenshot shares a layout.
+  const reused = findReusedPhotos(
+    stored.map((s, i) => (PRODUCT_PHOTO.has(analyses?.[i]?.kind ?? "") ? s.dhash : null)),
+    earlierHashes,
+  );
+  const damage = damageEvidence(analyses ?? [], reused);
+
+  // Screenshot checks supersede the generic "says they paid" check.
+  const baseFlags = textVerdict.flags.filter(
+    (f) => !(screenshotClaims.length && ["payment_not_received", "payment_claim_without_order", "payment_verified"].includes(f.code)),
+  );
+  const extra = [...shot.flags, ...damage.flags];
+  const verdict = {
+    level: maxLevel([...baseFlags.map((f) => levelOf(f.code)), ...extra.map((f) => f.level as ShieldLevel)]),
+    flags: [...baseFlags, ...extra.map(({ code, hi, en }) => ({ code, hi, en }))],
+    checkedAgainstPayPal: textVerdict.checkedAgainstPayPal || shot.checkedAgainstPayPal,
+  };
+  const attachments = stored.map((s, i) => {
+    const a = analyses?.[i];
+    return {
+      mediaId: s.id,
+      dhash: s.dhash,
+      kind: a?.kind ?? ("unanalysed" as const),
+      summary: a?.summary,
+      payment: a?.payment ?? undefined,
+      damage: a?.damage ?? undefined,
+    };
   });
 
   const [saved] = await d
@@ -87,12 +177,13 @@ export async function postBuyerMessage(input: {
       translatedLanguage: read ? language : null,
       shield: verdict,
       intent: read?.intent ?? null,
+      attachments: attachments.length ? attachments : null,
     })
     .returning();
 
   // A problem reported on a paid order → the refund autopilot drafts a proposal
   // for the seller, after the buyer's response has been sent.
-  if (order && read?.intent === "refund_or_problem") {
+  if (order && (read?.intent === "refund_or_problem" || damage.hasPhotoEvidence)) {
     const run = async () => {
       try {
         const { runRefundAutopilot } = await import("@/lib/autopilot/refunds");
@@ -170,6 +261,7 @@ export function toBuyerView(m: typeof schema.messages.$inferSelect) {
     from: m.direction === "buyer_to_seller" ? ("buyer" as const) : ("maker" as const),
     text: m.direction === "buyer_to_seller" ? m.originalText : (m.translatedText ?? m.originalText),
     original: m.direction === "seller_to_buyer" ? { text: m.originalText, language: m.originalLanguage } : null,
+    photos: m.direction === "buyer_to_seller" ? (m.attachments ?? []).map((a) => a.mediaId) : [],
     at: m.createdAt.toISOString(),
   };
 }

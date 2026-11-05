@@ -150,6 +150,17 @@ export const messages = pgTable("messages", {
     flags: { code: string; hi: string; en: string }[];
     checkedAgainstPayPal: boolean;
   }>(),
+  /** Buyer photos (payment screenshots, damage photos) with what AI saw in them. */
+  attachments: jsonb("attachments").$type<
+    {
+      mediaId: string;
+      dhash: string | null;
+      kind: "payment_screenshot" | "product_damage" | "product_other" | "other" | "unanalysed";
+      summary?: string;
+      payment?: { amount: number | null; currency: string | null; transactionId: string | null; date: string | null; recipient: string | null };
+      damage?: { description: string; severity: "none" | "minor" | "major"; sameProductAsListing: "yes" | "no" | "unsure" };
+    }[]
+  >(),
   /** What the buyer wants (from the AI read), e.g. "refund_or_problem". */
   intent: text("intent"),
   readAt: timestamp("read_at", { withTimezone: true }),

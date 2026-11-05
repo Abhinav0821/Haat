@@ -7,6 +7,13 @@ import { Autopilot } from "./autopilot";
 import { DailyBrief } from "./brief";
 
 type Flag = { code: string; hi: string; en: string };
+type Attachment = {
+  mediaId: string;
+  kind: "payment_screenshot" | "product_damage" | "product_other" | "other" | "unanalysed";
+  summary?: string;
+  payment?: { amount: number | null; currency: string | null; transactionId: string | null };
+  damage?: { description: string; severity: "none" | "minor" | "major"; sameProductAsListing: "yes" | "no" | "unsure" };
+};
 type InboxMessage = {
   id: string;
   channel: string;
@@ -19,6 +26,15 @@ type InboxMessage = {
   orderId: string | null;
   shield: { level: "safe" | "caution" | "danger"; flags: Flag[]; checkedAgainstPayPal: boolean } | null;
   replies: { id: string; text: string; english: string | null; at: string }[];
+  attachments: Attachment[] | null;
+};
+
+const ATTACHMENT_LABEL: Record<Attachment["kind"], string> = {
+  payment_screenshot: "भुगतान का स्क्रीनशॉट · Payment screenshot",
+  product_damage: "नुकसान की फ़ोटो · Damage photo",
+  product_other: "सामान की फ़ोटो · Product photo",
+  other: "फ़ोटो · Photo",
+  unanalysed: "फ़ोटो · Photo",
 };
 
 const timeAgo = (iso: string) => {
@@ -143,6 +159,42 @@ function MessageCard({ m, onReplied }: { m: InboxMessage; onReplied: () => void 
         )}
       </div>
       {showOriginal && <p className="mt-2 text-sm text-muted">{m.originalText}</p>}
+
+      {m.attachments && m.attachments.length > 0 && (
+        <ul className="mt-5 space-y-3">
+          {m.attachments.map((a) => (
+            <li key={a.mediaId} className="flex gap-3 border border-line bg-card p-3">
+              <a href={`/api/media/${a.mediaId}`} target="_blank" rel="noopener noreferrer" className="shrink-0">
+                <img src={`/api/media/${a.mediaId}`} alt="Buyer's photo" className="h-20 w-20 object-cover" />
+              </a>
+              <div className="min-w-0 text-sm">
+                <p className="eyebrow">{ATTACHMENT_LABEL[a.kind]}</p>
+                {a.kind === "payment_screenshot" && a.payment && (
+                  <p className="mt-1">
+                    दावा · Claims {a.payment.amount !== null ? `$${a.payment.amount.toFixed(2)}` : "a payment"}
+                    {a.payment.transactionId && <span className="block font-mono text-xs text-muted">txn {a.payment.transactionId}</span>}
+                    <span className="block text-xs text-muted">ऊपर देखें कि PayPal क्या कहता है · See PayPal&rsquo;s verdict above</span>
+                  </p>
+                )}
+                {a.kind === "product_damage" && a.damage && (
+                  <p className="mt-1">
+                    {a.damage.description}
+                    <span className="block text-xs text-muted">
+                      {a.damage.severity === "major" ? "ज़्यादा नुकसान · major" : a.damage.severity === "minor" ? "थोड़ा नुकसान · minor" : "कोई नुकसान नहीं · none"} ·{" "}
+                      {a.damage.sameProductAsListing === "yes"
+                        ? "आपका ही सामान ✓ · same product"
+                        : a.damage.sameProductAsListing === "no"
+                          ? "आपका सामान नहीं ✗ · different product"
+                          : "साफ़ नहीं · unclear"}
+                    </span>
+                  </p>
+                )}
+                {(a.kind === "product_other" || a.kind === "other") && a.summary && <p className="mt-1 text-muted">{a.summary}</p>}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
 
       {m.replies.length > 0 && (
         <ul className="mt-5 space-y-3">
