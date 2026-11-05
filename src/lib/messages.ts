@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, or } from "drizzle-orm";
 import { generateText, Output } from "ai";
+import { after } from "next/server";
 import { z } from "zod";
 import { db, schema } from "@/db";
 import { model } from "@/lib/ai/model";
@@ -85,8 +86,27 @@ export async function postBuyerMessage(input: {
       translatedText: read?.translation ?? null,
       translatedLanguage: read ? language : null,
       shield: verdict,
+      intent: read?.intent ?? null,
     })
     .returning();
+
+  // A problem reported on a paid order → the refund autopilot drafts a proposal
+  // for the seller, after the buyer's response has been sent.
+  if (order && read?.intent === "refund_or_problem") {
+    const run = async () => {
+      try {
+        const { runRefundAutopilot } = await import("@/lib/autopilot/refunds");
+        await runRefundAutopilot(saved.id);
+      } catch (e) {
+        console.error("[autopilot] failed:", e);
+      }
+    };
+    try {
+      after(run);
+    } catch {
+      void run(); // outside a request (scripts)
+    }
+  }
 
   return { message: saved, storeSlug, verdict };
 }

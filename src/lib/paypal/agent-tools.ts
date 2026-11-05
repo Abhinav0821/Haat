@@ -67,3 +67,19 @@ export function paypalTools<const N extends PayPalToolName>(allow: readonly N[])
 export function availablePayPalTools(): string[] {
   return Object.keys(getToolkit().getTools()).sort();
 }
+
+/**
+ * Run one Agent Toolkit action directly from code (no LLM in the loop) — used
+ * for deterministic steps such as adding tracking after the seller confirms.
+ * The toolkit reports failures in its result text rather than throwing.
+ */
+export async function runPayPalTool(name: PayPalToolName, args: Record<string, unknown>): Promise<unknown> {
+  const legacy = (getToolkit().getTools() as unknown as Record<string, LegacyTool>)[name];
+  if (!legacy) throw new Error(`PayPal toolkit has no tool "${name}"`);
+  const result = await legacy.execute(args);
+  const text = typeof result === "string" ? result : JSON.stringify(result);
+  if (/"error"|error:|failed|INVALID_|UNPROCESSABLE|NOT_AUTHORIZED/i.test(text)) {
+    throw new Error(`PayPal ${name} failed: ${text.slice(0, 300)}`);
+  }
+  return result;
+}

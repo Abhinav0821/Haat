@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { speak, startRecording, type Recorder } from "@/lib/client/media";
+import { Autopilot } from "./autopilot";
 
 type Flag = { code: string; hi: string; en: string };
 type InboxMessage = {
@@ -57,7 +58,7 @@ export function Inbox() {
           </Link>
         </div>
         <h1 className="mt-3 font-display text-4xl font-normal">
-          संदेश <span className="font-sans text-base font-light text-muted">Messages</span>
+          आज का काम <span className="font-sans text-base font-light text-muted">Today’s inbox</span>
         </h1>
         {dangers > 0 && (
           <p className="mt-4 border-l-2 border-danger bg-danger-soft px-4 py-3 text-sm text-danger">
@@ -67,11 +68,14 @@ export function Inbox() {
         )}
       </header>
 
+      <Autopilot refreshKey={refresh} onChange={() => setRefresh((n) => n + 1)} />
+
+      <h2 className="eyebrow mt-14 border-t border-line pt-10 text-ink">ख़रीदारों के संदेश · Buyer messages</h2>
       {error && <p className="text-sm text-danger">{error}</p>}
       {messages === null && !error && <p className="text-muted">लोड हो रहा है…</p>}
       {messages?.length === 0 && <p className="text-muted">अभी कोई संदेश नहीं · No messages yet</p>}
 
-      <ol className="space-y-10">
+      <ol className="mt-6 space-y-10">
         {messages?.map((m) => (
           <MessageCard key={m.id} m={m} onReplied={() => setRefresh((n) => n + 1)} />
         ))}

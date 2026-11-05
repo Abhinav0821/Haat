@@ -67,6 +67,10 @@ export const orders = pgTable(
       countryCode?: string;
     }>(),
     capturedAt: timestamp("captured_at", { withTimezone: true }),
+    refundedCents: integer("refunded_cents").notNull().default(0),
+    trackingNumber: text("tracking_number"),
+    trackingCarrier: text("tracking_carrier"),
+    trackingAddedAt: timestamp("tracking_added_at", { withTimezone: true }),
     /** "storefront" | "mcp" (bought by an AI agent) | "chat" */
     channel: text("channel").notNull().default("storefront"),
     createdAt: createdAt(),
@@ -83,6 +87,11 @@ export const agentActions = pgTable("agent_actions", {
   id: id(),
   storeId: text("store_id").notNull().references(() => stores.id),
   agent: text("agent").notNull(), // "autopilot" | "concierge" | "catalog"
+  orderId: text("order_id").references(() => orders.id),
+  messageId: text("message_id"),
+  /** What the agent proposes, in the seller's language and in English. */
+  summaryHi: text("summary_hi"),
+  summaryEn: text("summary_en"),
   tool: text("tool").notNull(),
   input: jsonb("input").notNull(),
   reasoning: text("reasoning"),
@@ -135,6 +144,8 @@ export const messages = pgTable("messages", {
     flags: { code: string; hi: string; en: string }[];
     checkedAgainstPayPal: boolean;
   }>(),
+  /** What the buyer wants (from the AI read), e.g. "refund_or_problem". */
+  intent: text("intent"),
   readAt: timestamp("read_at", { withTimezone: true }),
   createdAt: createdAt(),
 });
