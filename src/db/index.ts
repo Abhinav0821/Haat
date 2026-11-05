@@ -37,6 +37,10 @@ async function create(): Promise<DB> {
     if (migrateAtStartup()) await migrate(db, { migrationsFolder: MIGRATIONS });
     return db as unknown as DB;
   }
+  if (process.env.VERCEL) {
+    // Serverless file systems are read-only and per-instance: the embedded database can't work there.
+    throw new Error("DATABASE_URL is not set. On Vercel, connect a Postgres database (e.g. Neon) — see DEPLOY.md.");
+  }
   const { PGlite } = await import("@electric-sql/pglite");
   const { drizzle } = await import("drizzle-orm/pglite");
   const { migrate } = await import("drizzle-orm/pglite/migrator");

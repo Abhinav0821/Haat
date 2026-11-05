@@ -31,7 +31,6 @@ npm run dev                  # http://localhost:3000  (seller studio: /seller �
 |---|---|
 | `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET` | [developer.paypal.com](https://developer.paypal.com/dashboard/applications/sandbox) → Apps & Credentials → **Sandbox** → Create App (Merchant) |
 | `GOOGLE_API_KEY` | Free at [aistudio.google.com](https://aistudio.google.com/apikey) → Get API key. Alternatively set `AI_PROVIDER=openai` + `OPENAI_API_KEY`. `npm run smoke` lists the models your key can use |
-
 | `SELLER_PASSCODE` | Any 4–12 digit PIN. Unlocks the seller studio (`/seller`). Without it the seller area stays locked. |
 | `CHANNEL3_API_KEY` *(optional)* | [channel3.ai](https://channel3.ai) — enables the fair-price coach (1 credit per listing). |
 
@@ -41,10 +40,14 @@ Everything runs against the **PayPal sandbox**. No real money moves.
 
 | Command | What it does |
 |---|---|
-| `npm test` | Unit tests (policy engine, webhooks, Scam Shield, code words, pricing, brief, auth) |
+| `npm test` | 119 tests: refund policy, webhooks, Scam Shield, code words, pricing, brief, auth, stock races, custom-order rules and agreements. Pass on embedded PGlite and on PostgreSQL 18 (`DATABASE_URL=… npm test`) |
 | `npm run smoke` | Live connectivity check: PayPal Orders/Invoicing/Disputes/Reporting, Gemini, Agent Toolkit |
 | `npm run tunnel` | Public HTTPS URL for PayPal webhooks and for connecting AI agents to `/api/mcp` |
-| `npm run demo:reset` | Clear test orders/messages (backs up the local DB first; stop `npm run dev` before running) |
+| `npm run demo:reset` | Clear test orders/messages/custom requests (backs up the local DB and archives pilot events first; stop `npm run dev` before running) |
+| `npm run pilot:report` | Pilot metrics from logged events (`-- --from <archive.json>` for a past session) |
+| `npm run db:migrate` | Apply migrations (runs automatically in the Vercel build) |
+
+**Deploying:** free on Vercel + Neon — step by step in [DEPLOY.md](DEPLOY.md).
 
 ## Shop with an AI agent (MCP)
 
@@ -88,7 +91,11 @@ A buyer (or their AI agent) describes what they want — “12 red cotton scarve
 - The chosen option becomes an **immutable agreement**: terms hashed (SHA-256 of canonical JSON). Each approval records the hash it approved. Any change creates a new version, supersedes the old one and voids its approvals.
 - PayPal checkout (Orders v2) is created only for the **current version approved by both**, for exactly its total; **every capture path re-checks** the agreement and hash, so terms changed mid-checkout are never charged. Approval holds her capacity for 48 h; a lapsed hold releases it and asks both to approve again (her approval re-checks capacity).
 
-Covered by `tests/custom-quote.test.ts` and `tests/custom-agreement.test.mts` (supersede during checkout, hash mismatch, expiry, booked capacity, no earnings leak).
+- **Before paying**, buyer (or agent) and maker can talk on the request page — translated both ways and checked by Scam Shield, like every message. Messages never change terms; a change becomes a new version.
+- **After paying**, the order shows as *being made*, not *ready to ship*. She taps as pieces are finished; finished pieces free up her booked capacity, the buyer sees progress, and only when every piece is done does the order move to *ready to ship* → spoken tracking → PayPal.
+- **Invoices she dictates** to buyers outside Haat (Ask Haat) are checked against the same rules; a price below her minimum needs an explicit “create anyway”, enforced on the server.
+
+Covered by `tests/custom-quote.test.ts` and `tests/custom-agreement.test.mts` (supersede during checkout, hash mismatch, expiry, booked capacity, production progress, invoice override, no earnings leak). Verified live in the sandbox: request → spoken Hindi answer → agreement → PayPal payment → progress → PayPal tracking.
 
 ## Maker Evidence
 
@@ -96,7 +103,7 @@ A record of what was checked — not a guarantee. Each check reports its own res
 
 ## पूछो हाट (Ask Haat)
 
-A Hindi voice assistant for the seller. It answers from our records and PayPal's own data (Agent Toolkit `list_transactions`), and **drafts** actions — PayPal invoices (`create_invoice` → `send_invoice` → `generate_invoice_qr_code`, shareable on WhatsApp) and replies to buyers — that run only after the seller taps confirm. It cannot move money; refunds stay behind the spoken code word.
+A Hindi voice assistant for the seller. It answers from our records and PayPal's own data (Agent Toolkit `list_transactions`), and **drafts** actions — PayPal invoices (`create_invoice` → `send_invoice` → `generate_invoice_qr_code`, shareable on WhatsApp) and replies to buyers — that run only after the seller taps confirm. Each invoice is checked against her own costs and capacity first. It also answers about custom orders (new requests, agreements to approve, pieces still to make). It cannot move money; refunds stay behind the spoken code word.
 
 ## How PayPal and AI are used
 
@@ -107,7 +114,7 @@ A Hindi voice assistant for the seller. It answers from our records and PayPal's
 | Agent shopping | MCP server → Orders v2 approval link | Buyer's own AI assistant |
 | Back office | Agent Toolkit: shipment tracking, refunds, invoices (+QR), transactions; dispute events recorded | Agents draft; a policy engine and the seller's spoken approval decide |
 
-**Seller security:** the studio is behind a PIN. Sessions are signed, httpOnly cookies (HMAC-SHA256, 30 days); passcodes are compared in constant time and login attempts are rate-limited. A Next.js Proxy redirects unauthenticated visitors, and every seller API re-checks the session itself.
+**Seller security:** the studio is behind a PIN. Sessions are signed, httpOnly cookies (HMAC-SHA256, 30 days); passcodes are compared in constant time. Login, checkout, messages, custom requests and MCP tools are rate-limited in the database (so limits hold across serverless instances). A Next.js Proxy redirects unauthenticated visitors, and every seller API re-checks the session itself.
 
 **Safety principle:** the model proposes and code decides. Each agent receives an explicit PayPal tool allowlist (`src/lib/paypal/agent-tools.ts`). Money-moving actions pass deterministic policy checks and human approval, and every action is written to an audit log.
 
@@ -117,7 +124,9 @@ A Hindi voice assistant for the seller. It answers from our records and PayPal's
 src/lib/paypal/client.ts       PayPal REST client (OAuth, idempotency keys, errors)
 src/lib/paypal/agent-tools.ts  PayPal Agent Toolkit → AI SDK bridge with per-agent allowlists
 src/lib/ai/model.ts            LLM provider (one place to swap models)
-src/db/                        Drizzle schema (stores, products, orders, agent actions, webhook events)
+src/lib/custom/                Custom orders: quote rules (pure), agreements (hash, approvals, capture checks), service
+src/lib/economics.ts           The one earnings calculation used everywhere
+src/db/                        Drizzle schema + migrations (drizzle/)
 scripts/smoke-test.ts          End-to-end connectivity check
 ```
 
@@ -135,7 +144,7 @@ Being explicit about scope:
 - **Export readiness.** PayPal India requires identity verification, PAN, bank details, purpose codes and (for goods) an IEC. Haat doesn't collect or automate these.
 - **Shipping logistics.** No labels, customs forms or courier booking — only the shipping charge, her shipping cost, and tracking.
 - **Dispute resolution.** Dispute events are recorded and surfaced; there is no full evidence-and-response workflow.
-- **Production tracking for custom orders.** Paid agreements count as booked work until reset; there's no “piece finished” step yet, and the buyer's request link is the access control (an unguessable id, no buyer accounts).
+- **Notifications and buyer accounts.** Buyers see updates when they open their request or order page; Haat sends no email or SMS. The request link (an unguessable id) is the access control.
 - **Multiple sellers.** The demo runs one maker; tables are keyed by store for later separation.
 - **Languages.** Hindi is tested end to end; other Indian languages are supported by the model but not validated with users.
 

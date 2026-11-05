@@ -49,9 +49,13 @@ let cached: Env | null = null;
  */
 export function env(): Env {
   if (cached) return cached;
-  const blankToUndefined = Object.fromEntries(
+  const blankToUndefined: Record<string, string | undefined> = Object.fromEntries(
     Object.entries(process.env).map(([k, v]) => [k, v === "" ? undefined : v]),
   );
+  // On Vercel, default the public URL to the production domain (PayPal return/cancel links use it).
+  if (!blankToUndefined.APP_URL && process.env.VERCEL_PROJECT_PRODUCTION_URL) {
+    blankToUndefined.APP_URL = `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`;
+  }
   const parsed = EnvSchema.safeParse(blankToUndefined);
   if (!parsed.success) {
     const problems = parsed.error.issues
