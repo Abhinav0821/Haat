@@ -113,6 +113,9 @@ export async function handleWebhookEvent(
       await (deps.consumeStock ?? defaultConsume)(order.id);
       if (order.agreementId) await (await import("@/lib/custom/agreement")).markAgreementPaid(order);
     }
+    // A denied capture releases the terms that were locked for it.
+    if (order?.agreementId && target.status === "DENIED") await (await import("@/lib/custom/agreement")).endAgreementCapture(order);
+
     if (!order) {
       result = { status: "recorded", note: `order ${target.paypalOrderId} not in our database` };
     } else if (!shouldAdvance(order.status, target.status)) {
@@ -127,16 +130,21 @@ export async function handleWebhookEvent(
         })
         .where(eq(orders.id, order.id));
       result = { status: "applied", orderId: order.id, orderStatus: target.status };
+    }
 
-      // Agent-initiated (MCP) orders: the human approves on PayPal and may never come
-      // back to our site, so the approval webhook triggers the (idempotent) capture.
-      if (target.status === "APPROVED" && (order.channel === "mcp" || order.agreementId)) {
+    // Unfinished payment work is separate from status bookkeeping: an order the
+    // buyer approved on PayPal (agent checkout or custom-order agreement) may still
+    // need capturing — including on a redelivery after a transient failure, when
+    // the order already reads APPROVED.
+    if (order && target.status === "APPROVED" && (order.channel === "mcp" || order.agreementId)) {
+      const [fresh] = await d.select({ status: orders.status }).from(orders).where(eq(orders.id, order.id));
+      if (fresh?.status === "APPROVED" || fresh?.status === "CREATED") {
         try {
           const captured = await (deps.capture ?? defaultCapturer)(order.paypalOrderId);
           result = { status: "applied", orderId: order.id, orderStatus: captured.status };
         } catch (e) {
-          // A refusal (sold out, terms changed) is a final answer, not a transient failure:
-          // record it rather than make PayPal retry the webhook. Nothing was charged.
+          // A refusal (sold out, terms changed) is a final answer: record it. Nothing was charged.
+          // Anything else is transient: rethrow so the event stays unprocessed and PayPal redelivers it.
           if ((e as { status?: number }).status !== 409) throw e;
           result = { status: "recorded", note: `capture refused: ${(e as Error).message}` };
         }

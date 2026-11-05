@@ -262,7 +262,8 @@ export const agreements = pgTable("agreements", {
   supersededById: text("superseded_by_id"),
   terms: jsonb("terms").$type<Record<string, unknown>>().notNull(),
   termsHash: text("terms_hash").notNull(),
-  status: text("status", { enum: ["proposed", "approved", "superseded", "paid", "expired", "cancelled"] }).notNull(),
+  /** "paying": a capture for this exact version is in flight — no revision, decline or re-approval until it's reconciled. */
+  status: text("status", { enum: ["proposed", "approved", "paying", "superseded", "paid", "expired", "cancelled"] }).notNull(),
   buyerApprovedHash: text("buyer_approved_hash"),
   buyerApprovedAt: timestamp("buyer_approved_at", { withTimezone: true }),
   sellerApprovedHash: text("seller_approved_hash"),
@@ -270,6 +271,8 @@ export const agreements = pgTable("agreements", {
   /** Capacity is held from approval until this time if unpaid. */
   holdUntil: timestamp("hold_until", { withTimezone: true }),
   orderId: text("order_id"),
+  /** When the in-flight capture started (stale "paying" is reconciled against PayPal). */
+  payingSince: timestamp("paying_since", { withTimezone: true }),
   /** Production progress after payment: pieces finished so far. */
   piecesDone: integer("pieces_done").notNull().default(0),
   createdAt: createdAt(),

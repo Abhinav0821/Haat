@@ -21,7 +21,8 @@ const BuyerHeard = z.object({
   materialsHi: z.array(z.string()).describe("The same materials in simple Hindi (Devanagari), same order, e.g. 'सूती'."),
   deadline: z.string().nullable().describe("Date the buyer needs DELIVERY by, as YYYY-MM-DD, resolved against today's date. null if none."),
   budget: Money.nullable().describe("Budget, if the buyer states one."),
-  otherWishes: z.string().nullable().describe("Anything else the buyer asks for, in one short English sentence."),
+  otherWishes: z.string().nullable().describe("Any other requirement the buyer states (size, finish, packaging…), in one short English sentence. null if none."),
+  otherWishesHi: z.string().nullable().describe("The same requirement in simple Hindi (Devanagari). null if none."),
 });
 export type BuyerHeard = z.infer<typeof BuyerHeard>;
 
@@ -71,6 +72,7 @@ const SellerHeard = z.object({
         colors: z.array(z.string()).nullable().describe("Only if she proposes colours different from the request, in English."),
         materials: z.array(z.string()).nullable().describe("Only if she proposes materials different from the request, in English."),
         note: z.string().nullable().describe("Any condition she adds, in one short English sentence."),
+        noteHi: z.string().nullable().describe("The same condition in her own words, in Hindi (Devanagari)."),
       }),
     )
     .describe("Each distinct offer she makes, e.g. 'seven by the 29th for $35 each, or all twelve by the 8th'. If she gives one price for several options, repeat it."),
@@ -120,6 +122,7 @@ export function optionsFrom(h: SellerHeard, inrPerUsd: number): Option[] {
         colors: o.colors?.length ? o.colors.map((c) => c.toLowerCase()) : null,
         materials: o.materials?.length ? o.materials.map((m) => m.toLowerCase()) : null,
         note: o.note,
+        noteHi: o.noteHi ?? null,
       };
     });
 }

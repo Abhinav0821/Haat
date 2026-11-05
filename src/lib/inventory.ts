@@ -97,10 +97,16 @@ export async function ensureReservedForCapture(orderId: string, now = new Date()
 /** Payment captured: count the sale exactly once. */
 export async function consume(orderId: string) {
   return withTx(async (tx) => {
-    const [r] = await tx.select().from(schema.reservations).where(eq(schema.reservations.orderId, orderId));
-    if (!r || r.status === "consumed") return false;
+    // Claim the reservation with ONE conditional update. Under concurrency (browser
+    // capture + webhook + return URL) Postgres re-checks the condition after the
+    // first transaction commits, so only one caller gets the row back and counts the sale.
+    const [r] = await tx
+      .update(schema.reservations)
+      .set({ status: "consumed" })
+      .where(and(eq(schema.reservations.orderId, orderId), ne(schema.reservations.status, "consumed")))
+      .returning();
+    if (!r) return false;
     await lockProduct(tx, r.productId);
-    await tx.update(schema.reservations).set({ status: "consumed" }).where(eq(schema.reservations.id, r.id));
     await tx
       .update(schema.products)
       .set({ soldQuantity: sql`${schema.products.soldQuantity} + ${r.qty}` })

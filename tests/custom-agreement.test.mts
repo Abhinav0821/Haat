@@ -45,11 +45,12 @@ const fakeBuyer = async () => ({
   deadline: new Date(Date.now() + 34 * 86_400_000).toISOString().slice(0, 10),
   budget: null,
   otherWishes: null,
+  otherWishesHi: null,
 });
 const fakeSeller = (options: { quantity: number; usd: number }[]) => async () => ({
   transcript: "…",
   decline: false,
-  options: options.map((o) => ({ quantity: o.quantity, price: { amount: o.usd, currency: "USD" as const, basis: "per_piece" as const }, completionBy: null, colors: null, materials: null, note: null })),
+  options: options.map((o) => ({ quantity: o.quantity, price: { amount: o.usd, currency: "USD" as const, basis: "per_piece" as const }, completionBy: null, colors: null, materials: null, note: null, noteHi: null })),
 });
 
 before(async () => {
@@ -197,7 +198,7 @@ test("extraction outputs are normalised by code (currency, per-piece vs total, b
   const spec = specFrom({ ...(await fakeBuyer()), quantity: 500, budget: { amount: 22000, currency: "INR", basis: "total" } }, 88);
   assert.equal(spec.quantity, 200, "quantity is bounded");
   assert.equal(spec.budgetUsdCents, 25000, "₹22,000 ≈ $250");
-  const opts = optionsFrom({ transcript: "", decline: false, options: [{ quantity: 7, price: { amount: 21560, currency: "INR", basis: "total" }, completionBy: "soon", colors: null, materials: null, note: null }] }, 88);
+  const opts = optionsFrom({ transcript: "", decline: false, options: [{ quantity: 7, price: { amount: 21560, currency: "INR", basis: "total" }, completionBy: "soon", colors: null, materials: null, note: null, noteHi: null }] }, 88);
   assert.equal(opts[0].unitPriceUsdCents, 3500, "₹21,560 for 7 → $35.00 each");
   assert.equal(opts[0].completionBy, null, "non-dates are dropped");
 });

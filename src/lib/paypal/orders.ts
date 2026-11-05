@@ -4,7 +4,7 @@ import { env } from "@/lib/env";
 import { paypal, PayPalApiError } from "@/lib/paypal/client";
 import { randomUUID } from "node:crypto";
 import { CAPTURED_STATUSES, shouldAdvance } from "@/lib/paypal/order-status";
-import { AgreementError, assertCapturable, markAgreementPaid } from "@/lib/custom/agreement";
+import { AgreementError, beginAgreementCapture, endAgreementCapture, markAgreementPaid } from "@/lib/custom/agreement";
 import { availableQuantity, consume, ensureReservedForCapture, release, reserve, SoldOutError } from "@/lib/inventory";
 import { readEconomics } from "@/lib/economics";
 
@@ -176,11 +176,12 @@ export async function captureCheckoutOrder(paypalOrderId: string, deps: { paypal
     return { orderId: order.id, status: order.status }; // already captured (e.g. webhook got there first)
   }
 
-  // Every capture path (browser, return URL, webhook) re-checks the stock hold
-  // and, for custom orders, that the agreement paid for is still current and approved.
+  // Every capture path (browser, return URL, webhook) re-checks the stock hold and,
+  // for custom orders, atomically locks the exact agreement version as "paying" so
+  // nothing can revise or cancel it while PayPal is capturing.
   try {
     await ensureReservedForCapture(order.id);
-    await assertCapturable(order);
+    await beginAgreementCapture(order);
   } catch (e) {
     if (e instanceof SoldOutError || e instanceof AgreementError) throw new CheckoutError(e.message, 409);
     throw e;
@@ -202,11 +203,18 @@ export async function captureCheckoutOrder(paypalOrderId: string, deps: { paypal
         const [fresh] = await d.select().from(schema.orders).where(eq(schema.orders.id, order.id));
         return { orderId: order.id, status: fresh?.status ?? "COMPLETED" };
       }
+      // Definite refusals: no money moved, so the terms are no longer "paying".
       if (issue.includes("INSTRUMENT_DECLINED")) {
+        await endAgreementCapture(order);
         throw new CheckoutError("Your payment method was declined. Please choose another in PayPal.", 422);
       }
-      if (issue.includes("ORDER_NOT_APPROVED")) throw new CheckoutError("Payment not approved yet.", 409);
+      if (issue.includes("ORDER_NOT_APPROVED")) {
+        await endAgreementCapture(order);
+        throw new CheckoutError("Payment not approved yet.", 409);
+      }
     }
+    // Unknown outcome (network, 5xx): stay "paying" until a retry, the webhook,
+    // or reconciliation with PayPal settles it.
     throw e;
   }
 
@@ -242,7 +250,10 @@ export async function captureCheckoutOrder(paypalOrderId: string, deps: { paypal
   if (status === "COMPLETED") {
     await consume(order.id);
     await markAgreementPaid(order);
-  } else if (status === "DENIED") await release(order.id);
+  } else if (status === "DENIED") {
+    await release(order.id);
+    await endAgreementCapture(order);
+  } // PENDING: the agreement stays "paying" until PayPal's webhook reports the outcome.
   return { orderId: order.id, status };
 }
 

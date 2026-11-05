@@ -422,6 +422,11 @@ export function CustomRequests() {
                   </button>
                 )
               )}
+              {view.agreement.status === "paying" && (
+                <p className="mt-3 text-sm" lang="hi">
+                  ख़रीदार का भुगतान हो रहा है — तब तक शर्तें बदली नहीं जा सकतीं। · Payment in progress; terms are locked.
+                </p>
+              )}
               {view.agreement.payable && (
                 <p className="mt-3 text-sm text-muted" lang="hi">
                   दोनों ने मंज़ूर किया — ख़रीदार के भुगतान का इंतज़ार। आपका समय 48 घंटे के लिए रोका गया है।

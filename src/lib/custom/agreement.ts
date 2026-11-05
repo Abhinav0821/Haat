@@ -1,8 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
-import { and, desc, eq, gt, inArray, or } from "drizzle-orm";
-import { db, schema, withTx } from "@/db";
+import { and, desc, eq, gt, inArray, ne, or, sql } from "drizzle-orm";
+import { db, schema, withTx, type DB, type Tx } from "@/db";
 import { readEconomics, type Economics } from "@/lib/economics";
 import { env } from "@/lib/env";
+import { logEvent } from "@/lib/events";
 import { canonical } from "@/lib/passport/signing";
 import { paypal } from "@/lib/paypal/client";
 import type { CustomSpec, OptionVerdict } from "./quote";
@@ -10,32 +11,57 @@ import type { CustomSpec, OptionVerdict } from "./quote";
 /**
  * Custom-order agreements: one immutable set of terms that BOTH people approve.
  *
- *  - Terms are frozen and hashed (SHA-256 of canonical JSON).
+ *  - Terms are frozen and hashed (SHA-256 of canonical JSON). They hold BOTH
+ *    languages, so the buyer's English view and her Hindi read-back are
+ *    rendered from the same approved content.
  *  - An approval records the hash it approved; it only counts for that hash.
  *  - Any change creates a new version; the old one is superseded and its
  *    approvals no longer count.
- *  - A PayPal order can only be created for the current version with both
- *    approvals, and its capture re-checks that (see assertCapturable).
+ *  - Becoming fully approved re-checks her capacity and earnings atomically
+ *    (store-level lock), whichever party approves last.
+ *  - Capture: the version is locked as "paying" before PayPal is called. While
+ *    paying, nothing can revise, decline or re-approve it; the outcome (paid,
+ *    failed, or reconciled with PayPal) is recorded against that exact version.
  */
 
 export const HOLD_MS = 48 * 3600_000; // capacity held after approval while unpaid
+export const PAYING_STALE_MS = 10 * 60_000; // an unresolved capture older than this is reconciled with PayPal
+
+const HANDMADE_EN = "Each piece is printed by hand: small differences in colour and pattern between pieces are part of handmade work.";
+const HANDMADE_HI = "हर पीस हाथ से छपता है, इसलिए पीस के बीच रंग और डिज़ाइन में थोड़ा फ़र्क़ होना हाथ के काम का हिस्सा है।";
+const REFUND_EN = "Made to order, so no returns for change of mind. Pieces that arrive damaged or not as agreed are refunded under the maker's refund policy.";
+const REFUND_HI = "ऑर्डर पर बना है, इसलिए मन बदलने पर वापसी नहीं। ख़राब या तय शर्तों से अलग पहुँचे तो आपकी रिफ़ंड नीति लागू होगी।";
+
+export type Bilingual = { en: string; hi: string | null };
 
 export type Terms = {
-  v: 1;
+  v: 1 | 2;
   shop: string;
   maker: string;
   item: string;
+  /** v2: the item in Hindi, as she hears it. */
+  itemHi?: string | null;
   quantity: number;
   unitPriceUsdCents: number;
   shippingUsdCents: number;
   totalUsdCents: number;
   colors: string[];
   materials: string[];
+  /** v2: Hindi words for colours/materials (same order), when known. */
+  colorsHi?: string[] | null;
+  materialsHi?: string[] | null;
   completionBy: string;
   deliveryEstimate: string;
   handmadeVariation: string;
   refundTerms: string;
+  /** v2: Hindi versions of the fixed clauses, so both readings carry them. */
+  handmadeVariationHi?: string;
+  refundTermsHi?: string;
+  /** v2: the buyer's stated requirements (e.g. "exactly 2 metres long"). */
+  requirements?: Bilingual[];
+  /** The maker's own condition (e.g. "dry clean only"); v2 also in her words. */
   note: string | null;
+  noteHi?: string | null;
 };
 
 export class AgreementError extends Error {
@@ -51,34 +77,52 @@ export function hashTerms(t: Terms): string {
   return createHash("sha256").update(canonical(t)).digest("hex");
 }
 
-export function buildTerms(v: OptionVerdict, req: CustomSpec, shop: { name: string; ownerName: string }, e: Economics): Terms {
+type SpecHi = CustomSpec & { itemHi?: string; colorsHi?: string[]; materialsHi?: string[]; otherWishes?: string | null; otherWishesHi?: string | null };
+
+export function buildTerms(v: OptionVerdict, req: SpecHi, shop: { name: string; ownerName: string }, e: Economics): Terms {
+  const colors = v.option.colors ?? req.colors;
+  const materials = v.option.materials ?? req.materials;
+  // Hindi words only if they belong to exactly these colours/materials.
+  const sameList = (a: string[], b: string[]) => a.join("|") === b.join("|");
+  const colorsHi = sameList(colors, req.colors) && req.colorsHi?.length === colors.length ? req.colorsHi : null;
+  const materialsHi = sameList(materials, req.materials) && req.materialsHi?.length === materials.length ? req.materialsHi : null;
+  const wishes = req.otherWishes?.trim();
   return {
-    v: 1,
+    v: 2,
     shop: shop.name,
     maker: shop.ownerName,
     item: req.item,
+    itemHi: req.itemHi ?? null,
     quantity: v.option.quantity,
     unitPriceUsdCents: v.option.unitPriceUsdCents,
     shippingUsdCents: e.shippingChargeUsdCents,
     totalUsdCents: v.option.unitPriceUsdCents * v.option.quantity + e.shippingChargeUsdCents,
-    colors: v.option.colors ?? req.colors,
-    materials: v.option.materials ?? req.materials,
+    colors,
+    materials,
+    colorsHi,
+    materialsHi,
     completionBy: v.completion,
     deliveryEstimate: v.delivery,
-    handmadeVariation: "Each piece is printed by hand: small differences in colour and pattern between pieces are part of handmade work.",
-    refundTerms:
-      "Made to order, so no returns for change of mind. Pieces that arrive damaged or not as agreed are refunded under the maker's refund policy.",
+    handmadeVariation: HANDMADE_EN,
+    handmadeVariationHi: HANDMADE_HI,
+    refundTerms: REFUND_EN,
+    refundTermsHi: REFUND_HI,
+    requirements: wishes ? [{ en: wishes, hi: req.otherWishesHi?.trim() || null }] : [],
     note: v.option.note,
+    noteHi: v.option.noteHi ?? null,
   };
 }
 
 const usd = (c: number) => `$${(c / 100).toFixed(2)}`;
 const longDate = (iso: string) => new Date(iso).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" });
 
+/** The buyer's reading of the terms. Every clause in the terms appears here. */
 export function termsLinesEn(t: Terms): [string, string][] {
+  const reqs = t.requirements ?? [];
   return [
     ["Item", `${t.quantity} × ${t.item}`],
     ["Colours / materials", [...t.colors, ...t.materials].join(", ") || "—"],
+    ...(reqs.length ? ([["Your requirements", reqs.map((r) => r.en).join(" · ")]] as [string, string][]) : []),
     ["Price", `${usd(t.unitPriceUsdCents)} each · ${usd(t.unitPriceUsdCents * t.quantity)} for ${t.quantity}`],
     ["Shipping", usd(t.shippingUsdCents)],
     ["Total", usd(t.totalUsdCents)],
@@ -86,23 +130,39 @@ export function termsLinesEn(t: Terms): [string, string][] {
     ["Estimated delivery", `${longDate(t.deliveryEstimate)} (estimate — courier times vary)`],
     ["Handmade variation", t.handmadeVariation],
     ["Refunds", t.refundTerms],
-    ...(t.note ? ([["Note", t.note]] as [string, string][]) : []),
+    ...(t.note ? ([["Maker's condition", t.note]] as [string, string][]) : []),
   ];
 }
 
-/** Read aloud to the maker (fixed template). */
-export function termsHi(t: Terms, inrPerUsd: number, itemHi?: string, wordsHi?: { colors: string[]; materials: string[]; from: { colors: string[]; materials: string[] } }): string {
-  const sameAs = (a: string[], b: string[]) => a.join("|") === b.join("|");
-  const colors = wordsHi && sameAs(t.colors, wordsHi.from.colors) && wordsHi.colors.length === t.colors.length ? wordsHi.colors : t.colors;
-  const materials = wordsHi && sameAs(t.materials, wordsHi.from.materials) && wordsHi.materials.length === t.materials.length ? wordsHi.materials : t.materials;
-  const inr = Math.round((t.totalUsdCents / 100) * inrPerUsd).toLocaleString("en-IN");
+/** Her reading of the same terms, read aloud (fixed template; every clause included). */
+export function termsHi(t: Terms, inrPerUsd: number): string {
   const day = (iso: string) => new Date(iso).toLocaleDateString("hi-IN", { day: "numeric", month: "long", timeZone: "UTC" });
-  return `समझौता: ${t.quantity} पीस ${itemHi || t.item}, ${[...colors, ...materials].join(", ")}। हर पीस ${(t.unitPriceUsdCents / 100).toFixed(2)} डॉलर, शिपिंग ${(t.shippingUsdCents / 100).toFixed(2)} डॉलर, कुल ${(t.totalUsdCents / 100).toFixed(2)} डॉलर, यानी लगभग ${inr} रुपये। ${day(t.completionBy)} तक बनाना है, पहुँचने का अनुमान ${day(t.deliveryEstimate)}। मन बदलने पर वापसी नहीं; ख़राब पहुँचे तो आपकी रिफ़ंड नीति लागू होगी।`;
+  const inr = Math.round((t.totalUsdCents / 100) * inrPerUsd).toLocaleString("en-IN");
+  const colors = t.colorsHi?.length === t.colors.length ? t.colorsHi : t.colors;
+  const materials = t.materialsHi?.length === t.materials.length ? t.materialsHi : t.materials;
+  const parts = [
+    `समझौता: ${t.quantity} पीस ${t.itemHi || t.item}${[...colors, ...materials].length ? `, ${[...colors, ...materials].join(", ")}` : ""}।`,
+  ];
+  for (const r of t.requirements ?? []) parts.push(`ख़रीदार की शर्त: ${r.hi || r.en}।`);
+  parts.push(
+    `हर पीस ${(t.unitPriceUsdCents / 100).toFixed(2)} डॉलर, शिपिंग ${(t.shippingUsdCents / 100).toFixed(2)} डॉलर, कुल ${(t.totalUsdCents / 100).toFixed(2)} डॉलर, यानी लगभग ${inr} रुपये।`,
+    `${day(t.completionBy)} तक बनाना है, पहुँचने का अनुमान ${day(t.deliveryEstimate)}।`,
+  );
+  if (t.note || t.noteHi) parts.push(`आपकी शर्त: ${t.noteHi || t.note}।`);
+  parts.push(t.handmadeVariationHi ?? HANDMADE_HI, t.refundTermsHi ?? REFUND_HI);
+  return parts.join(" ").replace(/।।/g, "।");
 }
 
-/** Pieces still to make: her stated backlog + approved (held) agreements + paid ones not yet finished. */
-export async function effectiveBacklog(storeId: string, e: Economics, opts: { now?: Date; excludeRequestId?: string } = {}): Promise<number> {
-  const d = await db();
+/**
+ * Pieces still to make: her stated backlog + approved (held) and in-payment
+ * agreements + paid ones not yet finished. Pass `tx` to read inside a transaction.
+ */
+export async function effectiveBacklog(
+  storeId: string,
+  e: Economics,
+  opts: { now?: Date; excludeRequestId?: string; tx?: Tx | DB } = {},
+): Promise<number> {
+  const d = opts.tx ?? (await db());
   const now = opts.now ?? new Date();
   const rows = await d
     .select({ terms: schema.agreements.terms, requestId: schema.agreements.requestId, status: schema.agreements.status, piecesDone: schema.agreements.piecesDone })
@@ -110,30 +170,34 @@ export async function effectiveBacklog(storeId: string, e: Economics, opts: { no
     .where(
       and(
         eq(schema.agreements.storeId, storeId),
-        or(eq(schema.agreements.status, "paid"), and(eq(schema.agreements.status, "approved"), gt(schema.agreements.holdUntil, now))),
+        or(
+          inArray(schema.agreements.status, ["paid", "paying"]),
+          and(eq(schema.agreements.status, "approved"), gt(schema.agreements.holdUntil, now)),
+        ),
       ),
     );
   const remaining = (r: (typeof rows)[number]) => Math.max(0, ((r.terms as Terms).quantity ?? 0) - (r.status === "paid" ? r.piecesDone : 0));
   return e.backlogPieces + rows.filter((r) => r.requestId !== opts.excludeRequestId).reduce((s, r) => s + remaining(r), 0);
 }
 
+const lockAgreement = async (tx: Tx, id: string) => {
+  await tx.execute(sql`select id from agreements where id = ${id} for update`);
+  const [a] = await tx.select().from(schema.agreements).where(eq(schema.agreements.id, id));
+  return a;
+};
+
 export async function proposeAgreement(requestId: string, storeId: string, terms: Terms) {
   return withTx(async (tx) => {
-    // Supersede the current (non-final) version, if any.
-    const [current] = await tx
-      .select()
-      .from(schema.agreements)
-      .where(and(eq(schema.agreements.requestId, requestId), inArray(schema.agreements.status, ["proposed", "approved"])))
-      .orderBy(desc(schema.agreements.version));
-    const [latest] = await tx
-      .select({ version: schema.agreements.version })
-      .from(schema.agreements)
-      .where(eq(schema.agreements.requestId, requestId))
-      .orderBy(desc(schema.agreements.version));
+    // Serialise changes to this request's terms.
+    await tx.execute(sql`select id from custom_requests where id = ${requestId} for update`);
+    const versions = await tx.select().from(schema.agreements).where(eq(schema.agreements.requestId, requestId)).orderBy(desc(schema.agreements.version));
+    if (versions.some((a) => a.status === "paying")) throw new AgreementError("A payment for the current terms is being processed — the terms can't change now.");
+    if (versions.some((a) => a.status === "paid")) throw new AgreementError("This order is already paid.");
+    const current = versions.find((a) => a.status === "proposed" || a.status === "approved");
     const id = randomUUID();
     const [created] = await tx
       .insert(schema.agreements)
-      .values({ id, storeId, requestId, version: (latest?.version ?? 0) + 1, terms, termsHash: hashTerms(terms), status: "proposed" })
+      .values({ id, storeId, requestId, version: (versions[0]?.version ?? 0) + 1, terms, termsHash: hashTerms(terms), status: "proposed" })
       .returning();
     if (current) {
       await tx.update(schema.agreements).set({ status: "superseded", supersededById: id }).where(eq(schema.agreements.id, current.id));
@@ -143,35 +207,62 @@ export async function proposeAgreement(requestId: string, storeId: string, terms
   });
 }
 
-/** Approve exactly the terms you saw: `hash` must equal the current terms hash. */
-export async function approveAgreement(agreementId: string, party: "buyer" | "seller", hash: string, now = new Date()) {
-  return withTx(async (tx) => {
-    const [a] = await tx.select().from(schema.agreements).where(eq(schema.agreements.id, agreementId));
-    if (!a) throw new AgreementError("agreement not found", 404);
-    if (a.status === "approved" && a.holdUntil && a.holdUntil < now) throw new AgreementError("The approval expired. Please review the terms again.");
-    if (a.status === "superseded") throw new AgreementError("These terms were replaced by a newer version. Please review the latest terms.");
-    if (a.status !== "proposed" && a.status !== "approved") throw new AgreementError(`agreement is ${a.status}`);
-    if (hash !== a.termsHash) throw new AgreementError("The terms changed since you viewed them. Please review again.");
-
-    const patch = party === "buyer" ? { buyerApprovedHash: hash, buyerApprovedAt: now } : { sellerApprovedHash: hash, sellerApprovedAt: now };
-    const buyerOk = (party === "buyer" ? hash : a.buyerApprovedHash) === a.termsHash;
-    const sellerOk = (party === "seller" ? hash : a.sellerApprovedHash) === a.termsHash;
-    const both = buyerOk && sellerOk;
-    const [updated] = await tx
-      .update(schema.agreements)
-      .set({ ...patch, ...(both ? { status: "approved" as const, holdUntil: new Date(now.getTime() + HOLD_MS) } : {}) })
-      .where(eq(schema.agreements.id, a.id))
-      .returning();
-    return updated;
-  });
-}
-
 type AgreementRow = typeof schema.agreements.$inferSelect;
+
+/** Re-checks run at the moment terms become fully approved (inside the approval transaction). */
+export type FinalCheck = (tx: Tx, a: AgreementRow) => Promise<string | null>;
+
+class FinalCheckFailed extends Error {}
+
+/**
+ * Approve exactly the terms you saw: `hash` must equal the current terms hash.
+ * When this approval makes the terms fully approved, `finalCheck` runs under a
+ * store-level lock, so two agreements can't both claim the same capacity —
+ * whichever party approves last. If it fails, her approval is cleared (the terms
+ * need revising) and nothing is held.
+ */
+export async function approveAgreement(agreementId: string, party: "buyer" | "seller", hash: string, opts: { now?: Date; finalCheck?: FinalCheck } = {}) {
+  const now = opts.now ?? new Date();
+  try {
+    return await withTx(async (tx) => {
+      const a = await lockAgreement(tx, agreementId);
+      if (!a) throw new AgreementError("agreement not found", 404);
+      if (a.status === "paying") throw new AgreementError("A payment for these terms is being processed.");
+      if (a.status === "approved" && a.holdUntil && a.holdUntil < now) throw new AgreementError("The approval expired. Please review the terms again.");
+      if (a.status === "superseded") throw new AgreementError("These terms were replaced by a newer version. Please review the latest terms.");
+      if (a.status !== "proposed" && a.status !== "approved") throw new AgreementError(`agreement is ${a.status}`);
+      if (hash !== a.termsHash) throw new AgreementError("The terms changed since you viewed them. Please review again.");
+
+      const patch = party === "buyer" ? { buyerApprovedHash: hash, buyerApprovedAt: now } : { sellerApprovedHash: hash, sellerApprovedAt: now };
+      const buyerOk = (party === "buyer" ? hash : a.buyerApprovedHash) === a.termsHash;
+      const sellerOk = (party === "seller" ? hash : a.sellerApprovedHash) === a.termsHash;
+      if (a.status === "approved" && buyerOk && sellerOk) return a; // already fully approved: no extension of the hold
+      const becomesApproved = buyerOk && sellerOk;
+      if (becomesApproved && opts.finalCheck) {
+        await tx.execute(sql`select id from stores where id = ${a.storeId} for update`); // one final approval per shop at a time
+        const problem = await opts.finalCheck(tx, a);
+        if (problem) throw new FinalCheckFailed(problem);
+      }
+      const [updated] = await tx
+        .update(schema.agreements)
+        .set({ ...patch, ...(buyerOk && sellerOk ? { status: "approved" as const, holdUntil: new Date(now.getTime() + HOLD_MS) } : {}) })
+        .where(eq(schema.agreements.id, a.id))
+        .returning();
+      return updated;
+    });
+  } catch (e) {
+    if (!(e instanceof FinalCheckFailed)) throw e;
+    // The terms no longer fit her rules: clear her approval so she revises them.
+    const d = await db();
+    await d.update(schema.agreements).set({ sellerApprovedHash: null, sellerApprovedAt: null }).where(eq(schema.agreements.id, agreementId));
+    throw new AgreementError(`These terms no longer fit the maker's schedule or costs (${e.message}) She will send revised terms; nothing was charged.`);
+  }
+}
 
 /**
  * An approved-but-unpaid agreement whose capacity hold has lapsed goes back to
  * "proposed" with both approvals cleared: the maker's time is released, and both
- * approve again (her approval re-checks capacity at that moment).
+ * approve again (which re-checks capacity).
  */
 export async function lapseIfExpired<T extends AgreementRow | undefined>(a: T, now = new Date()): Promise<T> {
   if (!a || a.status !== "approved" || !a.holdUntil || a.holdUntil >= now) return a;
@@ -189,6 +280,7 @@ export function payableProblem(a: AgreementRow | undefined, now = new Date()): s
   if (!a) return "agreement not found";
   if (a.status === "superseded") return "These terms were replaced by a newer version.";
   if (a.status === "paid") return "This agreement is already paid.";
+  if (a.status === "paying") return "A payment for these terms is already being processed.";
   if (a.status !== "approved") return "Both the buyer and the maker must approve the terms first.";
   if (a.buyerApprovedHash !== a.termsHash || a.sellerApprovedHash !== a.termsHash) return "Approvals don't match these terms.";
   if (a.holdUntil && a.holdUntil < now) return "The approval expired. Please approve the terms again.";
@@ -263,24 +355,97 @@ export async function createAgreementCheckout(agreementId: string, ctx: { appUrl
   return { paypalOrderId: order.id, orderId: saved.id, approveUrl, totalUsdCents: t.totalUsdCents };
 }
 
-/** Called by EVERY capture path for agreement orders: the terms paid for must still be the approved, current ones. */
-export async function assertCapturable(order: { agreementId: string | null; termsHash: string | null }) {
-  if (!order.agreementId) return;
-  const d = await db();
-  const [a] = await d.select().from(schema.agreements).where(eq(schema.agreements.id, order.agreementId));
-  if (a?.status === "paid" && a.termsHash === order.termsHash) return; // already captured (idempotent)
-  const problem = payableProblem(a);
-  if (problem) throw new AgreementError(`${problem} You have not been charged.`);
-  if (a!.termsHash !== order.termsHash) throw new AgreementError("These terms changed after checkout started. You have not been charged.");
+type OrderRef = { id: string; agreementId: string | null; termsHash: string | null };
+
+/**
+ * Called by EVERY capture path for agreement orders, BEFORE PayPal is asked to capture.
+ * Atomically checks the terms are the current, fully approved version this order was
+ * created for, and locks them as "paying". Returns "already_paid" for a repeat capture.
+ */
+export async function beginAgreementCapture(order: OrderRef, now = new Date()): Promise<"ok" | "already_paid" | "none"> {
+  if (!order.agreementId) return "none";
+  return withTx(async (tx) => {
+    const a = await lockAgreement(tx, order.agreementId!);
+    if (!a) throw new AgreementError("agreement not found. You have not been charged.");
+    if (a.termsHash !== order.termsHash) throw new AgreementError("These terms changed after checkout started. You have not been charged.");
+    if (a.status === "paid") {
+      if (a.orderId === order.id) return "already_paid";
+      throw new AgreementError("This agreement was already paid with another payment. You have not been charged.");
+    }
+    if (a.status === "paying") {
+      if (a.orderId === order.id) return "ok"; // retry of the same capture (PayPal capture is idempotent)
+      throw new AgreementError("Another payment for these terms is in progress. You have not been charged.");
+    }
+    const problem = payableProblem(a, now);
+    if (problem) throw new AgreementError(`${problem} You have not been charged.`);
+    await tx.update(schema.agreements).set({ status: "paying", payingSince: now, orderId: order.id }).where(eq(schema.agreements.id, a.id));
+    return "ok";
+  });
 }
 
-export async function markAgreementPaid(order: { id: string; agreementId: string | null; termsHash: string | null }) {
+/** The capture definitely did not take money: the terms go back to approved (still held, if the hold hasn't lapsed). */
+export async function endAgreementCapture(order: OrderRef) {
   if (!order.agreementId) return;
   const d = await db();
-  const [a] = await d.select().from(schema.agreements).where(eq(schema.agreements.id, order.agreementId));
-  if (!a || a.termsHash !== order.termsHash || a.status === "paid") return;
-  await d.update(schema.agreements).set({ status: "paid", orderId: order.id }).where(eq(schema.agreements.id, a.id));
-  await d.update(schema.customRequests).set({ status: "paid", updatedAt: new Date() }).where(eq(schema.customRequests.id, a.requestId));
+  await d
+    .update(schema.agreements)
+    .set({ status: "approved", payingSince: null, orderId: null })
+    .where(and(eq(schema.agreements.id, order.agreementId), eq(schema.agreements.status, "paying"), eq(schema.agreements.orderId, order.id)));
+}
+
+/**
+ * Money was captured for this order: record it against the EXACT version it was
+ * created for. With "paying" locking revisions this is the current version; if a
+ * newer version somehow exists, the charged one still wins (the buyer paid for it)
+ * and newer unpaid versions are cancelled, and the event is logged for review.
+ */
+export async function markAgreementPaid(order: OrderRef) {
+  if (!order.agreementId) return;
+  await withTx(async (tx) => {
+    const a = await lockAgreement(tx, order.agreementId!);
+    if (!a || a.termsHash !== order.termsHash) return;
+    if (a.status === "paid") return;
+    await tx.update(schema.agreements).set({ status: "paid", orderId: order.id, payingSince: null }).where(eq(schema.agreements.id, a.id));
+    const newer = await tx
+      .update(schema.agreements)
+      .set({ status: "cancelled" })
+      .where(and(eq(schema.agreements.requestId, a.requestId), ne(schema.agreements.id, a.id), inArray(schema.agreements.status, ["proposed", "approved"])))
+      .returning({ id: schema.agreements.id });
+    await tx.update(schema.customRequests).set({ status: "paid", updatedAt: new Date() }).where(eq(schema.customRequests.id, a.requestId));
+    if (a.status === "superseded" || newer.length) {
+      await logEvent("agreement_paid_while_revised", { agreementId: a.id, cancelledNewer: newer.length }, a.storeId);
+    }
+  });
+}
+
+type PayPalOrderView = { status?: string; purchase_units?: { payments?: { captures?: { status?: string }[] } }[] };
+
+/**
+ * A "paying" agreement whose capture outcome never arrived (crash, timeout) is
+ * reconciled with PayPal's own record once it's stale: captured → paid,
+ * otherwise back to approved. Pending captures stay "paying".
+ */
+export async function reconcileIfStale<T extends AgreementRow | undefined>(
+  a: T,
+  deps: { now?: Date; lookup?: (paypalOrderId: string) => Promise<PayPalOrderView> } = {},
+): Promise<T> {
+  const now = deps.now ?? new Date();
+  if (!a || a.status !== "paying" || !a.payingSince || now.getTime() - a.payingSince.getTime() < PAYING_STALE_MS || !a.orderId) return a;
+  const d = await db();
+  const [order] = await d.select().from(schema.orders).where(eq(schema.orders.id, a.orderId));
+  if (!order) return a;
+  try {
+    const pp = await (deps.lookup ?? ((id: string) => paypal<PayPalOrderView>(`/v2/checkout/orders/${encodeURIComponent(id)}`)))(order.paypalOrderId);
+    const capture = pp.purchase_units?.[0]?.payments?.captures?.[0]?.status;
+    if (pp.status === "COMPLETED" || capture === "COMPLETED") await markAgreementPaid(order);
+    else if (capture === "PENDING") return a;
+    else await endAgreementCapture(order);
+  } catch (e) {
+    console.warn("[agreement] reconcile failed:", (e as Error).message);
+    return a;
+  }
+  const [fresh] = await d.select().from(schema.agreements).where(eq(schema.agreements.id, a.id));
+  return (fresh ?? a) as T;
 }
 
 export async function rulesFor(storeId: string) {

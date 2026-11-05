@@ -1,5 +1,5 @@
-import { and, desc, eq, ne } from "drizzle-orm";
-import { db, schema } from "@/db";
+import { and, desc, eq, ne, sql } from "drizzle-orm";
+import { db, schema, withTx, type DB, type Tx } from "@/db";
 import { hearBuyerRequest, hearSellerAnswer, optionsFrom, specFrom } from "@/lib/ai/custom";
 import { readEconomics, type Economics } from "@/lib/economics";
 import { env } from "@/lib/env";
@@ -10,6 +10,8 @@ import {
   buildTerms,
   effectiveBacklog,
   lapseIfExpired,
+  reconcileIfStale,
+  type FinalCheck,
   payableProblem,
   proposeAgreement,
   termsHi,
@@ -65,8 +67,33 @@ async function currentAgreement(requestId: string): Promise<AgreementRow | undef
     .from(schema.agreements)
     .where(and(eq(schema.agreements.requestId, requestId), ne(schema.agreements.status, "superseded")))
     .orderBy(desc(schema.agreements.version));
-  return lapseIfExpired(a);
+  return reconcileIfStale(await lapseIfExpired(a));
 }
+
+/**
+ * Do these exact terms still fit her rules? Earnings use the payment the terms
+ * actually contain (their own shipping charge), with her CURRENT costs; capacity
+ * uses work already booked by other agreements. Run inside a transaction (`tx`)
+ * when it guards a state change.
+ */
+async function termsProblem(r: RequestRow, t: Terms, tx?: Tx | DB, now = new Date()): Promise<string | null> {
+  const d = tx ?? (await db());
+  const [store] = await d.select().from(schema.stores).where(eq(schema.stores.id, r.storeId));
+  const base = readEconomics(store?.policy);
+  if (!base) return "Save your rules first.";
+  const backlog = await effectiveBacklog(r.storeId, base, { excludeRequestId: r.id, tx: d, now });
+  const e = { ...base, backlogPieces: backlog, shippingChargeUsdCents: t.shippingUsdCents };
+  const v = validateOption(
+    { quantity: t.quantity, unitPriceUsdCents: t.unitPriceUsdCents, completionBy: t.completionBy, colors: null, materials: null, note: null },
+    specOf(r),
+    e,
+    { now, inrPerUsd: env().INR_PER_USD },
+  );
+  return v.status === "blocked" ? v.checks.filter((c) => c.blocking).map((c) => c.en).join(" ") : null;
+}
+
+/** The check that runs atomically when terms become fully approved (whoever approves last). */
+const finalCheckFor = (r: RequestRow): FinalCheck => (tx, a) => termsProblem(r, a.terms as Terms, tx);
 
 // ── Buyer side ──────────────────────────────────────────────────────────────
 
@@ -109,7 +136,7 @@ export async function createCustomRequest(
       buyerName: input.buyerName?.trim().slice(0, 80) || null,
       buyerEmail: input.buyerEmail?.trim().slice(0, 120) || null,
       buyerText: text,
-      spec: { ...spec, itemHi: heard.itemHi, colorsHi: heard.colorsHi, materialsHi: heard.materialsHi, otherWishes: heard.otherWishes },
+      spec: { ...spec, itemHi: heard.itemHi, colorsHi: heard.colorsHi, materialsHi: heard.materialsHi, otherWishes: heard.otherWishes, otherWishesHi: heard.otherWishesHi },
       summaryHi: requestSummaryHi(spec, heard.itemHi, input.buyerName?.trim() || null, inrPerUsd, { colors: heard.colorsHi, materials: heard.materialsHi }),
     })
     .returning();
@@ -117,7 +144,8 @@ export async function createCustomRequest(
   return row;
 }
 
-const specOf = (r: RequestRow) => r.spec as unknown as CustomSpec & { itemHi?: string; colorsHi?: string[]; materialsHi?: string[]; otherWishes?: string | null };
+const specOf = (r: RequestRow) =>
+  r.spec as unknown as CustomSpec & { itemHi?: string; colorsHi?: string[]; materialsHi?: string[]; otherWishes?: string | null; otherWishesHi?: string | null };
 
 /** Buyer picks one of the maker's sent options → agreement v(n+1) (re-checked against her rules NOW). */
 export async function chooseOption(requestId: string, pick: { kind: "option" | "alternative"; index: number }) {
@@ -170,9 +198,10 @@ export async function counterOffer(requestId: string, c: { quantity: number; tot
 }
 
 export async function buyerApprove(requestId: string, agreementId: string, hash: string) {
+  const r = await loadRequest(requestId);
   const a = await currentAgreement(requestId);
   if (!a || a.id !== agreementId) throw new AgreementError("These terms were replaced by a newer version. Please review the latest terms.");
-  const updated = await approveAgreement(agreementId, "buyer", hash);
+  const updated = await approveAgreement(agreementId, "buyer", hash, { finalCheck: finalCheckFor(r) });
   await logEvent("agreement_approved", { requestId, party: "buyer", version: a.version, both: updated.status === "approved" }, a.storeId);
   return updated;
 }
@@ -318,22 +347,17 @@ export async function sendOptions(requestId: string, indexes: number[]) {
   await logEvent("custom_options_sent", { requestId: r.id, options: chosen.length }, r.storeId);
 }
 
-/** She approves the exact terms (re-checked against her rules and capacity NOW). */
+/**
+ * She approves the exact terms. Checked now (immediate feedback) and again,
+ * atomically, at the moment the terms become fully approved.
+ */
 export async function sellerApprove(requestId: string, agreementId: string, hash: string) {
   const r = await loadRequest(requestId);
   const a = await currentAgreement(requestId);
   if (!a || a.id !== agreementId) throw new AgreementError("These terms were replaced by a newer version.");
-  const t = a.terms as Terms;
-  const { e, inrPerUsd } = await rulesNow(r.storeId, r.id);
-  if (!e) throw new AgreementError("Save your rules first.");
-  const v = validateOption(
-    { quantity: t.quantity, unitPriceUsdCents: t.unitPriceUsdCents, completionBy: t.completionBy, colors: null, materials: null, note: null },
-    specOf(r),
-    e,
-    { now: new Date(), inrPerUsd },
-  );
-  if (v.status === "blocked") throw new AgreementError(v.checks.filter((c) => c.blocking).map((c) => c.en).join(" "));
-  const updated = await approveAgreement(agreementId, "seller", hash);
+  const problem = await termsProblem(r, a.terms as Terms);
+  if (problem) throw new AgreementError(`${problem} Send revised terms instead.`);
+  const updated = await approveAgreement(agreementId, "seller", hash, { finalCheck: finalCheckFor(r) });
   await logEvent("agreement_approved", { requestId: r.id, party: "seller", version: a.version, both: updated.status === "approved" }, r.storeId);
   return updated;
 }
@@ -368,13 +392,17 @@ export async function recordProgress(requestId: string, piecesDone: number) {
 
 export async function declineRequest(requestId: string) {
   const r = await loadRequest(requestId);
-  if (r.status === "paid") throw new AgreementError("Already paid.");
-  const d = await db();
-  await d.update(schema.customRequests).set({ status: "declined", updatedAt: new Date() }).where(eq(schema.customRequests.id, r.id));
-  await d
-    .update(schema.agreements)
-    .set({ status: "cancelled" })
-    .where(and(eq(schema.agreements.requestId, r.id), ne(schema.agreements.status, "superseded"), ne(schema.agreements.status, "paid")));
+  await withTx(async (tx) => {
+    await tx.execute(sql`select id from custom_requests where id = ${r.id} for update`);
+    const versions = await tx.select({ status: schema.agreements.status }).from(schema.agreements).where(eq(schema.agreements.requestId, r.id));
+    if (versions.some((v) => v.status === "paying")) throw new AgreementError("A payment is being processed — wait for it to finish.");
+    if (versions.some((v) => v.status === "paid")) throw new AgreementError("Already paid.");
+    await tx.update(schema.customRequests).set({ status: "declined", updatedAt: new Date() }).where(eq(schema.customRequests.id, r.id));
+    await tx
+      .update(schema.agreements)
+      .set({ status: "cancelled" })
+      .where(and(eq(schema.agreements.requestId, r.id), ne(schema.agreements.status, "superseded")));
+  });
   await logEvent("custom_declined", { requestId: r.id }, r.storeId);
 }
 
@@ -392,7 +420,7 @@ export async function sellerView(requestId: string) {
     advice: adviceFor(spec, e, new Date(), inrPerUsd),
     sellerSaid: r.sellerSaid,
     draft: ((r.draftOptions ?? []) as OptionVerdict[]).map((v, i) => ({ index: i, ...v })),
-    agreementHi: a ? termsHi(a.terms as Terms, inrPerUsd, spec.itemHi, { colors: spec.colorsHi ?? [], materials: spec.materialsHi ?? [], from: { colors: spec.colors, materials: spec.materials } }) : null,
+    agreementHi: a ? termsHi(a.terms as Terms, inrPerUsd) : null,
     createdAt: r.createdAt.toISOString(),
   };
 }

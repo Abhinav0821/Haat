@@ -267,6 +267,9 @@ export function CustomStatus({ requestId, makerName, slug }: { requestId: string
           )}
           {a.payable && a.holdUntil && <p className="mt-2 text-center text-xs text-muted">{makerName}&apos;s time is held for you until {new Date(a.holdUntil).toLocaleString()}.</p>}
           {a.status === "approved" && !a.payable && a.blockedBecause && <p className="mt-4 text-sm text-marigold">{a.blockedBecause}</p>}
+          {a.status === "paying" && (
+            <p className="mt-6 bg-card p-4 text-sm">Your payment is being processed with PayPal. These terms are locked until it completes — this page updates by itself.</p>
+          )}
         </section>
       )}
 

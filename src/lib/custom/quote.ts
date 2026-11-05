@@ -65,6 +65,8 @@ export type Option = {
   colors: string[] | null; // proposed changes vs the request
   materials: string[] | null;
   note: string | null;
+  /** Her condition in her own words (Hindi), for her read-back of the terms. */
+  noteHi?: string | null;
 };
 
 export type Check = { code: string; ok: boolean; blocking: boolean; hi: string; en: string };
@@ -109,7 +111,7 @@ export function validateOption(o: Option, req: CustomSpec, e: Economics, ctx: { 
         ok: false,
         blocking: true,
         hi: `अभी के काम के साथ ${o.quantity} पीस ${isoDate(completion)} से पहले नहीं बन पाएँगे।`,
-        en: `With your current work, ${o.quantity} pieces can't be finished before ${isoDate(completion)}.`,
+        en: `With your current work, ${o.quantity} piece${o.quantity === 1 ? "" : "s"} can't be finished before ${isoDate(completion)}.`,
       });
       completion = new Date(o.completionBy); // reported as stated, but blocked
     } else if (o.completionBy) {

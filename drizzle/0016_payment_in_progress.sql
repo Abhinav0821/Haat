@@ -1,0 +1,1 @@
+ALTER TABLE "agreements" ADD COLUMN "paying_since" timestamp with time zone;

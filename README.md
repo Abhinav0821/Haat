@@ -1,12 +1,14 @@
 # Haat
 
-**Make any small seller shoppable by humans and AI agents, using PayPal.**
+**Custom orders on the maker's own terms — stated by voice, enforced in code, paid with PayPal.**
 
-Haat (Hindi for *village market*) lets a small cross-border seller snap photos of their products and get three things:
+Haat (Hindi for *village market*) is for artisans who make things to order. A Hindi-speaking maker states her costs, minimum earnings, weekly capacity and conditions **by voice**. When a buyer — or the buyer's AI agent, over MCP — asks for something to be made, she answers by voice, and Haat:
 
-1. **A PayPal-powered storefront** for human buyers.
-2. **An MCP endpoint** that lets AI shopping agents (Claude, ChatGPT, …) find products and start a PayPal checkout. The human buyer still approves every payment.
-3. **An AI back office** that drafts refunds (the seller approves by saying a code word), adds tracking numbers she speaks, drafts invoices, and records dispute events for her attention. It never moves money without her approval.
+1. **Checks every option against her rules** (earnings after PayPal fees and courier cost, work already booked, delivery dates) — an option that breaks them can't be sent; a lowball counter-offer is refused with alternatives that still meet her minimum.
+2. **Turns the chosen option into one fingerprinted agreement** (SHA-256 of the terms, in English and Hindi) that both people approve — any change is a new version.
+3. **Takes payment with PayPal for exactly those terms.** Capacity is re-checked atomically at final approval; the version is locked while PayPal captures; the order then moves through production, shipping and tracking.
+
+Around that: voice listings, a storefront and MCP endpoint, Scam Shield, refunds approved by a spoken code word, and a Hindi daily brief. Nothing moves money without her approval.
 
 > Built for the [PayPal AI Hackathon 2026](https://paypalaihackathon.devpost.com/).
 
@@ -40,7 +42,7 @@ Everything runs against the **PayPal sandbox**. No real money moves.
 
 | Command | What it does |
 |---|---|
-| `npm test` | 119 tests: refund policy, webhooks, Scam Shield, code words, pricing, brief, auth, stock races, custom-order rules and agreements. Pass on embedded PGlite and on PostgreSQL 18 (`DATABASE_URL=… npm test`) |
+| `npm test` | 128 tests: refund policy, webhooks, Scam Shield, code words, pricing, brief, auth, stock races, custom-order rules and agreements. Pass on embedded PGlite and on PostgreSQL 18 (`DATABASE_URL=… npm test`) |
 | `npm run smoke` | Live connectivity check: PayPal Orders/Invoicing/Disputes/Reporting, Gemini, Agent Toolkit |
 | `npm run tunnel` | Public HTTPS URL for PayPal webhooks and for connecting AI agents to `/api/mcp` |
 | `npm run demo:reset` | Clear test orders/messages/custom requests (backs up the local DB and archives pilot events first; stop `npm run dev` before running) |
@@ -89,13 +91,15 @@ A buyer (or their AI agent) describes what they want — “12 red cotton scarve
 - Gemini only turns speech/text into fields. **Code** checks every option against her minimum earnings, weekly capacity and work already booked (her stated backlog + approved and paid agreements). An option that breaks her rules is marked with the reason and **cannot be sent**.
 - Buyers see price, ready-by date and a separately labelled delivery estimate — never her costs or earnings. A counter-offer is answered instantly from her rules; a lowball one is refused with alternatives that still meet her minimum (“10 pieces fit your budget”).
 - The chosen option becomes an **immutable agreement**: terms hashed (SHA-256 of canonical JSON). Each approval records the hash it approved. Any change creates a new version, supersedes the old one and voids its approvals.
-- PayPal checkout (Orders v2) is created only for the **current version approved by both**, for exactly its total; **every capture path re-checks** the agreement and hash, so terms changed mid-checkout are never charged. Approval holds her capacity for 48 h; a lapsed hold releases it and asks both to approve again (her approval re-checks capacity).
+- **Whoever approves last**, the moment terms become fully approved her capacity and earnings are re-checked **atomically** (a shop-level lock), using the payment the terms actually contain — so two buyers can't both book the same week, and a quote made under old shipping rules can't slip through. If they no longer fit, her approval is cleared and she sends revised terms.
+- PayPal checkout (Orders v2) is created only for the **current version approved by both**, for exactly its total. Before PayPal captures, that exact version is locked as **paying**: no revision, decline or re-approval until the outcome is known (paid; a definite decline unlocks it; an unknown outcome is reconciled with PayPal's own order record). The capture always stays with the version it charged. Approval holds her capacity for 48 h; a lapsed hold releases it.
+- The terms carry **every clause in both languages** — the buyer's requirements ("exactly 2 metres"), her conditions ("dry clean only"), handmade variation and refunds — and both readings are generated from the same hashed terms.
 
 - **Before paying**, buyer (or agent) and maker can talk on the request page — translated both ways and checked by Scam Shield, like every message. Messages never change terms; a change becomes a new version.
 - **After paying**, the order shows as *being made*, not *ready to ship*. She taps as pieces are finished; finished pieces free up her booked capacity, the buyer sees progress, and only when every piece is done does the order move to *ready to ship* → spoken tracking → PayPal.
 - **Invoices she dictates** to buyers outside Haat (Ask Haat) are checked against the same rules; a price below her minimum needs an explicit “create anyway”, enforced on the server.
 
-Covered by `tests/custom-quote.test.ts` and `tests/custom-agreement.test.mts` (supersede during checkout, hash mismatch, expiry, booked capacity, production progress, invoice override, no earnings leak). Verified live in the sandbox: request → spoken Hindi answer → agreement → PayPal payment → progress → PayPal tracking.
+Covered by `tests/custom-quote.test.ts`, `tests/custom-agreement.test.mts` and `tests/custom-integrity.test.mts` (revision during capture, approval order vs capacity, simultaneous final approvals, agreed-vs-current shipping, webhook capture retry, stale-payment reconciliation, concurrent stock counting — the last forced on real PostgreSQL), (supersede during checkout, hash mismatch, expiry, booked capacity, production progress, invoice override, no earnings leak). Verified live in the sandbox: request → spoken Hindi answer → agreement → PayPal payment → progress → PayPal tracking.
 
 ## Maker Evidence
 

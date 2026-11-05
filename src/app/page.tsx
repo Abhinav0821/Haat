@@ -5,9 +5,17 @@ import { SiteFooter, SiteHeader } from "@/components/craft";
 import { DEMO_STORE } from "@/lib/store";
 
 const STEPS = [
-  { hi: "बोलिए", en: "Speak", body: "Photograph the piece and describe it in Hindi, Tamil or Bengali." },
-  { hi: "बेचिए", en: "Sell", body: "Haat writes an honest English listing that people and AI shopping agents can buy with PayPal." },
-  { hi: "संभालिए", en: "Manage", body: "Refunds, tracking and scam warnings arrive as spoken questions. Nothing moves without her yes." },
+  { hi: "पूछिए", en: "Ask", body: "A buyer — or their AI shopping agent — describes what they want made: how many, colours, by when, a budget." },
+  {
+    hi: "बोलिए",
+    en: "Answer",
+    body: "The maker hears it in Hindi and answers by voice. Every price and date is checked against her own costs and the work she already has; an option that breaks her rules can't be sent.",
+  },
+  {
+    hi: "पक्का",
+    en: "Agree & pay",
+    body: "Both approve one fingerprinted set of terms. PayPal charges exactly that — and the terms are locked while it does.",
+  },
 ];
 
 export default function Home() {
@@ -19,16 +27,16 @@ export default function Home() {
           <CheckoutNotice />
         </Suspense>
         <section className="mx-auto max-w-3xl py-24 text-center sm:py-36">
-          <p className="eyebrow">A marketplace for India’s artisans</p>
+          <p className="eyebrow">Custom orders for India’s artisans</p>
           <h1 className="mt-8 font-display text-5xl font-normal leading-[1.05] tracking-tight sm:text-7xl">
-            Sell to the world by voice, <em className="italic">in your own language.</em>
+            Made to order, <em className="italic">on the maker’s terms.</em>
           </h1>
           <p className="mx-auto mt-8 max-w-xl text-lg font-light leading-relaxed text-muted">
-            Makers speak; Haat writes the listing, takes payment through PayPal, and asks before anything is refunded.
+            She states her costs, capacity and conditions by voice, in Hindi. Haat holds every custom order to them — from the first quote to the PayPal payment.
           </p>
           <div className="mt-12 flex flex-wrap justify-center gap-4">
-            <Link href="/seller/list" className="bg-ink px-8 py-3.5 text-sm tracking-wide text-paper transition hover:bg-ink/85">
-              Start selling
+            <Link href={`/s/${DEMO_STORE.slug}/custom`} className="bg-ink px-8 py-3.5 text-sm tracking-wide text-paper transition hover:bg-ink/85">
+              Request a piece
             </Link>
             <Link
               href={`/s/${DEMO_STORE.slug}`}
@@ -52,6 +60,14 @@ export default function Home() {
             </li>
           ))}
         </ol>
+        <p className="border-t border-line py-10 text-center text-sm text-muted">
+          Also for her, by voice: listings from a photo, buyer messages translated and checked for scams, refunds approved by a spoken code word, tracking into PayPal,
+          and a daily summary in Hindi. Sellers start at{" "}
+          <Link href="/seller/login" className="text-ink underline underline-offset-4">
+            the studio
+          </Link>
+          .
+        </p>
       </main>
       <SiteFooter />
     </>
