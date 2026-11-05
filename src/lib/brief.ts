@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, isNotNull, isNull } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNotNull } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { env } from "@/lib/env";
 import { paypal } from "@/lib/paypal/client";
@@ -23,6 +23,10 @@ export type BriefNumbers = {
   unanswered: number;
   scamWarnings: number;
   inrPerUsd: number;
+  /** Custom orders: new requests to answer, agreements awaiting her approval, pieces still to make. */
+  customNew?: number;
+  customToApprove?: number;
+  piecesToMake?: number;
 };
 
 const dollars = (c: number) => (c / 100).toFixed(2);
@@ -35,7 +39,7 @@ export function composeBrief(n: BriefNumbers) {
 
   if (n.paidOrders > 0) {
     hi.push(
-      `पिछले 24 घंटों में ${n.paidOrders} ऑर्डर आए। कुल ${dollars(n.grossCents)} डॉलर में से PayPal की फ़ीस ${dollars(n.feeCents)} डॉलर कटकर आपको ${dollars(n.netCents)} डॉलर मिले, यानी लगभग ${rupees(n.netCents, n.inrPerUsd)} रुपये।`,
+      `पिछले 24 घंटों में ${n.paidOrders} ऑर्डर ${n.paidOrders > 1 ? "आए" : "आया"}। कुल ${dollars(n.grossCents)} डॉलर में से PayPal की फ़ीस ${dollars(n.feeCents)} डॉलर कटकर आपको ${dollars(n.netCents)} डॉलर मिले, यानी लगभग ${rupees(n.netCents, n.inrPerUsd)} रुपये।`,
     );
     en.push(
       `In the last 24 hours you had ${n.paidOrders} order${n.paidOrders > 1 ? "s" : ""}: $${dollars(n.grossCents)} paid, $${dollars(n.feeCents)} PayPal fees, $${dollars(n.netCents)} to you (about ₹${rupees(n.netCents, n.inrPerUsd)}).`,
@@ -64,7 +68,22 @@ export function composeBrief(n: BriefNumbers) {
     hi.push(`${n.unanswered} ख़रीदारों के सवालों का जवाब देना है।`);
     en.push(`${n.unanswered} buyer message${n.unanswered > 1 ? "s" : ""} waiting for your reply.`);
   }
-  if (n.scamWarnings + n.pendingApprovals + n.toShip + n.unanswered === 0) {
+  const customNew = n.customNew ?? 0;
+  const customToApprove = n.customToApprove ?? 0;
+  const piecesToMake = n.piecesToMake ?? 0;
+  if (customNew > 0) {
+    hi.push(`${customNew} नई फ़रमाइश आई है — बोलकर जवाब दें।`);
+    en.push(`${customNew} new custom request${customNew > 1 ? "s" : ""} to answer.`);
+  }
+  if (customToApprove > 0) {
+    hi.push(`${customToApprove} समझौते पर आपकी मंज़ूरी चाहिए।`);
+    en.push(`${customToApprove} agreement${customToApprove > 1 ? "s need" : " needs"} your approval.`);
+  }
+  if (piecesToMake > 0) {
+    hi.push(`फ़रमाइश के ${piecesToMake} पीस अभी बनाने बाकी हैं।`);
+    en.push(`${piecesToMake} custom piece${piecesToMake > 1 ? "s" : ""} still to make.`);
+  }
+  if (n.scamWarnings + n.pendingApprovals + n.toShip + n.unanswered + customNew + customToApprove + piecesToMake === 0) {
     hi.push("बाकी सब ठीक है। अच्छा दिन बिताइए!");
     en.push("Everything else is in order. Have a good day!");
   }
@@ -115,15 +134,15 @@ export async function buildDailyBrief(storeId: string, now = new Date()) {
       ),
     );
 
-  const toShip = await d
-    .select({ id: schema.orders.id })
-    .from(schema.orders)
-    .where(and(eq(schema.orders.storeId, storeId), eq(schema.orders.status, "COMPLETED"), isNull(schema.orders.trackingNumber)));
+  // Same rules as the inbox: a paid custom order is "to ship" only once every piece is made.
+  const { getAutopilotBoard } = await import("@/lib/autopilot/refunds");
+  const board = await getAutopilotBoard(storeId);
 
+  // Refund proposals only (Ask Haat's invoice/reply drafts are not refunds).
   const proposals = await d
     .select({ id: schema.agentActions.id })
     .from(schema.agentActions)
-    .where(and(eq(schema.agentActions.storeId, storeId), eq(schema.agentActions.status, "proposed")));
+    .where(and(eq(schema.agentActions.storeId, storeId), eq(schema.agentActions.agent, "autopilot"), eq(schema.agentActions.status, "proposed")));
 
   const buyerMsgs = await d
     .select({ id: schema.messages.id, shield: schema.messages.shield, createdAt: schema.messages.createdAt })
@@ -151,11 +170,14 @@ export async function buildDailyBrief(storeId: string, now = new Date()) {
     feeCents: paid.reduce((s, o) => s + (o.feeCents ?? 0), 0),
     netCents: paid.reduce((s, o) => s + (o.netCents ?? o.amountCents - (o.feeCents ?? 0)), 0),
     refundedCents: refunds.reduce((s, r) => s + ((r.input as { amountCents?: number }).amountCents ?? 0), 0),
-    toShip: toShip.length,
+    toShip: board.toShip.length,
     pendingApprovals: proposals.length,
     unanswered: buyerMsgs.filter((m) => !repliedTo.has(m.id)).length,
     scamWarnings: buyerMsgs.filter((m) => m.createdAt >= since && m.shield?.level === "danger").length,
     inrPerUsd: env().INR_PER_USD,
+    customNew: board.custom.newRequests,
+    customToApprove: board.custom.awaitingYourApproval,
+    piecesToMake: board.custom.inProduction.reduce((s, m) => s + (m.total - m.done), 0),
   };
   return { numbers, ...composeBrief(numbers), generatedAt: now.toISOString() };
 }

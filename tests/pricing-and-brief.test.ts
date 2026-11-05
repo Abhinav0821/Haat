@@ -95,3 +95,12 @@ test("a quiet day says so", () => {
   assert.match(b.hi, /कोई नया ऑर्डर नहीं/);
   assert.match(b.hi, /बाकी सब ठीक है/);
 });
+
+test("brief: custom-order work is mentioned, and counts toward 'anything to do'", () => {
+  const b = composeBrief({ ...base, customNew: 1, customToApprove: 2, piecesToMake: 5 });
+  assert.match(b.hi, /1 नई फ़रमाइश/);
+  assert.match(b.hi, /2 समझौते पर आपकी मंज़ूरी/);
+  assert.match(b.hi, /5 पीस अभी बनाने बाकी/);
+  assert.doesNotMatch(b.hi, /बाकी सब ठीक है/);
+  assert.match(composeBrief(base).hi, /बाकी सब ठीक है/, "older callers without custom numbers still work");
+});
