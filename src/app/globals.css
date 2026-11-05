@@ -54,6 +54,15 @@ body {
   outline-offset: 3px;
 }
 
+/* Text fields show focus with their own border (darkened + 1px ring = 2px), not a second frame around it. */
+input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: none;
+  border-color: var(--ink);
+  box-shadow: 0 0 0 1px var(--ink);
+}
+
 ::selection {
   background: var(--marigold-soft);
 }

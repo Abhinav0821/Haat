@@ -51,15 +51,14 @@ export async function POST(request: Request) {
   const images: MediaInput[] = await Promise.all(
     imageFiles.map(async (f) => ({ data: new Uint8Array(await f.arrayBuffer()), mediaType: f.type })),
   );
-  if (!audio && images.length === 0 && !note) return bad("add a photo or a voice note");
+  if (!audio && images.length === 0 && !note) return bad("add a photo, a voice note or a typed description");
 
   const store = await getDemoStore();
   const d = await db();
 
   // Keep the originals: photos go on the product page, the voice note powers "Meet the maker".
-  const stored = await d
-    .insert(schema.media)
-    .values([
+  // (A typed description alone has no media to store.)
+  const media = [
       ...(audio ? [{ storeId: store.id, kind: "audio" as const, mediaType: audio.mediaType, bytes: audio.data }] : []),
       ...(await Promise.all(
         images.map(async (i) => ({
@@ -71,8 +70,8 @@ export async function POST(request: Request) {
           sha256: sha256Hex(i.data),
         })),
       )),
-    ])
-    .returning({ id: schema.media.id, kind: schema.media.kind });
+  ];
+  const stored = media.length ? await d.insert(schema.media).values(media).returning({ id: schema.media.id, kind: schema.media.kind }) : [];
 
   try {
     const draft = await draftListing({ audio, images, note });

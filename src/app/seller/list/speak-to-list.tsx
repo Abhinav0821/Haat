@@ -29,6 +29,10 @@ export function SpeakToList() {
   const [phase, setPhase] = useState<Phase>({ name: "compose" });
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [voice, setVoice] = useState<{ blob: Blob; url: string } | null>(null);
+  /** Typed description — an equal alternative to the voice note (both are sent if given). */
+  const [typed, setTyped] = useState("");
+  const [describeBy, setDescribeBy] = useState<"speak" | "type">("speak");
+  const described = !!voice || typed.trim().length >= 3;
   const [recording, setRecording] = useState(false);
   const [seconds, setSeconds] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -102,6 +106,7 @@ export function SpeakToList() {
     startedAt.current ??= Date.now();
     const form = new FormData();
     if (voice) form.append("audio", voice.blob, "voice.wav");
+    if (typed.trim()) form.append("note", typed.trim());
     photos.forEach((p, i) => form.append("images", p.blob, `photo-${i}.jpg`));
     try {
       const res = await fetch("/api/listings/draft", { method: "POST", body: form });
@@ -161,6 +166,8 @@ export function SpeakToList() {
   }
 
   function reset() {
+    setTyped("");
+    setDescribeBy("speak");
     photos.forEach((p) => URL.revokeObjectURL(p.url));
     if (voice) URL.revokeObjectURL(voice.url);
     setPhotos([]);
@@ -199,40 +206,78 @@ export function SpeakToList() {
               )}
             </StepCard>
 
-            <StepCard n={2} done={!!voice} hi="बोलकर बताइए" en="Describe it by voice" hintHi="क्या है, किससे बना है, नाप, रंग और कीमत" hintEn="What it is, material, size, colour and your price">
-              <div className="flex h-full min-h-56 flex-col items-center justify-center gap-4 border border-dashed border-line bg-paper/60 px-4 py-8 text-center">
-                <button
-                  type="button"
-                  onClick={toggleRecording}
-                  aria-pressed={recording}
-                  aria-label={recording ? "Stop recording" : "Start recording"}
-                  className={`flex h-24 w-24 items-center justify-center rounded-full text-4xl text-paper shadow-sm transition focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ink ${
-                    recording ? "animate-pulse bg-danger" : "bg-ink hover:bg-ink/85"
-                  }`}
-                >
-                  {recording ? "■" : "🎙"}
-                </button>
-                <p className="text-sm text-muted" aria-live="polite">
-                  {recording
-                    ? `बोलिए… ${seconds}s · Listening — tap to stop`
-                    : voice
-                      ? "रिकॉर्ड हो गया ✓ · Recorded — tap to record again"
-                      : "टैप करें और बोलें · Tap and speak"}
-                </p>
-                {voice && !recording && <audio controls src={voice.url} className="w-full max-w-sm" />}
+            <StepCard n={2} done={described} hi="बताइए" en="Describe it" hintHi="क्या है, किससे बना है, नाप, रंग और कीमत — बोलकर या लिखकर" hintEn="What it is, material, size, colour and your price — speak or type">
+              <div className="flex h-full flex-col gap-3">
+                <div role="tablist" aria-label="Describe by" className="grid grid-cols-2 border border-line bg-paper/60 p-1 text-sm">
+                  {(
+                    [
+                      ["speak", "🎙 बोलें", "Speak"],
+                      ["type", "⌨ लिखें", "Type"],
+                    ] as const
+                  ).map(([key, hi, en]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      role="tab"
+                      aria-selected={describeBy === key}
+                      onClick={() => setDescribeBy(key)}
+                      disabled={recording}
+                      className={`py-2 transition disabled:opacity-40 ${describeBy === key ? "bg-ink text-paper" : "text-muted hover:text-ink"}`}
+                    >
+                      <span lang="hi">{hi}</span> · {en}
+                      {key === "speak" && voice ? " ✓" : key === "type" && typed.trim() ? " ✓" : ""}
+                    </button>
+                  ))}
+                </div>
+
+                {describeBy === "speak" ? (
+                  <div className="flex min-h-56 flex-1 flex-col items-center justify-center gap-4 border border-dashed border-line bg-paper/60 px-4 py-8 text-center">
+                    <button
+                      type="button"
+                      onClick={toggleRecording}
+                      aria-pressed={recording}
+                      aria-label={recording ? "Stop recording" : "Start recording"}
+                      className={`flex h-24 w-24 items-center justify-center rounded-full text-4xl text-paper shadow-sm transition focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ink ${
+                        recording ? "animate-pulse bg-danger" : "bg-ink hover:bg-ink/85"
+                      }`}
+                    >
+                      {recording ? "■" : "🎙"}
+                    </button>
+                    <p className="text-sm text-muted" aria-live="polite">
+                      {recording
+                        ? `बोलिए… ${seconds}s · Listening — tap to stop`
+                        : voice
+                          ? "रिकॉर्ड हो गया ✓ · Recorded — tap to record again"
+                          : "टैप करें और बोलें · Tap and speak"}
+                    </p>
+                    {voice && !recording && <audio controls src={voice.url} className="w-full max-w-sm" />}
+                  </div>
+                ) : (
+                  <label className="flex min-h-56 flex-1 flex-col">
+                    <span className="sr-only">Describe the piece</span>
+                    <textarea
+                      value={typed}
+                      onChange={(e) => setTyped(e.target.value.slice(0, 2000))}
+                      placeholder="जैसे: नील रंग का हाथ से छपा सूती दुपट्टा, ढाई मीटर लंबा, दाबू छपाई। दाम 2800 रुपये। · Hindi, English or both"
+                      lang="hi"
+                      className="min-h-56 w-full flex-1 resize-none border border-line bg-paper/60 p-4 text-base leading-relaxed placeholder:text-muted/70 focus:border-ink focus:outline-none"
+                    />
+                    <span className="mt-1 text-right text-xs text-muted">{typed.length}/2000</span>
+                  </label>
+                )}
               </div>
             </StepCard>
           </div>
 
-          <div className="sticky bottom-0 z-10 -mx-4 mt-6 flex flex-col gap-3 border-t border-line bg-paper/95 px-4 py-3 backdrop-blur sm:-mx-6 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:static lg:mx-0 lg:mt-8 lg:bg-transparent lg:px-0 lg:pb-0 lg:pt-6 lg:backdrop-blur-none">
+          <div className="mt-6 flex flex-col gap-3 border-t border-line pt-6 sm:flex-row sm:items-center sm:justify-between lg:mt-8">
             <p className="text-sm text-ink/80" aria-live="polite">
               {(() => {
                 const [hi, en] =
-                  photos.length > 0 && voice
-                    ? ["दोनों तैयार हैं।", "Photos and voice ready."]
-                    : photos.length > 0 || voice
+                  photos.length > 0 && described
+                    ? ["दोनों तैयार हैं।", "Photos and description ready."]
+                    : photos.length > 0 || described
                       ? ["दूसरा भी जोड़ें तो लिस्टिंग बेहतर बनेगी।", "Adding both gives the best listing."]
-                      : ["शुरू करने के लिए फ़ोटो या आवाज़ जोड़ें।", "Add a photo or a voice note to begin."];
+                      : ["शुरू करने के लिए फ़ोटो या विवरण जोड़ें।", "Add a photo, or describe the piece, to begin."];
                 return (
                   <>
                     <span lang="hi">{hi}</span>
@@ -243,7 +288,7 @@ export function SpeakToList() {
             </p>
             <button
               type="button"
-              disabled={recording || (!voice && photos.length === 0)}
+              disabled={recording || (!described && photos.length === 0)}
               onClick={createDraft}
               className="w-full bg-ink px-8 py-4 text-base tracking-wide text-paper transition hover:bg-ink/85 disabled:cursor-not-allowed disabled:opacity-30 sm:w-auto sm:min-w-72"
             >
@@ -685,6 +730,29 @@ function VoiceCorrection({
   const [recording, setRecording] = useState(false);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  const [typedFix, setTypedFix] = useState("");
+
+  async function send(input: { audio?: Blob; text?: string }) {
+    setBusy(true);
+    setNote(null);
+    try {
+      const form = new FormData();
+      if (input.audio) form.append("audio", input.audio, "correction.wav");
+      if (input.text) form.append("text", input.text);
+      form.append("current", JSON.stringify(current));
+      const res = await fetch("/api/listings/correct", { method: "POST", body: form });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error);
+      onApply(body.correction, body.priceUsdCents);
+      setNote(body.readbackHi);
+      setTypedFix("");
+      speak(body.readbackHi, "hindi");
+    } catch (e) {
+      setNote((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function toggle() {
     if (recording) {
@@ -692,23 +760,7 @@ function VoiceCorrection({
       rec.current = null;
       setRecording(false);
       if (!r) return;
-      setBusy(true);
-      setNote(null);
-      try {
-        const form = new FormData();
-        form.append("audio", await r.stop(), "correction.wav");
-        form.append("current", JSON.stringify(current));
-        const res = await fetch("/api/listings/correct", { method: "POST", body: form });
-        const body = await res.json();
-        if (!res.ok) throw new Error(body.error);
-        onApply(body.correction, body.priceUsdCents);
-        setNote(body.readbackHi);
-        speak(body.readbackHi, "hindi");
-      } catch (e) {
-        setNote((e as Error).message);
-      } finally {
-        setBusy(false);
-      }
+      await send({ audio: await r.stop() });
       return;
     }
     try {
@@ -720,18 +772,44 @@ function VoiceCorrection({
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-3 border border-dashed border-line px-4 py-3">
-      <button
-        type="button"
-        onClick={toggle}
-        disabled={busy}
-        className={`px-4 py-2 text-sm text-paper disabled:opacity-40 ${recording ? "animate-pulse bg-danger" : "bg-ink hover:bg-ink/85"}`}
-      >
-        {recording ? "■ रुकें" : busy ? "…" : "🎙 कुछ बदलना है? बोलिए"}
-      </button>
-      <span className="text-xs text-muted" lang="hi">
-        {note ?? "जैसे: “दाम 1800 कर दो” या “यह सूती है, रेशम नहीं” · Speak a correction"}
-      </span>
+    <div className="border border-dashed border-line px-4 py-3">
+      <p className="text-sm" lang="hi">
+        कुछ बदलना है? बोलिए या लिखिए <span className="text-xs text-muted">· Something to change? Speak or type</span>
+      </p>
+      <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+        <button
+          type="button"
+          onClick={toggle}
+          disabled={busy}
+          className={`shrink-0 px-4 py-2.5 text-sm text-paper disabled:opacity-40 ${recording ? "animate-pulse bg-danger" : "bg-ink hover:bg-ink/85"}`}
+        >
+          {recording ? "■ रुकें · Stop" : busy ? "…" : "🎙 बोलें · Speak"}
+        </button>
+        <form
+          className="flex min-w-0 flex-1 gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (typedFix.trim()) void send({ text: typedFix.trim() });
+          }}
+        >
+          <input
+            value={typedFix}
+            onChange={(e) => setTypedFix(e.target.value.slice(0, 500))}
+            disabled={busy || recording}
+            placeholder="या लिखें: “दाम 1800 कर दो” · or type"
+            lang="hi"
+            className="min-w-0 flex-1 border border-line bg-card px-3 py-2.5 text-sm focus:border-ink focus:outline-none"
+          />
+          <button type="submit" disabled={busy || recording || !typedFix.trim()} className="shrink-0 border border-ink px-4 text-sm disabled:opacity-30">
+            बदलें
+          </button>
+        </form>
+      </div>
+      {note && (
+        <p className="mt-2 text-xs text-muted" lang="hi">
+          {note}
+        </p>
+      )}
     </div>
   );
 }

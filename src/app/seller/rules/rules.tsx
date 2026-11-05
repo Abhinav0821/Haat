@@ -44,6 +44,7 @@ export function Rules() {
   const [recording, setRecording] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [examplePrice, setExamplePrice] = useState("30");
+  const [typedRules, setTypedRules] = useState("");
   const recorder = useRef<Recorder | null>(null);
 
   useEffect(() => {
@@ -135,8 +136,8 @@ export function Rules() {
       <SellerNav active="rules" />
       <StudioHeader hi="मेरे नियम" en="My costs & rules">
         <p>
-          अपने खर्च और शर्तें बोलकर बताइए। हाट हर दाम और हर ऑर्डर इन्हीं से जाँचेगा।
-          <span className="block text-xs">Say your costs and conditions. Haat checks every price and order against them — they only apply after you approve.</span>
+          अपने खर्च और शर्तें बोलकर या लिखकर बताइए। हाट हर दाम और हर ऑर्डर इन्हीं से जाँचेगा।
+          <span className="block text-xs">Say or type your costs and conditions. Haat checks every price and order against them — they only apply after you approve.</span>
         </p>
       </StudioHeader>
 
@@ -156,6 +157,28 @@ export function Rules() {
           {recording ? "बोलिए… फिर ■ दबाएँ" : busy ? "समझ रही हूँ…" : "जैसे: “सामान 350, पैकिंग 50, अमेरिका भेजने का 1200 लगता है, हर पीस पर कम से कम 1500 बचने चाहिए”"}
         </p>
       </div>
+      <form
+        className="mt-4 flex gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (typedRules.trim()) {
+            void draftFrom({ text: typedRules.trim() });
+            setTypedRules("");
+          }
+        }}
+      >
+        <input
+          value={typedRules}
+          onChange={(e) => setTypedRules(e.target.value.slice(0, 1500))}
+          disabled={busy || recording}
+          placeholder="या लिखें: सामान 350, पैकिंग 50, भेजने का 1200… · or type"
+          lang="hi"
+          className="min-w-0 flex-1 border border-line bg-card px-4 py-3 text-sm focus:border-ink focus:outline-none"
+        />
+        <button type="submit" disabled={busy || recording || !typedRules.trim()} className="shrink-0 border border-ink px-4 text-sm disabled:opacity-30">
+          भेजें
+        </button>
+      </form>
       {heard && <p className="mt-4 bg-paper-deep/60 px-4 py-3 text-sm" lang="hi">“{heard}”</p>}
 
       {readback && (
