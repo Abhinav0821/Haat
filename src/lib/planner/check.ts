@@ -1,4 +1,5 @@
 import { factsHash, type CollectiveFacts, type CutCert, type Evaluation, type OptimalityCert, type OrderRequest, type Plan } from "./model";
+import { checkInputs, planShape, cutShape, optimalityShape, evaluationShape } from "./check-input";
 
 /**
  * Independent checker for model M1 (docs/planner-model.md).
@@ -100,10 +101,12 @@ function net(p: number, facts: CollectiveFacts) {
 }
 
 export function checkPlan(facts: CollectiveFacts, request: OrderRequest, plan: Plan, now: Date): string[] {
+  const invalid = [...checkInputs(facts, request, now), ...planShape(plan)];
+  if (invalid.length) return invalid;
   const v = view(facts, now);
   const bad: string[] = [...v.problems];
-  const req = { quantity: plan.quantity, deliveryDay: plan.deliveryDay, budgetUsdCents: request.budgetUsdCents };
-  if (plan.factsHash !== factsHash(facts, req)) bad.push("plan was made against different facts");
+  if (plan.quantity !== request.quantity || plan.deliveryDay !== request.deliveryDay) bad.push("plan doesn't answer the request");
+  if (plan.factsHash !== factsHash(facts, request)) bad.push("plan was made against different facts or request");
   const last = lastFinishOf(facts, plan.deliveryDay);
   if (plan.lastFinishDay !== last) bad.push("last finishing day does not follow from delivery, transit and packing");
   const lastUsable = Math.min(last, v.H - 1);
@@ -160,19 +163,28 @@ export function checkPlan(facts: CollectiveFacts, request: OrderRequest, plan: P
   // Money, recomputed.
   const c = facts.costs;
   let makersInr = 0;
+  for (const [id, row] of made) makersInr += v.makers.get(id)!.ask * row.reduce((s, n) => s + n, 0);
+  const paid = new Set<string>();
   for (const pm of plan.money.perMaker) {
     const m = v.makers.get(pm.makerId);
     const pieces = (made.get(pm.makerId) ?? []).reduce((s, x) => s + x, 0);
-    if (!m) continue;
+    if (paid.has(pm.makerId)) bad.push(`duplicate pay line for ${pm.makerId}`);
+    paid.add(pm.makerId);
+    if (!m || !made.has(pm.makerId)) { bad.push(`pay line for non-producing or unknown maker ${pm.makerId}`); continue; }
     if (pm.pieces !== pieces) bad.push(`${pm.makerId}: paid for ${pm.pieces}, makes ${pieces}`);
     if (pm.payInr !== m.ask * pieces) bad.push(`${pm.makerId}: pay ≠ her asking price × pieces`);
     if (pm.payInr < m.floor * pieces) bad.push(`${pm.makerId}: pay below her minimum`);
-    makersInr += m.ask * pieces;
   }
-  if (plan.money.perMaker.length !== made.size) bad.push("every producing maker must have exactly one pay line");
+  for (const id of made.keys()) if (!paid.has(id)) bad.push(`missing pay line for ${id}`);
   const total =
     makersInr + (c.finishingInrPerPiece + c.packagingInrPerPiece + c.collectionInrPerPiece + c.chargeInrPerPiece) * plan.quantity + c.shippingInrPerOrder;
   if (plan.money.totalCostInr !== total) bad.push(`total cost ₹${plan.money.totalCostInr} ≠ recomputed ₹${total}`);
+  const expected = {
+    makersInr, finishingInr: c.finishingInrPerPiece * plan.quantity, packagingInr: c.packagingInrPerPiece * plan.quantity,
+    collectionInr: c.collectionInrPerPiece * plan.quantity, chargeInr: c.chargeInrPerPiece * plan.quantity,
+    shippingInr: c.shippingInrPerOrder, estFeeUsdCents: fee(plan.money.priceUsdCents, facts),
+  };
+  for (const key of Object.keys(expected) as (keyof typeof expected)[]) if (plan.money[key] !== expected[key]) bad.push(`money.${key} differs from recomputed amount`);
   const P = plan.money.priceUsdCents;
   if (net(P, facts) < total) bad.push("price does not cover the total cost");
   if (P > 0 && net(P - 1, facts) >= total) bad.push("price is not the lowest that covers the cost");
@@ -181,12 +193,16 @@ export function checkPlan(facts: CollectiveFacts, request: OrderRequest, plan: P
 
 /** Recomputes a cut's bound from raw facts (docs §3). `only` restricts to a subset of makers (optimality levels). */
 export function cutBound(facts: CollectiveFacts, cut: CutCert, now: Date, only?: Set<string>): { bound: number; problems: string[] } {
+  const invalid = [...checkInputs(facts, { quantity: 1, deliveryDay: 0, budgetUsdCents: null }, now), ...cutShape(cut)];
+  if (invalid.length) return { bound: 0, problems: invalid };
   const v = view(facts, now);
   const problems = [...v.problems];
   const last = Math.min(cut.lastFinishDay, v.H - 1);
+  if (cut.tau > Math.max(0, last + 1)) problems.push("cut tau is outside its date range");
   let bound = 0;
   for (let t = Math.max(0, cut.tau); t <= last; t++) bound += v.finishing[t];
   const listed = new Set(cut.makers.map((m) => m.makerId));
+  if (listed.size !== cut.makers.length) problems.push("duplicate maker in cut");
   for (const m of v.makers.values()) {
     if (!m.capable || (only && !only.has(m.id))) continue;
     if (!listed.has(m.id)) problems.push(`cut omits ${m.id}, who could contribute`);
@@ -204,6 +220,7 @@ export function cutBound(facts: CollectiveFacts, cut: CutCert, now: Date, only?:
       continue;
     }
     const u = c.u;
+    if (u > v.H) problems.push("cut u is outside the horizon");
     let contribution = 0;
     m.free.forEach((x, t) => {
       if (t < u) contribution += x;
@@ -217,6 +234,8 @@ export function cutBound(facts: CollectiveFacts, cut: CutCert, now: Date, only?:
 
 /** A capacity refusal: the recomputed bound must be below the requested quantity. */
 export function checkRefusal(facts: CollectiveFacts, request: OrderRequest, cut: CutCert, now: Date): string[] {
+  const invalid = [...checkInputs(facts, request, now), ...cutShape(cut)];
+  if (invalid.length) return invalid;
   const bad: string[] = [];
   if (cut.lastFinishDay !== lastFinishOf(facts, request.deliveryDay)) bad.push("cut is for a different date");
   if (cut.lastFinishDay > facts.horizonDays - 1) bad.push("a refusal can't extend beyond the known horizon");
@@ -229,16 +248,22 @@ export function checkRefusal(facts: CollectiveFacts, request: OrderRequest, cut:
 
 /** Cheapest: for each price level, the plan's pieces from makers at or below it equal an upper bound. */
 export function checkOptimality(facts: CollectiveFacts, plan: Plan, cert: OptimalityCert, now: Date): string[] {
+  const invalid = [...checkInputs(facts, { quantity: 1, deliveryDay: 0, budgetUsdCents: null }, now), ...planShape(plan), ...optimalityShape(cert)];
+  if (invalid.length) return invalid;
   const v = view(facts, now);
-  const bad: string[] = [];
+  const bad: string[] = [...v.problems];
+  if ([...v.makers.values()].some((m) => m.capable && !m.complete)) bad.push("cheapest cannot be certified with incomplete maker facts");
+  if (plan.lastFinishDay > v.H - 1) bad.push("cheapest cannot be certified beyond the known horizon");
   const usable = [...v.makers.values()].filter((m) => m.capable && m.complete);
-  const x = new Map(plan.money.perMaker.map((p) => [p.makerId, p.pieces]));
+  const x = new Map<string, number>();
+  for (const p of plan.production) x.set(p.makerId, (x.get(p.makerId) ?? 0) + p.pieces);
   const asks = [...new Set(usable.map((m) => m.ask))].sort((a, b) => a - b).slice(0, -1);
   if (cert.levels.length !== asks.length) bad.push("certificate does not cover every price level");
   asks.forEach((ask, i) => {
     const level = cert.levels[i];
     const group = usable.filter((m) => m.ask <= ask).map((m) => m.id).sort();
-    if (!level || level.askInr !== ask || [...level.makerIds].sort().join() !== group.join()) {
+    const supplied = level ? [...level.makerIds].sort() : [];
+    if (!level || level.askInr !== ask || supplied.length !== group.length || supplied.some((id, n) => id !== group[n])) {
       bad.push(`price level ₹${ask}: wrong maker group`);
       return;
     }
@@ -251,6 +276,7 @@ export function checkOptimality(facts: CollectiveFacts, plan: Plan, cert: Optima
     if (level.cut.lastFinishDay !== plan.lastFinishDay) bad.push(`price level ₹${ask}: bound is for a different date`);
     const r = cutBound(facts, level.cut, now, new Set(group));
     bad.push(...r.problems.map((p) => `price level ₹${ask}: ${p}`));
+    if (r.bound !== level.cut.bound) bad.push(`price level ₹${ask}: claimed cut bound differs from recomputed bound`);
     if (r.bound !== xP) bad.push(`price level ₹${ask}: plan uses ${xP} from cheaper makers but up to ${r.bound} are possible`);
   });
   return bad;
@@ -258,44 +284,76 @@ export function checkOptimality(facts: CollectiveFacts, plan: Plan, cert: Optima
 
 /** Checks a whole evaluation, including every alternative it offers. */
 export function checkEvaluation(facts: CollectiveFacts, request: OrderRequest, ev: Evaluation, now: Date): string[] {
+  const shape = evaluationShape(ev);
+  if (shape.length) return shape;
+  if (ev.kind === "unresolved") return [];
+  const invalid = checkInputs(facts, request, now);
+  if (invalid.length) return invalid;
   const bad: string[] = [];
-  const plan = (p: Plan, opt: OptimalityCert | null, certified: boolean, label: string) => {
-    bad.push(...checkPlan(facts, request, p, now).map((b) => `${label}: ${b}`));
-    if (opt && certified) bad.push(...checkOptimality(facts, p, opt, now).map((b) => `${label}: ${b}`));
+  const plan = (p: Plan, opt: OptimalityCert | null, certified: boolean, label: string, quantity: number, deliveryDay: number) => {
+    bad.push(...checkPlan(facts, { ...request, quantity, deliveryDay }, p, now).map((b) => `${label}: ${b}`));
+    if (certified) {
+      if (!opt) bad.push(`${label}: missing optimality certificate`);
+      else bad.push(...checkOptimality(facts, p, opt, now).map((b) => `${label}: ${b}`));
+    }
   };
   switch (ev.kind) {
     case "feasible":
-      if (ev.plan.quantity !== request.quantity || ev.plan.deliveryDay !== request.deliveryDay) bad.push("plan doesn't answer the request");
-      plan(ev.plan, ev.optimality, ev.certified, "plan");
+      plan(ev.plan, ev.optimality, ev.certified, "plan", request.quantity, request.deliveryDay);
       if (request.budgetUsdCents !== null && ev.plan.money.priceUsdCents > request.budgetUsdCents) bad.push("feasible plan is over budget");
       break;
     case "infeasible_budget":
-      plan(ev.plan, ev.optimality, ev.certified, "plan");
+      plan(ev.plan, ev.optimality, ev.certified, "plan", request.quantity, request.deliveryDay);
       if (!ev.certified) bad.push("a budget refusal needs a certified minimum cost");
-      if (ev.plan.money.priceUsdCents <= ev.budgetUsdCents) bad.push("price is within budget");
+      if (request.budgetUsdCents === null || ev.budgetUsdCents !== request.budgetUsdCents) bad.push("budget refusal is for a different budget");
+      if (request.budgetUsdCents !== null && ev.plan.money.priceUsdCents <= request.budgetUsdCents) bad.push("price is within budget");
       break;
     case "infeasible_capacity": {
       bad.push(...checkRefusal(facts, request, ev.cut, now));
+      if (ev.requested !== request.quantity) bad.push("capacity refusal is for a different quantity");
       if (ev.cut.bound !== ev.maxQuantity) bad.push("max quantity ≠ cut bound");
       const lb = ev.alternatives.largestByDate;
-      if (lb?.plan) {
-        plan(lb.plan, lb.optimality, lb.certified, "largest by date");
-        if (lb.plan.quantity !== ev.maxQuantity) bad.push("largest-by-date plan doesn't reach the bound");
-      }
-      const ed = ev.alternatives.earliestDelivery;
-      if (ed?.kind === "found") {
-        plan(ed.plan, ed.optimality, ed.certified, "earliest delivery");
-        if (ed.dayBeforeCut) bad.push(...checkRefusal(facts, { ...request, deliveryDay: ed.plan.deliveryDay - 1 }, ed.dayBeforeCut, now).map((b) => `day before: ${b}`));
-      }
-      if (ed?.kind === "not_within_horizon") {
-        const lastDelivery = facts.horizonDays - 1 + facts.transitDays.value + facts.packDays + 1;
-        bad.push(...checkRefusal(facts, { ...request, deliveryDay: lastDelivery }, ed.cut, now).map((b) => `horizon: ${b}`));
-      }
+      if (ev.maxQuantity > 0 && (!lb?.plan || lb.quantity !== ev.maxQuantity)) bad.push("maximum quantity needs a matching feasible plan");
       break;
     }
-    case "unresolved":
-      if (!ev.issues.length) bad.push("unresolved without saying what is missing");
-      break;
+  }
+  if (ev.kind === "feasible") return bad;
+  // Every advertised alternative is checked, with an explicit transformed request.
+  const lb = ev.alternatives.largestByDate;
+  if (lb) {
+    const r = { ...request, quantity: lb.quantity + 1 };
+    bad.push(...checkRefusal(facts, r, lb.cut, now).map((b) => `largest by date: ${b}`));
+    if (lb.cut.bound !== lb.quantity) bad.push("largest by date: quantity differs from cut bound");
+    if (lb.quantity > request.quantity) bad.push("largest by date exceeds requested quantity");
+    if (lb.quantity > 0) {
+      if (!lb.plan) bad.push("largest by date: missing feasible plan");
+      else plan(lb.plan, lb.optimality, lb.certified, "largest by date", lb.quantity, request.deliveryDay);
+    } else if (lb.plan !== null || lb.optimality !== null) bad.push("zero quantity must not carry a production plan");
+  }
+  const ed = ev.alternatives.earliestDelivery;
+  if (ed?.kind === "found") {
+    plan(ed.plan, ed.optimality, ed.certified, "earliest delivery", request.quantity, ed.plan.deliveryDay);
+    if (ed.plan.deliveryDay <= request.deliveryDay || ed.plan.lastFinishDay > facts.horizonDays - 1) bad.push("earliest delivery must be later than the refused date and inside the known horizon");
+    if (!ed.dayBeforeCut) bad.push("earliest delivery requires a preceding-day refusal");
+    else bad.push(...checkRefusal(facts, { ...request, deliveryDay: ed.plan.deliveryDay - 1 }, ed.dayBeforeCut, now).map((b) => `day before: ${b}`));
+  }
+  if (ed?.kind === "not_within_horizon") {
+    const lastDelivery = facts.horizonDays + facts.transitDays.value + facts.packDays;
+    if (ed.horizonDays !== facts.horizonDays) bad.push("earliest delivery: wrong horizon");
+    bad.push(...checkRefusal(facts, { ...request, deliveryDay: lastDelivery }, ed.cut, now).map((b) => `horizon: ${b}`));
+  }
+  const budget = ev.alternatives.largestWithinBudget;
+  if (budget) {
+    if (request.budgetUsdCents === null) bad.push("budget alternative requires a budget");
+    if (budget.quantity >= request.quantity) bad.push("budget alternative must be smaller than the refused quantity");
+    if ("plan" in budget) {
+      plan(budget.plan, budget.optimality, budget.certified, "within budget", budget.quantity, request.deliveryDay);
+      if (budget.quantity === 0) bad.push("zero budget quantity cannot carry a plan");
+      if (request.budgetUsdCents !== null && budget.plan.money.priceUsdCents > request.budgetUsdCents) bad.push("budget alternative exceeds the budget");
+    } else if (budget.quantity !== 0) bad.push("budget alternative is missing its plan");
+    const next = budget.next;
+    plan(next.plan, next.optimality, true, "next quantity", budget.quantity + 1, request.deliveryDay);
+    if (request.budgetUsdCents !== null && next.plan.money.priceUsdCents <= request.budgetUsdCents) bad.push("next quantity still fits the budget; alternative is not maximal");
   }
   return bad;
 }

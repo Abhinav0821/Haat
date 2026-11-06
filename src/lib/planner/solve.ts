@@ -1,4 +1,5 @@
 import { FlowGraph, INF } from "./flow";
+import { inputIssues } from "./input";
 import {
   PLANNER_MODEL,
   factsHash,
@@ -116,7 +117,7 @@ export function derive(facts: CollectiveFacts, request: OrderRequest, now: Date)
       continue;
     }
     if (m.fixedCostInr > 0) {
-      issues.push(issue("unsupported", "fixedCostInr", `${name}'s per-order cost (₹${m.fixedCostInr}) can't be modelled yet; enter it per piece.`, `${name} का एक बार का खर्च अभी हर पीस के हिसाब से डालें।`, m.id));
+      issues.push(issue("unsupported", "fixedCostInr", `${name}'s activation cost (₹${m.fixedCostInr}) needs a pricing model that supports fixed per-maker costs.`, `${name} के एक बार के खर्च के लिए अलग दाम-गणना चाहिए; M1 इसे नहीं संभालता।`, m.id));
       blocking = true;
       continue;
     }
@@ -217,7 +218,7 @@ function build(inst: Instance, makers: DMaker[], lastFinish: number, gates?: Map
       m.commits.forEach((c, k) => {
         if (t <= c.due) g.addEdge(v, kNode[i][k], INF);
       });
-      if (t >= m.ready && t + inst.lag <= L) prod.push({ id: m.id, day: t, e: g.addEdge(v, wBase + t + inst.lag, INF, m.ask) });
+      if (t >= m.ready && t + inst.lag <= L) prod.push({ id: m.id, day: t, e: g.addEdge(v, wBase + t + inst.lag, INF, Math.round(m.ask * 100)) });
     }
     m.commits.forEach((c, k) => g.addEdge(kNode[i][k], Tc, c.pieces));
   });
@@ -302,11 +303,24 @@ export function netInr(p: number, fee: CollectiveFacts["fee"], rate: number) {
   return Math.round(((p - feeUsdCents(p, fee)) / 100) * rate);
 }
 export function priceFor(totalCostInr: number, fee: CollectiveFacts["fee"], rate: number): number {
-  const est = Math.ceil(((totalCostInr / rate) * 100 + fee.fixedUsdCents) / (1 - fee.percent / 100));
-  let p = Math.max(0, est - 50);
-  while (netInr(p, fee, rate) < totalCostInr) p++;
-  while (p > 0 && netInr(p - 1, fee, rate) >= totalCostInr) p--;
-  return p;
+  if (!Number.isFinite(totalCostInr) || totalCostInr < 0 || totalCostInr > Number.MAX_SAFE_INTEGER ||
+      !Number.isFinite(rate) || rate < 0.01 || rate > 10_000 ||
+      !Number.isFinite(fee.percent) || fee.percent < 0 || fee.percent > 20 ||
+      !Number.isSafeInteger(fee.fixedUsdCents) || fee.fixedUsdCents < 0 || fee.fixedUsdCents > 1_000_000) throw new Error("Unsupported pricing inputs");
+  // Net proceeds are monotone under these bounds. Both loops are logarithmic and
+  // bounded; invalid or unrepresentable prices can never spin or become Infinity.
+  let hi = Math.max(1, Math.min(Number.MAX_SAFE_INTEGER, Math.ceil(((totalCostInr / rate) * 100 + fee.fixedUsdCents + 100) / (1 - fee.percent / 100))));
+  while (netInr(hi, fee, rate) < totalCostInr) {
+    if (hi === Number.MAX_SAFE_INTEGER) throw new Error("Price exceeds the supported integer range");
+    hi = Math.min(Number.MAX_SAFE_INTEGER, hi * 2);
+  }
+  let lo = 0;
+  while (lo < hi) {
+    const mid = lo + Math.floor((hi - lo) / 2);
+    if (netInr(mid, fee, rate) >= totalCostInr) hi = mid;
+    else lo = mid + 1;
+  }
+  return lo;
 }
 
 function money(facts: CollectiveFacts, inst: Instance, production: ProductionEntry[], Q: number): Money {
@@ -372,6 +386,8 @@ function makePlan(facts: CollectiveFacts, inst: Instance, request: OrderRequest,
 // ---------- evaluation ----------
 
 export function evaluate(facts: CollectiveFacts, request: OrderRequest, now: Date): Evaluation {
+  const invalid = inputIssues(facts, request, now);
+  if (invalid.length) return { kind: "unresolved", issues: invalid };
   let d: Derived;
   try {
     d = derive(facts, request, now);
@@ -395,9 +411,12 @@ function decide(facts: CollectiveFacts, request: OrderRequest, d: Derived): Eval
 
   if (maxQ >= Q) {
     const plan = makePlan(facts, inst, request, Q, request.deliveryDay)!;
-    const { cert, certified } = optimality(inst, plan, L);
+    const proof = optimality(inst, plan, L);
+    const cert = proof.cert;
+    const certified = proof.certified && !d.incomplete && !d.beyondHorizon;
     const budget = request.budgetUsdCents;
     if (budget !== null && plan.money.priceUsdCents > budget) {
+      if (!certified) return { kind: "unresolved", issues: [...notes, issue("missing", "minimum_price", "A budget refusal needs complete facts within the horizon and a certified minimum price.", "बजट को कम कहने से पहले सबकी पूरी जानकारी और न्यूनतम दाम की पुष्टि चाहिए।")] };
       return {
         kind: "infeasible_budget",
         plan,
@@ -463,8 +482,13 @@ function largestWithinBudget(facts: CollectiveFacts, inst: Instance, request: Or
       best = p;
     } else hi = mid - 1;
   }
-  if (lo === 0) return { quantity: 0 };
+  const nextPlan = makePlan(facts, inst, request, lo + 1, request.deliveryDay)!;
+  const nextProof = optimality(inst, nextPlan, L);
+  if (!nextProof.certified || nextPlan.money.priceUsdCents <= budget) throw new Error("Budget boundary is not certified");
+  const next = { plan: nextPlan, optimality: nextProof.cert };
+  if (lo === 0) return { quantity: 0, next };
   best = best && best.quantity === lo ? best : makePlan(facts, inst, request, lo, request.deliveryDay)!;
   const { cert, certified } = optimality(inst, best, L);
-  return { quantity: lo, plan: best, optimality: cert, certified };
+  if (!certified) throw new Error("Budget alternative is not certified");
+  return { quantity: lo, plan: best, optimality: cert, certified, next };
 }

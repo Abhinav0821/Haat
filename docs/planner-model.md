@@ -64,11 +64,19 @@ fixed per-order shipping cost. Per-maker fixed costs are not modelled (see above
 
 A capacity "no" is only issued when **every** maker who could contribute has complete,
 current facts and the deadline lies inside the planning horizon. With an incomplete maker,
-a *feasible* plan that does not use her is still valid; a refusal is not.
+a *feasible* plan that does not use her is still valid. It is labelled **cheapest not
+certified**: the missing maker might allow a cheaper plan. The same restriction applies
+when the deadline extends beyond known availability. A budget refusal requires a globally
+certified minimum; if the known plan exceeds the budget but that minimum cannot be
+certified, the answer is `unresolved`. The checker independently enforces these conditions.
+
+Every primary plan is bound to the exact request's quantity, delivery day and budget.
+Alternative plans are bound to an explicit transformed request (their own quantity/date,
+with the original budget); their relationship to the original request is checked too.
 
 ### Alternatives (each a separate objective under the stated model)
 
-- **Earliest delivery** for the full quantity — searched day by day; proved by a plan on the
+- **Earliest delivery** for the full quantity — found by a monotone date search; proved by a plan on the
   found day and a cut for the day before. Monotone only while the recorded facts stay fixed.
   If nothing within the horizon works, the result says *"not within the next N days"*, not
   *"never"*.
@@ -78,6 +86,14 @@ a *feasible* plan that does not use her is still valid; a refusal is not.
 
 There is no single "smallest change"; these are distinct answers.
 
+Each largest-within-budget answer includes `next`: a feasible plan and an optimality
+certificate for **one more piece**, whose certified minimum price exceeds the budget.
+This is required even when the affordable quantity is zero. Nonnegative costs make the
+price monotone in quantity, so this boundary proves maximality. The offered positive
+quantity also needs a feasible plan within budget. A largest-by-date claim needs a
+feasible plan reaching its cut bound (zero is witnessed implicitly). An earliest-date
+claim must carry a refusal for the preceding day; omitting it cannot certify "earliest".
+
 ## 3. Certificates
 
 **Plan (yes).** Production entries `(maker, day, pieces)` and finishing entries `(day, pieces)`.
@@ -86,7 +102,10 @@ materials-ready day; per-day maker capacity after reservations; her commitments 
 satisfiable on what is left (earliest-deadline prefix condition, exact for unit pieces);
 `maxPieces`; per-day finishing after reservations; for every day, cumulative finishing ≤
 cumulative production lagged by `lagDays`; nothing finished after `lastFinishDay`; totals
-equal the quantity; money recomputed.
+equal the quantity; money recomputed. Expected pay is derived from production, not from
+submitted payment lines. Each producing maker must have exactly one line; unknown,
+non-producing, duplicate and missing payees are rejected. Every displayed cost component,
+maker total, fee, overall total and lowest covering price is verified independently.
 
 **Capacity cut (no).** A cut-off day `τ` and, per maker, either a day `u_m` or `"cap"`.
 Bound, computed from raw facts:
@@ -107,6 +126,10 @@ minimising `(τ, u)` by enumeration and asserts it equals the maximum flow it co
 makers asking ≤ `L`. Any feasible plan has `y(P_L) ≤ min(Q, B_L)` where `B_L` is a cut bound
 over `P_L` alone. If the offered plan has `x(P_L)` equal to that bound at every level, no
 feasible plan is cheaper (summation by parts). The checker recomputes each `B_L`.
+
+The flow solver uses integer paise for edge costs (asks support two decimal places),
+avoiding floating-point costs on residual cycles. The checker derives maker counts from
+production and checks the certificate's declared bounds against the raw facts.
 
 ## 4. Who sees what
 
@@ -130,3 +153,34 @@ price (USD) = least P with round(((P − fee(P)) / 100) × inrPerUsd) ≥ total 
 
 Amounts owed to makers, payments reported with a reference, and payments verified are
 three different states and are never merged.
+
+## 6. Runtime domain and limits
+
+TypeScript types are not validation. The solver validates raw inputs before allocating a
+network. The checker has a separate runtime validator and rejects malformed facts,
+plans and certificates before arithmetic or array indexing; it does not import the
+solver's schema. A well-formed `unresolved` answer can explain invalid inputs without
+claiming feasibility or impossibility.
+
+M1 supports:
+
+- 1–366 horizon days, up to 50 uniquely identified makers; requested quantities 1–1,000,000.
+- Integer daily capacities 0–10,000; nonnegative integer material-ready, delivery and
+  commitment dates up to day 3,650. Lag, packing, transit and stale-age durations are
+  integers 0–366. Dates outside known capacity cannot support a refusal.
+- Nonnegative INR costs, asks and floors up to ₹1,000,000 per input, with at most two
+  decimal places; maker limits 0–1,000,000 pieces. Existing promises contain positive
+  integer quantities, up to 1,000 entries per maker.
+- Fee estimates 0–20%, fixed fees 0–1,000,000 USD cents, and exchange rates ₹0.01–₹10,000
+  per USD. Budget and output cent amounts are nonnegative safe integers. Pricing uses a
+  bounded binary search; an unrepresentable price becomes `unresolved`.
+- Up to 1,000 uniquely identified reservations and 20,000 total reservation entries.
+  Entries have positive integer quantities, refer to known makers, and lie inside the
+  horizon. Reservations never create capacity through negative subtraction.
+- A valid UTC start date and valid ISO provenance timestamps at or before the planning
+  time. Invalid/non-finite numbers, sparse arrays, fractional days, duplicate IDs and
+  unsupported model versions are rejected. Certificate days and maker sets must also
+  lie in the represented domain.
+
+These bounds keep input sizes and arithmetic finite. They are implementation limits,
+not evidence that inputs match the workshop or that a payment has settled.

@@ -114,7 +114,11 @@ export type Alternatives = {
     | { kind: "found"; plan: Plan; dayBeforeCut: CutCert | null; optimality: OptimalityCert; certified: boolean }
     | { kind: "not_within_horizon"; horizonDays: number; cut: CutCert };
   largestByDate?: { quantity: number; plan: Plan | null; cut: CutCert; optimality: OptimalityCert | null; certified: boolean };
-  largestWithinBudget?: { quantity: number; plan: Plan; optimality: OptimalityCert; certified: boolean } | { quantity: 0 };
+  /** The next quantity is feasible but its certified minimum price exceeds the budget. */
+  largestWithinBudget?: (
+    | { quantity: number; plan: Plan; optimality: OptimalityCert; certified: boolean }
+    | { quantity: 0 }
+  ) & { next: { plan: Plan; optimality: OptimalityCert } };
 };
 
 export type Evaluation =
