@@ -199,6 +199,26 @@ must pass `checkEvaluation` before it is shown; otherwise the seller sees the pr
 formulas' numbers, without the "independently checked" wording. Prices stay with the
 earnings calculator (`economics.ts`), which models her own costs.
 
+The maximum is exact even when the requested quantity fits: the adapter probes beyond
+the horizon's total production capacity (up to M1's request limit), then checks the
+refusal's cut **and** its feasible maximum-quantity witness. A successful probe at the
+request limit is only a lower bound, so it cannot be advertised as a checked maximum.
+Date-only MCP queries perform this check too.
+
+MCP exposes `earliestChecked` for the returned ready/delivery dates and `maximumChecked`
+for `maxPiecesDeliveredBy`. The overall `capacityChecked` is true only when **every
+requested result** is checked. An earliest date may be unavailable while a deadline's
+maximum is checked, or the reverse; formula fallbacks never inherit another field's
+verification status. With neither a quantity nor a deadline, no capacity answer is
+certified and the overall flag is false.
+
+Deadlines must be real, complete `YYYY-MM-DD` calendar dates. The adapter, capability
+service and MCP input schema reject rollovers such as November 31 and February 29 in
+a non-leap year. Past deadlines and deadlines extending beyond known production days
+have no checked maximum in this adapter; existing formula estimates remain available
+with `maximumChecked: false`. Invalid dates are rejected, rather than normalised or
+silently discarded.
+
 Stated assumptions: materials are in hand today (single-maker rules have no materials
 date), and her saved rules are current (she edits them herself), so no staleness applies.
 Beyond the one-year horizon the planner says "not within the horizon"; it never invents a

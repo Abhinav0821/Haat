@@ -3,6 +3,7 @@ import { db, schema, withTx, type DB, type Tx } from "@/db";
 import { hearBuyerRequest, hearSellerAnswer, optionsFrom, specFrom } from "@/lib/ai/custom";
 import { readEconomics, type Economics } from "@/lib/economics";
 import { env } from "@/lib/env";
+import { isCalendarDate } from "@/lib/calendar-date";
 import { logEvent } from "@/lib/events";
 import {
   AgreementError,
@@ -447,19 +448,21 @@ export async function listRequests(storeId: string) {
 
 /** For agents (MCP): what she can make and when — never her costs or minimum. */
 export async function makerCapabilities(storeId: string, quantity?: number, deadline?: string) {
+  if (deadline !== undefined && !isCalendarDate(deadline)) throw new AgreementError("Use a real calendar date in YYYY-MM-DD format.", 400);
   const { e } = await rulesNow(storeId);
   if (!e || !e.piecesPerWeek) return { acceptsCustomOrders: false as const };
   const now = new Date();
   const q = quantity && quantity > 0 ? Math.min(200, Math.round(quantity)) : null;
-  const validDeadline = deadline && !Number.isNaN(Date.parse(deadline)) ? deadline : null;
   // Planner + independent checker; today's formulas only if the check doesn't pass.
-  const proof = q ? capacityProof(e, q, validDeadline, now, env().INR_PER_USD) : null;
+  const proof = q || deadline ? capacityProof(e, q ?? 1, deadline ?? null, now, env().INR_PER_USD) : null;
   const done = q ? completionDate(now, e.backlogPieces, q, e.piecesPerWeek) : null;
   const earliest = proof?.verified && proof.earliest ? proof.earliest : done ? { readyBy: isoDate(done), delivery: isoDate(deliveryEstimate(done, e.shippingDays)) } : null;
   const maxBy = (d: string) => {
-    if (proof?.verified && proof.byDeadline && !proof.byDeadline.fits) return proof.byDeadline.max;
+    if (proof?.verified && proof.byDeadline) return proof.byDeadline.max;
     return maxQuantityByDeadline(now, new Date(d), e.backlogPieces, e.piecesPerWeek!, e.shippingDays);
   };
+  const earliestChecked = !!(q && proof?.verified && proof.earliest);
+  const maximumChecked = !!(deadline && proof?.verified && proof.byDeadline);
   return {
     acceptsCustomOrders: true as const,
     piecesPerWeek: e.piecesPerWeek,
@@ -467,8 +470,10 @@ export async function makerCapabilities(storeId: string, quantity?: number, dead
     typicalCourierDays: e.shippingDays,
     shippingUsd: (e.shippingChargeUsdCents / 100).toFixed(2),
     ...(q && earliest ? { forQuantity: q, earliestReadyBy: earliest.readyBy, estimatedDelivery: earliest.delivery } : {}),
-    ...(validDeadline ? { maxPiecesDeliveredBy: { date: validDeadline, pieces: maxBy(validDeadline) } } : {}),
-    capacityChecked: proof?.verified === true,
+    ...(deadline ? { maxPiecesDeliveredBy: { date: deadline, pieces: maxBy(deadline) } } : {}),
+    earliestChecked,
+    maximumChecked,
+    capacityChecked: !!(q || deadline) && (!q || earliestChecked) && (!deadline || maximumChecked),
     pricing: "Quoted by the maker for each request; her answer is checked against her own costs before you see it.",
     howToOrder: "Call request_custom_order with a plain-language description; the buyer approves final terms and pays via PayPal on the link returned.",
   };

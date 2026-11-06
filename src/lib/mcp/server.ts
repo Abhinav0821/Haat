@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
+import { isCalendarDate } from "@/lib/calendar-date";
 import { db, schema } from "@/db";
 import { hit } from "@/lib/rate-limit";
 import { AgreementError } from "@/lib/custom/agreement";
@@ -305,11 +306,13 @@ export function buildMcpServer({ baseUrl, clientKey }: { baseUrl: string; client
       title: "What a maker can make, and when",
       description:
         "Capacity for custom (made-to-order) work: pieces per week, work already booked, and — for a quantity and/or date — the earliest ready date, estimated delivery, " +
-        "and the most pieces deliverable by that date. Computed from the maker's own stated capacity. Prices are quoted per request.",
+        "and the most pieces deliverable by that date. Computed from the maker's own stated capacity. " +
+        "earliestChecked and maximumChecked identify independently checked results; capacityChecked is true only when all requested results are checked. " +
+        "Unchecked results use the previous formula estimates. Prices are quoted per request.",
       inputSchema: {
         shop: z.string().default("meera-block-prints").describe("Shop slug"),
         quantity: z.number().int().min(1).max(200).optional(),
-        deliverBy: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("YYYY-MM-DD"),
+        deliverBy: z.string().refine(isCalendarDate, "Use a real calendar date in YYYY-MM-DD format.").optional().describe("YYYY-MM-DD"),
       },
       annotations: { readOnlyHint: true },
     },

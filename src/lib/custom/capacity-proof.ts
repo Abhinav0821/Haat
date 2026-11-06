@@ -1,4 +1,5 @@
 import type { Economics } from "@/lib/economics";
+import { isCalendarDate } from "@/lib/calendar-date";
 import { evaluate } from "@/lib/planner/solve";
 import { checkEvaluation } from "@/lib/planner/check";
 import { dayDate, dayIndex, weeklyToDaily, type CollectiveFacts, type Evaluation, type OrderRequest } from "@/lib/planner/model";
@@ -24,8 +25,9 @@ export type CapacityProof =
   | {
       verified: true;
       quantity: number;
-      /** Against the buyer's date (null when no date was given). `max` is exact only when `fits` is false. */
+      /** Exact maximum, with a checked cut and feasible witness; null if absent or not verifiable. */
       byDeadline: null | { date: string; fits: boolean; max: number; lastWorkDay: string; capacity: number; booked: number };
+      deadlineUnavailableReason?: string;
       /** Earliest ready/delivery dates for the full quantity, or null if not within a year. */
       earliest: { readyBy: string; delivery: string } | null;
     }
@@ -74,6 +76,8 @@ function verified(f: CollectiveFacts, r: OrderRequest, at: Date): Evaluation | s
 export function capacityProof(e: Economics | null, quantity: number, deadline: string | null, now: Date, inrPerUsd: number): CapacityProof {
   if (!e?.piecesPerWeek) return { verified: false, reason: "weekly capacity not set" };
   if (!Number.isInteger(quantity) || quantity < 1) return { verified: false, reason: "invalid quantity" };
+  if (!(now instanceof Date) || !Number.isFinite(now.getTime())) return { verified: false, reason: "invalid planning time" };
+  if (deadline !== null && !isCalendarDate(deadline)) return { verified: false, reason: "invalid calendar deadline; use YYYY-MM-DD" };
   const startDate = now.toISOString().slice(0, 10);
   // Facts are stamped at the start of today; the plan is evaluated as of now.
   const f = facts(e, startDate, inrPerUsd);
@@ -88,21 +92,27 @@ export function capacityProof(e: Economics | null, quantity: number, deadline: s
   } else return { verified: false, reason: "a same-day delivery cannot be feasible" };
 
   let byDeadline: Extract<CapacityProof, { verified: true }>["byDeadline"] = null;
+  let deadlineUnavailableReason: string | undefined;
   if (deadline) {
     const day = dayIndex(startDate, deadline);
-    if (!Number.isInteger(day)) return { verified: false, reason: "invalid deadline" };
     const lastWork = day - e.shippingDays - 1;
     const cap = f.makers[0].dailyCapacity.value;
     const capacity = lastWork < 0 ? 0 : cap.slice(0, Math.min(lastWork, HORIZON - 1) + 1).reduce((a, b) => a + b, 0);
-    let max: number;
-    if (day < 0) max = 0;
+    if (day < 0) deadlineUnavailableReason = "deadline is before the planning date";
+    else if (lastWork >= HORIZON) deadlineUnavailableReason = "availability is only known for the next 366 days";
     else {
-      const ev = verified(f, { quantity, deliveryDay: day, budgetUsdCents: null }, now);
-      if (typeof ev === "string") return { verified: false, reason: ev };
-      max = ev.kind === "feasible" ? quantity : ev.kind === "infeasible_capacity" ? ev.maxQuantity : -1;
-      if (max < 0) return { verified: false, reason: "unexpected result" };
+      // A fitting order proves only a lower bound. Ask for more than the entire
+      // horizon can produce, forcing a cut plus a witness for the exact maximum.
+      // If M1's request limit is reached before a refusal, do not claim a maximum.
+      const probe = Math.min(1_000_000, cap.reduce((a, b) => a + b, 0) + 1);
+      const ev = verified(f, { quantity: probe, deliveryDay: day, budgetUsdCents: null }, now);
+      if (typeof ev === "string") deadlineUnavailableReason = ev;
+      else if (ev.kind !== "infeasible_capacity") deadlineUnavailableReason = "maximum exceeds the supported verification range";
+      else byDeadline = {
+        date: deadline, fits: ev.maxQuantity >= quantity, max: ev.maxQuantity,
+        lastWorkDay: dayDate(startDate, lastWork), capacity, booked: e.backlogPieces,
+      };
     }
-    byDeadline = { date: deadline.slice(0, 10), fits: max >= quantity, max, lastWorkDay: dayDate(startDate, Math.max(-1, lastWork)), capacity, booked: e.backlogPieces };
   }
-  return { verified: true, quantity, byDeadline, earliest };
+  return { verified: true, quantity, byDeadline, earliest, ...(deadlineUnavailableReason ? { deadlineUnavailableReason } : {}) };
 }
