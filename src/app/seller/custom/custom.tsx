@@ -237,15 +237,15 @@ export function CustomRequests() {
           {view.status !== "paid" && view.status !== "declined" && (
           <section className="mt-6 text-sm">
             <SectionHeading hi="आपके नियमों से" en="From your rules" className="mb-2" />
-            <ul className="mt-2 space-y-1">
+            <ul className="mt-2 space-y-3">
               {view.advice.hi.map((line, i) => (
-                <li key={line} lang="hi">
-                  {line} <span className="block text-xs text-muted">{view.advice.en[i]}</span>
+                <li key={line} lang="hi" className="leading-relaxed">
+                  {line} <span className="mt-0.5 block text-xs leading-normal text-muted">{view.advice.en[i]}</span>
                 </li>
               ))}
             </ul>
             {view.advice.hi.length > 0 && (
-              <button type="button" onClick={() => speak(view.advice.hi.join(" "), "hindi")} className="mt-2 text-xs underline underline-offset-4">
+              <button type="button" onClick={() => speak(view.advice.hi.join(" "), "hindi")} className="mt-3 text-xs underline underline-offset-4">
                 🔊 सुनें
               </button>
             )}

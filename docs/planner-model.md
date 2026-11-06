@@ -184,3 +184,24 @@ M1 supports:
 
 These bounds keep input sizes and arithmetic finite. They are implementation limits,
 not evidence that inputs match the workshop or that a payment has settled.
+
+## 7. Single-maker adapter (`src/lib/custom/capacity-proof.ts`)
+
+A maker working alone is a collective of one. Her weekly pace becomes whole-piece days
+(cumulative capacity through day `t` is `floor((t+1) × rate / 7)`); work already booked is
+one undated promise, due first-in-first-out; she finishes her own pieces (no shared stage,
+`lagDays = 0`, unlimited finishing); transit is her courier days.
+
+The adapter answers **capacity questions only**: the earliest ready and delivery dates for
+the full quantity, and the most pieces deliverable by the buyer's date, with the reason in
+her terms ("at your pace you can make X by D, and Y are already promised"). Every answer
+must pass `checkEvaluation` before it is shown; otherwise the seller sees the previous
+formulas' numbers, without the "independently checked" wording. Prices stay with the
+earnings calculator (`economics.ts`), which models her own costs.
+
+Stated assumptions: materials are in hand today (single-maker rules have no materials
+date), and her saved rules are current (she edits them herself), so no staleness applies.
+Beyond the one-year horizon the planner says "not within the horizon"; it never invents a
+date. On every in-horizon case tested, its dates and quantities equal the previous
+formulas, after fixing a floating-point rounding in the completion date (29 pieces at
+7 a week took 30 days instead of 29).

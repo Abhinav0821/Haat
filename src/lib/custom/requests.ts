@@ -18,6 +18,7 @@ import {
   termsLinesEn,
   type Terms,
 } from "./agreement";
+import { capacityProof } from "./capacity-proof";
 import { completionDate, deliveryEstimate, evaluateCounter, isoDate, maxQuantityByDeadline, minimumUnitPriceUsdCents, validateOption, type CounterResult, type CustomSpec, type Option, type OptionVerdict } from "./quote";
 
 /**
@@ -276,15 +277,25 @@ export function adviceFor(spec: CustomSpec, e: Economics | null, now: Date, inrP
   const en: string[] = [];
   if (!e) return { hi: ["पहले अपने नियम (खर्च, कमाई, क्षमता) सेव करें।"], en: ["Save your rules (costs, minimum, capacity) first."] };
   if (e.piecesPerWeek) {
-    const done = completionDate(now, e.backlogPieces, spec.quantity, e.piecesPerWeek);
-    const arrive = deliveryEstimate(done, e.shippingDays);
-    hi.push(`अभी के काम के साथ, ${spec.quantity} पीस ${hiDate(isoDate(done))} तक बनेंगे, पहुँचने का अनुमान ${hiDate(isoDate(arrive))}।`);
-    en.push(`With work already booked (${e.backlogPieces} pcs), ${spec.quantity} pieces can be ready ${isoDate(done)}; estimated delivery ${isoDate(arrive)}.`);
+    // Planner answer, accepted only after the independent checker verifies it; otherwise today's formulas.
+    const proof = capacityProof(e, spec.quantity, spec.deadline, now, inrPerUsd);
+    const fallbackDone = completionDate(now, e.backlogPieces, spec.quantity, e.piecesPerWeek);
+    const done = proof.verified && proof.earliest ? proof.earliest.readyBy : isoDate(fallbackDone);
+    const arrive = proof.verified && proof.earliest ? proof.earliest.delivery : isoDate(deliveryEstimate(fallbackDone, e.shippingDays));
+    hi.push(`अभी के काम के साथ, ${spec.quantity} पीस ${hiDate(done)} तक बनेंगे, पहुँचने का अनुमान ${hiDate(arrive)}।`);
+    en.push(`With work already booked (${e.backlogPieces} pcs), ${spec.quantity} pieces can be ready ${done}; estimated delivery ${arrive}.`);
     if (spec.deadline) {
-      const max = maxQuantityByDeadline(now, new Date(spec.deadline), e.backlogPieces, e.piecesPerWeek, e.shippingDays);
-      if (max < spec.quantity) {
-        hi.push(`ख़रीदार की तारीख़ तक ज़्यादा से ज़्यादा ${max} पीस पहुँच सकते हैं।`);
-        en.push(`At most ${max} pieces can arrive by the buyer's date.`);
+      const b = proof.verified ? proof.byDeadline : null;
+      const max = b ? b.max : maxQuantityByDeadline(now, new Date(spec.deadline), e.backlogPieces, e.piecesPerWeek, e.shippingDays);
+      if (b ? !b.fits : max < spec.quantity) {
+        if (b && b.max === Math.max(0, b.capacity - b.booked)) {
+          // The reason, in her terms: her pace up to the last working day, minus what is already promised.
+          hi.push(`ख़रीदार की तारीख़ तक ज़्यादा से ज़्यादा ${max} पीस पहुँच सकते हैं — आज से ${hiDate(b.lastWorkDay)} तक आपकी रफ़्तार से ${b.capacity} पीस बनते हैं, और ${b.booked} पहले से वादा किए हुए हैं।`);
+          en.push(`At most ${max} pieces can arrive by the buyer's date: at your pace you can make ${b.capacity} by ${b.lastWorkDay} (the last day before courier time), and ${b.booked} are already promised. Independently checked.`);
+        } else {
+          hi.push(`ख़रीदार की तारीख़ तक ज़्यादा से ज़्यादा ${max} पीस पहुँच सकते हैं।`);
+          en.push(`At most ${max} pieces can arrive by the buyer's date.`);
+        }
       }
     }
   }
@@ -440,17 +451,24 @@ export async function makerCapabilities(storeId: string, quantity?: number, dead
   if (!e || !e.piecesPerWeek) return { acceptsCustomOrders: false as const };
   const now = new Date();
   const q = quantity && quantity > 0 ? Math.min(200, Math.round(quantity)) : null;
+  const validDeadline = deadline && !Number.isNaN(Date.parse(deadline)) ? deadline : null;
+  // Planner + independent checker; today's formulas only if the check doesn't pass.
+  const proof = q ? capacityProof(e, q, validDeadline, now, env().INR_PER_USD) : null;
   const done = q ? completionDate(now, e.backlogPieces, q, e.piecesPerWeek) : null;
+  const earliest = proof?.verified && proof.earliest ? proof.earliest : done ? { readyBy: isoDate(done), delivery: isoDate(deliveryEstimate(done, e.shippingDays)) } : null;
+  const maxBy = (d: string) => {
+    if (proof?.verified && proof.byDeadline && !proof.byDeadline.fits) return proof.byDeadline.max;
+    return maxQuantityByDeadline(now, new Date(d), e.backlogPieces, e.piecesPerWeek!, e.shippingDays);
+  };
   return {
     acceptsCustomOrders: true as const,
     piecesPerWeek: e.piecesPerWeek,
     piecesAlreadyBooked: e.backlogPieces,
     typicalCourierDays: e.shippingDays,
     shippingUsd: (e.shippingChargeUsdCents / 100).toFixed(2),
-    ...(q && done ? { forQuantity: q, earliestReadyBy: isoDate(done), estimatedDelivery: isoDate(deliveryEstimate(done, e.shippingDays)) } : {}),
-    ...(deadline && !Number.isNaN(Date.parse(deadline))
-      ? { maxPiecesDeliveredBy: { date: deadline, pieces: maxQuantityByDeadline(now, new Date(deadline), e.backlogPieces, e.piecesPerWeek, e.shippingDays) } }
-      : {}),
+    ...(q && earliest ? { forQuantity: q, earliestReadyBy: earliest.readyBy, estimatedDelivery: earliest.delivery } : {}),
+    ...(validDeadline ? { maxPiecesDeliveredBy: { date: validDeadline, pieces: maxBy(validDeadline) } } : {}),
+    capacityChecked: proof?.verified === true,
     pricing: "Quoted by the maker for each request; her answer is checked against her own costs before you see it.",
     howToOrder: "Call request_custom_order with a plain-language description; the buyer approves final terms and pays via PayPal on the link returned.",
   };

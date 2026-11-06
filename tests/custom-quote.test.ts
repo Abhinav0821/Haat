@@ -125,3 +125,8 @@ test("pilot report: custom-order metrics from logged events", async () => {
   assert.match(lines, /refused automatically: 1/);
   assert.match(lines, /approved by both: 1/);
 });
+
+test("completion date uses exact whole-day arithmetic (29 pieces at 7 a week take 29 days, not 30)", () => {
+  assert.equal(completionDate(now, 0, 29, 7).toISOString().slice(0, 10), "2026-12-05");
+  assert.equal(completionDate(now, 20, 38, 7).toISOString().slice(0, 10), "2027-01-03");
+});

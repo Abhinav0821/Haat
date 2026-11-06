@@ -12,7 +12,8 @@ export const isoDate = (d: Date) => d.toISOString().slice(0, 10);
 
 /** When production can finish: work already booked + this order, at her weekly rate. */
 export function completionDate(now: Date, backlogPieces: number, quantity: number, piecesPerWeek: number): Date {
-  const days = Math.ceil(((backlogPieces + quantity) / piecesPerWeek) * 7);
+  // Integer arithmetic: (n / rate) × 7 in floating point can round up a whole day (29 pieces at 7/week).
+  const days = Math.ceil(((backlogPieces + quantity) * 7) / piecesPerWeek);
   return new Date(startOfDay(now).getTime() + days * DAY);
 }
 
