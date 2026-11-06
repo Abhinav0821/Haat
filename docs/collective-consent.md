@@ -2,7 +2,7 @@
 
 This document is the contract for `src/lib/collective/`. The planner it calls is model M1
 ([planner-model.md](planner-model.md)). Every rule below is enforced in code and tested
-in `tests/collective.test.mts`. For each rule, the tests deliberately break it once and
+in `tests/collective.test.mts` and `tests/collective-integrity.test.mts`. For each rule, the tests deliberately break it once and
 check that a test fails.
 
 ## Facts
@@ -13,7 +13,7 @@ check that a test fails.
 - **Each maker's facts:**
   - whether she makes the product
   - pieces per weekday and days off
-  - days until her materials are in hand
+  - the calendar date when her materials are in hand (unknown is allowed)
   - her other promises
   - her asking price, and her private minimum (never shown to buyers or other makers)
   - an optional cap on pieces
@@ -23,6 +23,9 @@ check that a test fails.
     *estimate*. Her own confirmation replaces them.
 - `buildFacts` is the single conversion from stored facts into M1 facts for one start
   date.
+  - **Materials keep their date.** Legacy "in N days" records are anchored to the date
+    she stated them, not to the plan's start. Confirming or editing unrelated facts
+    preserves that date. Changing a legacy delay anchors the new delay to the edit date.
   - **Plans start the day after they are made.** Nobody is asked for work on a day already
     under way.
   - **Past-due promises** are treated as due on the first day. If they no longer fit, she
@@ -37,7 +40,14 @@ check that a test fails.
 2. **Each maker's part is immutable terms plus a SHA-256 hash.**
    - Her terms are: her pieces per day, her pay, and the shared dates her part depends on
      (finishing end, dispatch).
-   - The terms are bilingual. Her read-back is generated from them.
+   - The terms are bilingual. Her read-back is generated from them. Custom requirements
+     have separate English and Hindi readings, both inside her fingerprinted terms.
+     The coordinator enters and reviews both; the app does not verify translation accuracy.
+     English-only drafts may be saved, but cannot be offered. Legacy parts missing Hindi
+     requirements cannot be accepted or used for buyer approval.
+   - The coordinator can correct both readings before payment. This releases unpaid
+     reservations and requires a new plan. Old parts keep their original words; a changed
+     reading changes the hash and requires each affected maker to accept again.
 3. **The overall plan is versioned.**
    - Its terms are the buyer's terms plus a reference (`partId`, `termsHash`) to every
      part, and its own hash covers both.
@@ -82,13 +92,18 @@ check that a test fails.
    **Consequences:**
    - Two orders cannot both reserve the same finishing or maker capacity. Whichever buyer
      approves second is refused, and that plan is marked `needs_replan`.
-   - A fact that changed after the makers accepted (lower capacity, a new price) is caught
-     here, and nothing is reserved.
+   - Fact edits take the same collective lock as approval. Meaningful changes invalidate
+     every affected unpaid plan and release its hold atomically. If an approval is already
+     running, the edit waits and then invalidates it; if the edit runs first, approval waits
+     and refuses the old version. Confirming unchanged facts preserves existing holds.
+     Edits affecting a payment in progress are refused. Paid plans remain frozen.
 2. **A hold counts while it is approved and within 48 hours, paying, or paid.** An unpaid
    hold lapses. Capacity is released, the makers' acceptances stand, and the buyer
-   approves again, which re-checks.
+   approves again, which re-checks. Expiry compares the exact hold timestamp it read, so
+   a stale expiry reader cannot clear a renewed approval.
 3. **An order's own hold is never counted against it** when the coordinator re-plans it.
-4. **Lock order everywhere:** collective, then order, then plans, then parts.
+4. **Transaction lock order:** collective, then order, then plans, then parts. The
+   single-row expiry update instead uses a conditional update against the exact old hold.
 
 ## Who sees what
 
@@ -106,7 +121,11 @@ check that a test fails.
 - **Per-maker fixed costs** (unsupported in M1).
 - **Voice entry of facts.** Facts are typed on her page; parts are read aloud to her.
 - **Testing limits:**
-  - The tests run against embedded Postgres, which serialises transactions. They verify
-    the re-check logic.
-  - Row locking under concurrent connections relies on Postgres `SELECT … FOR UPDATE` and
-    has not been load-tested on Neon.
+  - The tests default to embedded Postgres, which serialises transactions. To use an
+    isolated disposable PostgreSQL database, set `COLLECTIVE_TEST_DATABASE_URL` and run
+    `node --import tsx --test --test-concurrency=1 tests/collective.test.mts tests/collective-integrity.test.mts`.
+    Sequential file startup avoids competing startup migrations; races within each file
+    still use concurrent connections.
+  - Forced race tests also run on local PostgreSQL 18. They observe actual server lock
+    waits for both fact-edit/approval directions, and force a stale expiry read across
+    a renewal. These are targeted concurrency checks, not a Neon load test.

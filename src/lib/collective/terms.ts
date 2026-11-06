@@ -22,6 +22,8 @@ export type PartTerms = {
   orderRef: string;
   product: Product;
   details: string | null;
+  /** Absent only in legacy terms; those parts cannot be accepted when details exist. */
+  detailsHi?: string | null;
   pieces: number;
   /** Day-by-day: how many pieces she makes on each date. */
   schedule: { date: string; pieces: number }[];
@@ -51,11 +53,15 @@ export type BuyerTerms = {
 
 export type PlanTerms = { buyer: BuyerTerms; parts: { memberId: string; partId: string; termsHash: string }[] };
 
+export function hasHindiRequirements(t: { details: string | null; detailsHi?: string | null }): boolean {
+  return !t.details || (typeof t.detailsHi === "string" && t.detailsHi.trim().length > 0 && /\p{Script=Devanagari}/u.test(t.detailsHi));
+}
+
 export function partTerms(
   plan: Plan,
   startDate: string,
   memberId: string,
-  ctx: { collective: string; orderRef: string; product: Product; details: string | null; transitDays: number },
+  ctx: { collective: string; orderRef: string; product: Product; details: string | null; detailsHi?: string | null; transitDays: number },
 ): PartTerms | null {
   const mine = plan.production.filter((p) => p.makerId === memberId).sort((a, b) => a.day - b.day);
   const pay = plan.money.perMaker.find((p) => p.makerId === memberId);
@@ -71,6 +77,7 @@ export function partTerms(
     orderRef: ctx.orderRef,
     product: ctx.product,
     details: ctx.details,
+    detailsHi: ctx.detailsHi ?? null,
     pieces,
     schedule,
     makeBy: schedule[schedule.length - 1].date,
@@ -127,7 +134,8 @@ export function partReadbackHi(t: PartTerms): string {
     .map((r) => (r.from === r.to ? `${hiDay(r.from)} को ${r.pieces}` : `${hiDay(r.from)} से ${hiDay(r.to)} तक रोज़ ${r.pieces}`))
     .join(", ");
   return [
-    `${t.collective} का ऑर्डर, ${t.product.hi}${t.details ? ` (${t.details})` : ""}।`,
+    `${t.collective} का ऑर्डर, ${t.product.hi}।`,
+    ...(t.details ? [hasHindiRequirements(t) ? `ख़ास शर्तें: ${t.detailsHi}` : "ख़ास शर्तों का हिंदी अनुवाद बाकी है। अभी यह हिस्सा मंज़ूर न करें।"] : []),
     `आपका हिस्सा ${t.pieces} पीस: ${days}।`,
     `हर पीस ₹${t.askInrPerPiece.toLocaleString("en-IN")}, कुल ₹${t.payInr.toLocaleString("en-IN")}।`,
     `फ़िनिशिंग ${hiDay(t.finishingEnds)} तक पूरी होनी है और ऑर्डर ${hiDay(t.dispatchBy)} को भेजा जाएगा, इसलिए आपके पीस तय दिनों पर चाहिए।`,

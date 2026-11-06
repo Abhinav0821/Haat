@@ -11,7 +11,9 @@ import { dayDate, dayIndex, type CollectiveFacts, type MakerFacts, type Provenan
  */
 
 const isoDate = z.string().refine(isCalendarDate, "Use a real date (YYYY-MM-DD).");
-const inr = z.number().finite().min(0).max(1_000_000).refine((x) => Math.round(x * 100) === x * 100, "At most two decimal places.");
+const inr = z.number().finite().min(0).max(1_000_000)
+  .refine((x) => Math.abs(Math.round(x * 100) - x * 100) < 0.000001, "At most two decimal places.")
+  .transform((x) => Math.round(x * 100) / 100);
 const count = z.number().int().min(0).max(10_000);
 const ProvSchema = z.object({
   source: z.enum(["maker_confirmed", "coordinator_entered"]),
@@ -49,8 +51,10 @@ export const MemberFactsSchema = z
     /** Pieces she can make per weekday, Sunday first. */
     piecesPerWeekday: z.array(count).length(7),
     offDates: z.array(isoDate).max(366).default([]),
-    /** Days from the day she is asked until materials for a new order are in hand; null = she hasn't said. */
+    /** Legacy delay from its statement date; new screens use materialsReadyDate. */
     materialsDays: z.number().int().min(0).max(120).nullable(),
+    /** Absolute availability. Optional only for records written before this field existed. */
+    materialsReadyDate: isoDate.nullable().optional(),
     /** Her other promises (outside this collective's orders). */
     commitments: z
       .array(z.object({ ref: z.string().min(1).max(60), pieces: z.number().int().min(1).max(100_000), due: isoDate.nullable() }))
@@ -64,6 +68,12 @@ export const MemberFactsSchema = z
   })
   .refine((f) => f.floorInr <= f.askInr, { message: "Her asking price can't be below her own minimum.", path: ["askInr"] });
 export type StoredMemberFacts = z.infer<typeof MemberFactsSchema>;
+
+/** Legacy delays are anchored to their statement, never to a later plan or confirmation. */
+export function materialsReadyOn(f: StoredMemberFacts): string | null {
+  if (f.materialsReadyDate !== undefined) return f.materialsReadyDate;
+  return f.materialsDays === null ? null : dayDate(f.prov.at.slice(0, 10), f.materialsDays);
+}
 
 /** Capacity held for another plan, in calendar dates. */
 export type DatedReservation = {
@@ -118,13 +128,14 @@ export function buildFacts(
     const f = m.facts;
     const p: Provenance = { ...f.prov };
     const out = excluded.includes(m.id);
+    const readyDate = materialsReadyOn(f);
     const commitments = f.commitments.map((c) => ({ ref: c.ref, pieces: c.pieces, dueDay: c.due === null ? null : dayIndex(startDate, c.due) }));
     return {
       id: m.id,
       name: m.name,
       capable: s(f.makesProduct && !out, out ? { source: "coordinator_entered", by: "left out after declining", at: p.at } : p),
       dailyCapacity: s(pattern(startDate, H, f.piecesPerWeekday, f.offDates), p),
-      materialsReadyDay: f.materialsDays === null ? null : s(f.materialsDays, p),
+      materialsReadyDay: readyDate === null ? null : s(Math.max(0, dayIndex(startDate, readyDate)), p),
       // A promise already past due is either done or late; it's kept as due today (the earliest she can still serve it).
       commitments: s(commitments.map((c) => (c.dueDay !== null && c.dueDay < 0 ? { ...c, dueDay: 0 } : c)), p),
       askInrPerPiece: s(f.askInr, p),

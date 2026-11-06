@@ -1,12 +1,12 @@
 import { createHash, randomBytes } from "node:crypto";
-import { and, asc, desc, eq, gt, inArray, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, lte, inArray, ne, or, sql } from "drizzle-orm";
 import { db, schema, withTx, type DB, type Tx } from "@/db";
 import { isCalendarDate } from "@/lib/calendar-date";
 import { evaluate } from "@/lib/planner/solve";
 import { checkEvaluation, checkPlan } from "@/lib/planner/check";
 import { dayDate, dayIndex, factsHash, PLANNER_MODEL, type CollectiveFacts, type Evaluation, type OptimalityCert, type OrderRequest, type Plan } from "@/lib/planner/model";
-import { buildFacts, MemberFactsSchema, SettingsSchema, type CollectiveSettings, type DatedReservation, type MemberRow, type StoredMemberFacts } from "./facts";
-import { buyerTerms, hashOf, partTerms, type PartTerms, type PlanTerms } from "./terms";
+import { buildFacts, materialsReadyOn, MemberFactsSchema, SettingsSchema, type CollectiveSettings, type DatedReservation, type MemberRow, type StoredMemberFacts } from "./facts";
+import { buyerTerms, hasHindiRequirements, hashOf, partTerms, type PartTerms, type PlanTerms } from "./terms";
 
 /**
  * Collective orders: allocation, per-maker consent and capacity reservations.
@@ -25,7 +25,8 @@ import { buyerTerms, hashOf, partTerms, type PartTerms, type PlanTerms } from ".
  *  5. Reservations count while approved-and-held, paying or paid. A maker withdrawing
  *     before payment releases them; after payment is outside this version.
  *
- * LOCK ORDER (everywhere): collective row → order row → plan rows → part rows.
+ * TRANSACTION LOCK ORDER: collective row → order row → plan rows → part rows.
+ * Hold expiry alone is a conditional single-row update against its exact timestamp.
  */
 
 export const HOLD_MS = 48 * 3600_000;
@@ -44,7 +45,7 @@ type PartRow = typeof schema.memberParts.$inferSelect;
 type OrderRow = typeof schema.collectiveOrders.$inferSelect;
 type CollectiveRow = typeof schema.collectives.$inferSelect;
 
-export type OrderSpec = { quantity: number; deadline: string; budgetUsdCents: number | null; details: string | null };
+export type OrderSpec = { quantity: number; deadline: string; budgetUsdCents: number | null; details: string | null; detailsHi?: string | null };
 export type Choice = "primary" | "lowest_price" | "within_budget" | "largest_by_date" | "earliest";
 
 const today = (now: Date) => now.toISOString().slice(0, 10);
@@ -95,7 +96,15 @@ async function currentFacts(q: DB | Tx, c: CollectiveRow, order: OrderRow, start
 
 function specOf(order: OrderRow): OrderSpec {
   const s = order.spec as OrderSpec;
-  return { quantity: s.quantity, deadline: s.deadline, budgetUsdCents: s.budgetUsdCents ?? null, details: s.details ?? null };
+  return { quantity: s.quantity, deadline: s.deadline, budgetUsdCents: s.budgetUsdCents ?? null, details: s.details ?? null, detailsHi: s.detailsHi ?? null };
+}
+
+function requirements(details: string | null, detailsHi?: string | null) {
+  if ((details !== null && typeof details !== "string") || (detailsHi != null && typeof detailsHi !== "string")) throw new CollectiveError("Requirements must be text.", 400);
+  const en = details?.trim() || null, hi = detailsHi?.trim() || null;
+  if ((en?.length ?? 0) > 300 || (hi?.length ?? 0) > 600) throw new CollectiveError("Keep requirements within 300 English / 600 Hindi characters.", 400);
+  if (hi && (!en || !hasHindiRequirements({ details: en, detailsHi: hi }))) throw new CollectiveError("Provide the requirements in English and Hindi (Devanagari).", 400);
+  return { details: en, detailsHi: hi };
 }
 
 export function requestFor(spec: OrderSpec, startDate: string): OrderRequest {
@@ -109,6 +118,7 @@ export async function createOrder(collectiveId: string, input: { buyerText: stri
   if (!Number.isInteger(s.quantity) || s.quantity < 1 || s.quantity > 10_000) throw new CollectiveError("Quantity must be a whole number from 1 to 10,000.", 400);
   if (!isCalendarDate(s.deadline)) throw new CollectiveError("Use a real delivery date (YYYY-MM-DD).", 400);
   if (s.budgetUsdCents !== null && !(Number.isSafeInteger(s.budgetUsdCents) && s.budgetUsdCents > 0)) throw new CollectiveError("The budget must be a positive amount.", 400);
+  const readings = requirements(s.details, s.detailsHi);
   const d = await db();
   const [o] = await d
     .insert(schema.collectiveOrders)
@@ -118,7 +128,7 @@ export async function createOrder(collectiveId: string, input: { buyerText: stri
       buyerName: input.buyerName ?? null,
       buyerEmail: input.buyerEmail ?? null,
       buyerText: input.buyerText.slice(0, 2000),
-      spec: { quantity: s.quantity, deadline: s.deadline, budgetUsdCents: s.budgetUsdCents, details: s.details?.slice(0, 300) || null },
+      spec: { quantity: s.quantity, deadline: s.deadline, budgetUsdCents: s.budgetUsdCents, ...readings },
     })
     .returning();
   return o;
@@ -185,7 +195,7 @@ const lockParts = (tx: Tx, orderId: string) => tx.execute(sql`select id from mem
 const LIVE: PlanRow["status"][] = ["awaiting_makers", "ready", "maker_declined", "approved", "needs_replan"];
 
 /** Test-only pause points to force interleavings. */
-export type Hooks = { afterRead?: () => Promise<void> };
+export type Hooks = { afterRead?: () => Promise<void>; afterFactsRead?: () => Promise<void> };
 
 /**
  * Offer one checked answer to the makers: a new plan version. Parts whose terms are
@@ -194,16 +204,18 @@ export type Hooks = { afterRead?: () => Promise<void> };
  */
 export async function offerPlan(orderId: string, choice: Choice, now = new Date(), hooks: Hooks = {}) {
   return withTx(async (tx) => {
-    const { c } = await loadOrder(tx, orderId);
-    await lockCollective(tx, c.id); // facts read below include other plans' reservations
+    const { c: ref } = await loadOrder(tx, orderId);
+    await lockCollective(tx, ref.id); // facts read below include other plans' reservations
     await lockOrder(tx, orderId);
     await lockPlans(tx, orderId);
     await lockParts(tx, orderId);
+    const { c } = await loadOrder(tx, orderId); // re-read settings after taking the lock
     const plans = await tx.select().from(schema.collectivePlans).where(eq(schema.collectivePlans.orderId, orderId)).orderBy(desc(schema.collectivePlans.version));
     if (plans.some((p) => p.status === "paying")) throw new CollectiveError("A payment for this order is being processed — the plan can't change now.");
     if (plans.some((p) => p.status === "paid")) throw new CollectiveError("This order is already paid.");
     const [fresh] = await tx.select().from(schema.collectiveOrders).where(eq(schema.collectiveOrders.id, orderId));
     const spec = specOf(fresh);
+    if (!hasHindiRequirements(spec)) throw new CollectiveError("Add and review the Hindi requirements before sending a plan to makers.", 400);
     const startDate = planStart(now);
     const current = plans.find((p) => LIVE.includes(p.status));
     const facts = await currentFacts(tx, c, fresh, startDate, now, current?.id);
@@ -217,7 +229,7 @@ export async function offerPlan(orderId: string, choice: Choice, now = new Date(
     if (planProblems.length) throw new CollectiveError(`The independent checker rejected the plan (${planProblems.slice(0, 2).join("; ")}).`, 500);
 
     const settings = settingsOf(c);
-    const ctx = { collective: c.name, orderRef: orderId.slice(0, 8), product: settings.product, details: spec.details, transitDays: settings.transitDays };
+    const ctx = { collective: c.name, orderRef: orderId.slice(0, 8), product: settings.product, details: spec.details, detailsHi: spec.detailsHi, transitDays: settings.transitDays };
     const existing = await tx.select().from(schema.memberParts).where(eq(schema.memberParts.orderId, orderId));
     const producing = [...new Set(pick.plan.production.map((p) => p.makerId))].sort();
     const refs: PlanTerms["parts"] = [];
@@ -277,26 +289,28 @@ async function partsAllAccepted(q: DB | Tx, refs: PlanTerms["parts"]): Promise<b
   const rows = await q.select().from(schema.memberParts).where(inArray(schema.memberParts.id, refs.map((r) => r.partId)));
   return refs.every((r) => {
     const p = rows.find((x) => x.id === r.partId);
-    return !!p && p.memberId === r.memberId && p.status === "accepted" && p.termsHash === r.termsHash && p.respondedHash === r.termsHash && p.respondedVia === "personal_link";
+    return !!p && p.memberId === r.memberId && p.status === "accepted" && p.termsHash === r.termsHash && p.respondedHash === r.termsHash && p.respondedVia === "personal_link"
+      && hashOf(p.terms) === p.termsHash && hasHindiRequirements(p.terms as unknown as PartTerms);
   });
 }
 
 /** The live (not superseded) plan for an order, after lapsing an expired hold. */
-export async function currentPlan(q: DB | Tx, orderId: string, now = new Date()): Promise<PlanRow | undefined> {
+export async function currentPlan(q: DB | Tx, orderId: string, now = new Date(), hooks: Hooks = {}): Promise<PlanRow | undefined> {
   const [p] = await q
     .select()
     .from(schema.collectivePlans)
     .where(and(eq(schema.collectivePlans.orderId, orderId), inArray(schema.collectivePlans.status, [...LIVE, "paying", "paid"])))
     .orderBy(desc(schema.collectivePlans.version))
     .limit(1);
+  await hooks.afterRead?.();
   if (p?.status === "approved" && p.holdUntil && p.holdUntil <= now) {
     // The hold lapsed unpaid: capacity is released; the makers' acceptances stand, and the buyer approves again (which re-checks).
     const [lapsed] = await q
       .update(schema.collectivePlans)
       .set({ status: "ready", buyerApprovedHash: null, buyerApprovedAt: null, holdUntil: null, statusNote: "The buyer's approval lapsed unpaid; capacity was released." })
-      .where(and(eq(schema.collectivePlans.id, p.id), eq(schema.collectivePlans.status, "approved")))
+      .where(and(eq(schema.collectivePlans.id, p.id), eq(schema.collectivePlans.status, "approved"), eq(schema.collectivePlans.holdUntil, p.holdUntil), lte(schema.collectivePlans.holdUntil, now)))
       .returning();
-    return lapsed ?? p;
+    return lapsed ?? currentPlan(q, orderId, now);
   }
   return p;
 }
@@ -308,14 +322,17 @@ export async function respondToPart(token: string, partId: string, hash: string,
   const [ref] = await (await db()).select({ orderId: schema.memberParts.orderId }).from(schema.memberParts).where(eq(schema.memberParts.id, partId));
   if (!ref) throw new CollectiveError("This part wasn't found.", 404);
   return withTx(async (tx) => {
+    await lockCollective(tx, member.collectiveId);
     await lockOrder(tx, ref.orderId);
     await lockPlans(tx, ref.orderId);
     await lockParts(tx, ref.orderId);
+    await memberByLink(token, tx); // a link revoked while waiting cannot answer
     const [part] = await tx.select().from(schema.memberParts).where(eq(schema.memberParts.id, partId));
     if (!part || part.memberId !== member.id) throw new CollectiveError("This part wasn't found.", 404); // never reveal another maker's part
     if (part.status === "superseded") throw new CollectiveError("This part was changed. Please look at the latest version.");
     if (part.status === "declined") throw new CollectiveError("You already said no to this part.");
     if (hash !== part.termsHash) throw new CollectiveError("The terms changed since you saw them. Please look again.");
+    if (answer === "accept" && !hasHindiRequirements(part.terms as unknown as PartTerms)) throw new CollectiveError("The Hindi requirements are missing. Ask the coordinator for a new version.");
     if (answer === "accept" && part.status === "accepted") return part;
 
     const plan = await currentPlan(tx, ref.orderId, now);
@@ -350,18 +367,68 @@ export async function respondToPart(token: string, partId: string, hash: string,
 }
 
 /** Her facts, stated by her (on her link) or entered by the coordinator (an estimate until she confirms). */
-export async function updateMemberFacts(memberId: string, input: unknown, by: { source: "maker_confirmed" | "coordinator_entered"; name: string }, now = new Date()) {
+export async function updateMemberFacts(memberId: string, input: unknown, by: { source: "maker_confirmed" | "coordinator_entered"; name: string }, now = new Date(), hooks: Hooks = {}) {
   const parsed = MemberFactsSchema.safeParse({ ...(input as object), prov: { source: by.source, by: by.name, at: now.toISOString() } });
   if (!parsed.success) throw new CollectiveError(parsed.error.issues[0]?.message ?? "Those facts aren't valid.", 400);
   const d = await db();
-  const [m] = await d.update(schema.members).set({ facts: parsed.data as unknown as Record<string, unknown> }).where(eq(schema.members.id, memberId)).returning();
-  if (!m) throw new CollectiveError("maker not found", 404);
-  return m;
+  const [ref] = await d.select({ collectiveId: schema.members.collectiveId }).from(schema.members).where(eq(schema.members.id, memberId));
+  if (!ref) throw new CollectiveError("maker not found", 404);
+  return withTx(async (tx) => {
+    await lockCollective(tx, ref.collectiveId);
+    const [m] = await tx.select().from(schema.members).where(eq(schema.members.id, memberId));
+    if (!m) throw new CollectiveError("maker not found", 404);
+    const old = MemberFactsSchema.parse(m.facts);
+    const next = parsed.data;
+    // Absolute dates survive confirmations and unrelated edits. Legacy clients
+    // changing the delay state a new delay as of this update, not the old plan.
+    if (next.materialsReadyDate === undefined) next.materialsReadyDate = next.materialsDays !== old.materialsDays
+      ? (next.materialsDays === null ? null : dayDate(today(now), next.materialsDays)) : materialsReadyOn(old);
+    const comparable = (f: StoredMemberFacts) => ({ ...f, prov: null, materialsDays: null, materialsReadyDate: materialsReadyOn(f) });
+    const changed = hashOf(comparable(old)) !== hashOf(comparable(next));
+    await hooks.afterRead?.();
+    if (changed) {
+      const plans = await tx.select().from(schema.collectivePlans).where(and(eq(schema.collectivePlans.collectiveId, ref.collectiveId), inArray(schema.collectivePlans.status, ["awaiting_makers", "ready", "approved", "paying"])));
+      const affected = plans.filter((p) => (p.terms as unknown as PlanTerms).parts.some((r) => r.memberId === memberId));
+      if (affected.some((p) => p.status === "paying")) throw new CollectiveError("A payment involving this maker is being processed. Wait before changing her facts.");
+      for (const p of affected.sort((a, b) => a.orderId.localeCompare(b.orderId))) {
+        await lockOrder(tx, p.orderId); await lockPlans(tx, p.orderId); await lockParts(tx, p.orderId);
+        await invalidatePlan(tx, p, "A maker's facts changed; the coordinator must send a newly checked plan.", now);
+      }
+    }
+    const [updated] = await tx.update(schema.members).set({ facts: next as unknown as Record<string, unknown> }).where(eq(schema.members.id, memberId)).returning();
+    return updated;
+  });
+}
+
+async function invalidatePlan(tx: Tx, p: PlanRow, note: string, now: Date) {
+  await tx.update(schema.collectivePlans).set({ status: "needs_replan", statusNote: note, buyerApprovedHash: null, buyerApprovedAt: null, holdUntil: null, reserved: null })
+    .where(and(eq(schema.collectivePlans.id, p.id), inArray(schema.collectivePlans.status, ["awaiting_makers", "ready", "approved"])));
+  await tx.update(schema.collectiveOrders).set({ status: "offered", updatedAt: now }).where(and(eq(schema.collectiveOrders.id, p.orderId), inArray(schema.collectiveOrders.status, ["new", "offered", "approved"])));
+}
+
+/** Review both readings before offering. Existing parts stay immutable and are re-versioned. */
+export async function updateOrderRequirements(orderId: string, details: string | null, detailsHi: string | null, now = new Date()) {
+  const readings = requirements(details, detailsHi);
+  if (!hasHindiRequirements(readings)) throw new CollectiveError("Add the Hindi requirements before saving.", 400);
+  return withTx(async (tx) => {
+    const { c: ref } = await loadOrder(tx, orderId);
+    await lockCollective(tx, ref.id); await lockOrder(tx, orderId); await lockPlans(tx, orderId); await lockParts(tx, orderId);
+    const { order } = await loadOrder(tx, orderId);
+    const plans = await tx.select().from(schema.collectivePlans).where(eq(schema.collectivePlans.orderId, orderId));
+    if (plans.some((p) => p.status === "paying" || p.status === "paid")) throw new CollectiveError("Requirements cannot change during or after payment.");
+    const spec = specOf(order);
+    if (spec.details === readings.details && spec.detailsHi === readings.detailsHi) return order;
+    for (const p of plans.filter((p) => LIVE.includes(p.status))) await invalidatePlan(tx, p, "The bilingual requirements changed; a new plan and approvals are needed.", now);
+    const [updated] = await tx.update(schema.collectiveOrders).set({ spec: { ...spec, ...readings }, updatedAt: now }).where(eq(schema.collectiveOrders.id, orderId)).returning();
+    return updated;
+  });
 }
 
 /** After a maker declines, the coordinator may leave her out of re-planning. Recorded on the order, never silent. */
 export async function excludeMember(orderId: string, memberId: string) {
   return withTx(async (tx) => {
+    const { c } = await loadOrder(tx, orderId);
+    await lockCollective(tx, c.id);
     await lockOrder(tx, orderId);
     const [o] = await tx.select().from(schema.collectiveOrders).where(eq(schema.collectiveOrders.id, orderId));
     if (!o) throw new CollectiveError("order not found", 404);
@@ -390,7 +457,10 @@ export async function buyerApprove(planId: string, hash: string, now = new Date(
       const plan = await currentPlan(tx, ref.orderId, now);
       if (!plan || plan.id !== planId) throw new CollectiveError("These terms were replaced by a newer version. Please review the latest terms.");
       if (plan.status === "approved") {
-        if (plan.buyerApprovedHash === hash) return plan;
+        if (plan.buyerApprovedHash === hash) {
+          if (!(await partsAllAccepted(tx, (plan.terms as unknown as PlanTerms).parts))) throw new CollectiveError("Maker consent or Hindi requirements need a new plan.");
+          return plan;
+        }
         throw new CollectiveError("The terms changed since you viewed them. Please review again.");
       }
       if (plan.status === "paying" || plan.status === "paid") throw new CollectiveError("This order is already being paid.");
@@ -409,6 +479,7 @@ export async function buyerApprove(planId: string, hash: string, now = new Date(
       await hooks.afterRead?.();
       if (p.production.some((x) => x.day < firstDay) || p.finishing.some((x) => x.day < firstDay)) throw new RecheckFailed("work scheduled for a day that has already started");
       const facts = await currentFacts(tx, c, order, startDate, now, plan.id);
+      await hooks.afterFactsRead?.();
       const problems = checkPlan(facts, request, { ...p, factsHash: factsHash(facts, request) }, now);
       if (problems.length) throw new RecheckFailed(problems.slice(0, 2).join("; "));
 

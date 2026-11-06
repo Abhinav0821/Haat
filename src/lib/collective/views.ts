@@ -2,9 +2,9 @@ import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { dayDate, type Plan } from "@/lib/planner/model";
 import { summarise } from "./explain";
-import { MemberFactsSchema } from "./facts";
+import { materialsReadyOn, MemberFactsSchema } from "./facts";
 import { CollectiveError, currentPlan, evaluateOrder, memberByLink, partStatuses, settingsOf, type OrderSpec } from "./service";
-import { buyerLinesEn, partLinesEn, partReadbackHi, type BuyerTerms, type PartTerms, type PlanTerms } from "./terms";
+import { buyerLinesEn, hasHindiRequirements, partLinesEn, partReadbackHi, type BuyerTerms, type PartTerms, type PlanTerms } from "./terms";
 
 /**
  * Who sees what (docs/planner-model.md §4):
@@ -72,6 +72,7 @@ export async function internalView(orderId: string, now = new Date()) {
         name: m.name,
         piecesPerWeekday: f.piecesPerWeekday,
         materialsDays: f.materialsDays,
+        materialsReadyDate: materialsReadyOn(f),
         commitments: f.commitments.reduce((s, c) => s + c.pieces, 0),
         askInr: f.askInr,
         maxPieces: f.maxPieces,
@@ -139,7 +140,7 @@ export async function makerView(token: string, now = new Date()) {
     nameHi: member.nameHi,
     collective: c.name,
     product: settingsOf(c).product,
-    facts: { ...f, prov: { source: f.prov.source, at: f.prov.at } },
+    facts: { ...f, materialsReadyDate: materialsReadyOn(f), prov: { source: f.prov.source, at: f.prov.at } },
     parts: latest
       .filter((p) => p.status !== "superseded")
       .map((p) => {
@@ -153,6 +154,7 @@ export async function makerView(token: string, now = new Date()) {
           inCurrentPlan: !!plan?.partIds.has(p.id),
           orderStatus: plan?.status ?? null,
           termsHash: p.termsHash,
+          requirementsReady: hasHindiRequirements(t),
           lines: partLinesEn(t),
           readbackHi: partReadbackHi(t),
           pieces: t.pieces,

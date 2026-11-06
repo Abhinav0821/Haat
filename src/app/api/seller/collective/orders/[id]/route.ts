@@ -1,7 +1,7 @@
 import { requireSeller } from "@/lib/auth/seller";
 import { errorResponse } from "@/lib/custom/http";
 import { getDemoCollective } from "@/lib/collective/demo";
-import { CollectiveError, excludeMember, offerPlan, type Choice } from "@/lib/collective/service";
+import { CollectiveError, excludeMember, offerPlan, updateOrderRequirements, type Choice } from "@/lib/collective/service";
 import { internalView } from "@/lib/collective/views";
 import { db, schema } from "@/db";
 import { eq } from "drizzle-orm";
@@ -34,9 +34,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const { id } = await params;
   try {
     await own(id);
-    const body = (await request.json().catch(() => null)) as { action?: string; choice?: Choice; memberId?: string } | null;
+    const body = (await request.json().catch(() => null)) as { action?: string; choice?: Choice; memberId?: string; details?: string | null; detailsHi?: string | null } | null;
     if (body?.action === "offer" && body.choice && CHOICES.has(body.choice)) await offerPlan(id, body.choice);
     else if (body?.action === "exclude" && body.memberId) await excludeMember(id, body.memberId);
+    else if (body?.action === "requirements") await updateOrderRequirements(id, body.details ?? null, body.detailsHi ?? null);
     else return Response.json({ error: "unknown action" }, { status: 400 });
     return Response.json(await internalView(id));
   } catch (e) {

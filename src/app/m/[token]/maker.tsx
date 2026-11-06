@@ -9,6 +9,7 @@ type Facts = {
   piecesPerWeekday: number[];
   offDates: string[];
   materialsDays: number | null;
+  materialsReadyDate: string | null;
   commitments: { ref: string; pieces: number; due: string | null }[];
   askInr: number;
   floorInr: number;
@@ -23,6 +24,7 @@ type Part = {
   inCurrentPlan: boolean;
   orderStatus: string | null;
   termsHash: string;
+  requirementsReady: boolean;
   lines: [string, string][];
   readbackHi: string;
   pieces: number;
@@ -158,7 +160,7 @@ export function MakerHome({ token }: { token: string }) {
                 <div className="mt-6 flex gap-3">
                   <button
                     type="button"
-                    disabled={busy}
+                    disabled={busy || !p.requirementsReady}
                     onClick={() => void post({ action: "respond", partId: p.id, hash: p.termsHash, answer: "accept" }).then((ok) => ok && speak("आपका हिस्सा मंज़ूर हो गया।", "hindi"))}
                     className="flex-1 bg-ink px-5 py-3 text-paper hover:bg-ink/85 disabled:opacity-30"
                     lang="hi"
@@ -274,12 +276,12 @@ export function MakerHome({ token }: { token: string }) {
 
           <div className="grid gap-6 sm:grid-cols-2">
             <label className="block text-sm" lang="hi">
-              सामान कितने दिन में आ जाता है? <span className="text-xs text-muted">Days until materials are in hand</span>
+              सामान किस तारीख़ को हाथ में होगा? <span className="text-xs text-muted">Materials in hand on (leave blank if unknown)</span>
               <input
-                inputMode="numeric"
-                value={facts.materialsDays ?? ""}
+                type="date"
+                value={facts.materialsReadyDate ?? ""}
                 placeholder="?"
-                onChange={(e) => set({ materialsDays: e.target.value === "" ? null : Number(e.target.value.replace(/\D/g, "")) })}
+                onChange={(e) => set({ materialsReadyDate: e.target.value || null })}
                 className={field}
               />
             </label>

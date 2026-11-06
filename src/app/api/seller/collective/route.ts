@@ -1,7 +1,7 @@
 import { requireSeller } from "@/lib/auth/seller";
 import { errorResponse } from "@/lib/custom/http";
 import { getDemoCollective, membersOf } from "@/lib/collective/demo";
-import { MemberFactsSchema } from "@/lib/collective/facts";
+import { materialsReadyOn, MemberFactsSchema } from "@/lib/collective/facts";
 import { newMemberLink } from "@/lib/collective/seed";
 import { CollectiveError, createOrder, settingsOf, updateMemberFacts } from "@/lib/collective/service";
 import { listOrders } from "@/lib/collective/views";
@@ -16,7 +16,10 @@ export async function GET(request: Request) {
     const members = await membersOf(c.id);
     return Response.json({
       collective: { id: c.id, slug: c.slug, name: c.name, coordinatorName: c.coordinatorName, settings: settingsOf(c) },
-      members: members.map((m) => ({ id: m.id, name: m.name, nameHi: m.nameHi, facts: MemberFactsSchema.parse(m.facts) })),
+      members: members.map((m) => {
+        const facts = MemberFactsSchema.parse(m.facts);
+        return { id: m.id, name: m.name, nameHi: m.nameHi, facts: { ...facts, materialsReadyDate: materialsReadyOn(facts) } };
+      }),
       orders: await listOrders(c.id),
     });
   } catch (e) {
@@ -45,7 +48,7 @@ export async function POST(request: Request) {
       const o = await createOrder(c.id, {
         buyerText: String(body.buyerText ?? "").trim() || `${body.quantity} × ${settingsOf(c).product.en}`,
         buyerName: body.buyerName ? String(body.buyerName).slice(0, 80) : null,
-        spec: { quantity: Number(body.quantity), deadline: String(body.deadline ?? ""), budgetUsdCents: budget, details: body.details ? String(body.details) : null },
+        spec: { quantity: Number(body.quantity), deadline: String(body.deadline ?? ""), budgetUsdCents: budget, details: body.details ? String(body.details) : null, detailsHi: body.detailsHi ? String(body.detailsHi) : null },
       });
       return Response.json({ id: o.id });
     }

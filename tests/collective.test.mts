@@ -2,7 +2,7 @@ import { after, before, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 
 process.env.PGLITE_DIR = "memory://";
-process.env.DATABASE_URL = "";
+process.env.DATABASE_URL = process.env.COLLECTIVE_TEST_DATABASE_URL ?? "";
 process.env.PAYPAL_CLIENT_ID = "test";
 process.env.PAYPAL_CLIENT_SECRET = "test";
 process.env.GOOGLE_API_KEY = "test";
@@ -31,14 +31,14 @@ after(async () => closeDb());
 /** A fresh collective per test; makers have confirmed their facts on their links. */
 beforeEach(async () => {
   const d = await db();
-  s = await seedCollective(d, { slug: `test-${++n}`, at: later(-24) });
+  s = await seedCollective(d, { slug: `test-${process.pid}-${++n}`, at: later(-24) });
   for (const m of DEMO_MEMBERS) {
     await updateMemberFacts(idOf(m.name), m.facts, { source: "maker_confirmed", name: m.name }, later(-1));
   }
 });
 
 const order = (quantity = 60, deadline = "2026-11-30", budgetUsdCents: number | null = null) =>
-  createOrder(s.collective.id, { buyerText: `${quantity} scarves by ${deadline}`, buyerName: "Test Buyer", spec: { quantity, deadline, budgetUsdCents, details: "indigo" } });
+  createOrder(s.collective.id, { buyerText: `${quantity} scarves by ${deadline}`, buyerName: "Test Buyer", spec: { quantity, deadline, budgetUsdCents, details: "indigo", detailsHi: "नीला रंग" } });
 
 async function parts(planId: string) {
   const d = await db();
@@ -183,6 +183,8 @@ test("a maker saying no releases the hold; she is left out only by an explicit c
 });
 
 test("an unpaid hold lapses: capacity is released and the buyer's approval re-checks", async () => {
+  // Work must still be in the future when the buyer renews two days later.
+  for (const m of DEMO_MEMBERS) await updateMemberFacts(idOf(m.name), { ...m.facts, materialsReadyDate: "2026-11-15" }, { source: "maker_confirmed", name: m.name }, NOW);
   const o = await order(25);
   const v1 = await offerPlan(o.id, "primary", NOW);
   await acceptAll(v1.id);
@@ -201,7 +203,7 @@ test("a fact that changes after the makers accept is caught when the buyer appro
   const who = used[0];
   const f = DEMO_MEMBERS.find((m) => m.name === who)!.facts;
   await updateMemberFacts(idOf(who), { ...f, piecesPerWeekday: [0, 0, 0, 0, 0, 0, 0] }, { source: "maker_confirmed", name: who }, NOW);
-  await rejects(buyerApprove(v1.id, v1.termsHash, NOW), /schedule changed/);
+  await rejects(buyerApprove(v1.id, v1.termsHash, NOW), /being revised/);
   assert.equal((await currentPlan(await db(), o.id, NOW))!.status, "needs_replan");
   assert.deepEqual(await reservedPieces(), { production: 0, finishing: 0 });
 });
@@ -224,7 +226,7 @@ test("views: the buyer sees no maker's name, pay, minimum or availability; a mak
 
 test("coordinator-entered facts are planned as estimates, labelled as such", async () => {
   const d = await db();
-  const s2 = await seedCollective(d, { slug: `estimates-${n}`, at: later(-24), settings: demoSettings(later(-24).toISOString()) });
+  const s2 = await seedCollective(d, { slug: `estimates-${process.pid}-${n}`, at: later(-24), settings: demoSettings(later(-24).toISOString()) });
   const o = await createOrder(s2.collective.id, { buyerText: "25 scarves", spec: { quantity: 25, deadline: "2026-11-30", budgetUsdCents: null, details: null } });
   const v = await internalView(o.id, NOW);
   assert.equal(v.evaluation.kind, "feasible");

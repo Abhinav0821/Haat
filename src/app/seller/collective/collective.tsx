@@ -10,7 +10,7 @@ type Member = {
   id: string;
   name: string;
   nameHi: string | null;
-  facts: { piecesPerWeekday: number[]; materialsDays: number | null; commitments: { pieces: number }[]; askInr: number; maxPieces: number | null; makesProduct: boolean; prov: { source: string; at: string } };
+  facts: { piecesPerWeekday: number[]; materialsDays: number | null; materialsReadyDate: string | null; commitments: { pieces: number }[]; askInr: number; maxPieces: number | null; makesProduct: boolean; prov: { source: string; at: string } };
 };
 type OrderItem = { id: string; status: string; buyerName: string | null; spec: { quantity: number; deadline: string }; createdAt: string };
 type Home = { collective: { name: string; coordinatorName: string; settings: { product: { en: string; hi: string } } }; members: Member[]; orders: OrderItem[] };
@@ -20,7 +20,7 @@ type Detail = {
   status: string;
   buyerName: string | null;
   buyerText: string;
-  spec: { quantity: number; deadline: string; budgetUsdCents: number | null; details: string | null };
+  spec: { quantity: number; deadline: string; budgetUsdCents: number | null; details: string | null; detailsHi?: string | null };
   collective: { name: string; product: { en: string; hi: string } };
   excluded: string[];
   evaluation: { kind: string; checked: boolean; problems: string[]; headline: Words; reasons: Words[]; alternatives: (Words & { choice: string })[]; notes: Words[] };
@@ -67,7 +67,7 @@ export function Collective() {
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [links, setLinks] = useState<Record<string, string>>({});
-  const [form, setForm] = useState({ buyerName: "", buyerText: "", quantity: "", deadline: "", budgetUsd: "", details: "" });
+  const [form, setForm] = useState({ buyerName: "", buyerText: "", quantity: "", deadline: "", budgetUsd: "", details: "", detailsHi: "" });
   const [showForm, setShowForm] = useState(false);
 
   const loadHome = useCallback(async () => {
@@ -123,7 +123,7 @@ export function Collective() {
     e.preventDefault();
     const out = await call("/api/seller/collective", { action: "order", ...form, quantity: Number(form.quantity) });
     if (!out) return;
-    setForm({ buyerName: "", buyerText: "", quantity: "", deadline: "", budgetUsd: "", details: "" });
+    setForm({ buyerName: "", buyerText: "", quantity: "", deadline: "", budgetUsd: "", details: "", detailsHi: "" });
     setShowForm(false);
     await loadHome();
     open(out.id);
@@ -195,7 +195,12 @@ export function Collective() {
                 </label>
                 <label className="block text-xs text-muted">
                   Details (colour, size)
-                  <input value={form.details} onChange={(e) => setForm({ ...form, details: e.target.value })} className={field} />
+                  <input maxLength={300} value={form.details} onChange={(e) => setForm({ ...form, details: e.target.value })} className={field} />
+                </label>
+                <label className="col-span-2 block text-xs text-muted">
+                  वही शर्तें हिंदी में · The same requirements in Hindi
+                  <textarea lang="hi" required={!!form.details.trim()} maxLength={600} value={form.detailsHi} onChange={(e) => setForm({ ...form, detailsHi: e.target.value })} className={field} />
+                  <span className="mt-1 block">Review both readings. The maker hears this Hindi text before accepting.</span>
                 </label>
               </div>
               <button type="submit" disabled={busy || !form.quantity || !form.deadline} className="bg-ink px-5 py-2.5 text-sm text-paper hover:bg-ink/85 disabled:opacity-30">
@@ -247,7 +252,7 @@ export function Collective() {
                     ))}
                   </p>
                   <p className="mt-1 text-xs leading-relaxed text-muted">
-                    {inr(f.askInr)} a piece · materials {f.materialsDays === null ? "unknown" : `in ${f.materialsDays} days`}
+                    {inr(f.askInr)} a piece · materials {f.materialsReadyDate === null ? "unknown" : `ready ${short(f.materialsReadyDate)}`}
                     {f.commitments.length > 0 && ` · ${f.commitments.reduce((s, c) => s + c.pieces, 0)} promised elsewhere`}
                     {f.maxPieces !== null && ` · at most ${f.maxPieces}`}
                     {!f.makesProduct && " · doesn't make this"}
@@ -272,7 +277,7 @@ export function Collective() {
         </div>
 
         {selected && detail ? (
-          <OrderDetail detail={detail} busy={busy} onAction={orderAction} onBack={() => router.replace("/seller/collective")} />
+          <OrderDetail key={detail.id} detail={detail} busy={busy} onAction={orderAction} onBack={() => router.replace("/seller/collective")} />
         ) : selected ? (
           <p className="text-muted">…</p>
         ) : null}
@@ -291,6 +296,8 @@ function OrderDetail({ detail: d, busy, onAction, onBack }: { detail: Detail; bu
   const p = d.plan;
   const open = p && !["paid", "paying"].includes(p.status);
   const [copied, setCopied] = useState(false);
+  const [readings, setReadings] = useState({ details: d.spec.details ?? "", detailsHi: d.spec.detailsHi ?? "" });
+  const readingsChanged = readings.details.trim() !== (d.spec.details ?? "") || readings.detailsHi.trim() !== (d.spec.detailsHi ?? "");
   const buyerUrl = typeof window === "undefined" ? `/c/orders/${d.id}` : `${window.location.origin}/c/orders/${d.id}`;
 
   return (
@@ -309,6 +316,18 @@ function OrderDetail({ detail: d, busy, onAction, onBack }: { detail: Detail; bu
           {d.spec.budgetUsdCents !== null && ` · budget ${usd(d.spec.budgetUsdCents)}`}
         </p>
         {d.buyerText && <p className="mt-3 text-xs italic text-muted">“{d.buyerText}”</p>}
+        {open !== false && (
+          <form className="mt-5 space-y-3 border-t border-line pt-4" onSubmit={(e) => { e.preventDefault(); onAction({ action: "requirements", ...readings }); }}>
+            <label className="block text-xs text-muted">Requirements in English
+              <textarea maxLength={300} value={readings.details} onChange={(e) => setReadings({ ...readings, details: e.target.value })} className={field} />
+            </label>
+            <label className="block text-xs text-muted">वही शर्तें हिंदी में · The same requirements in Hindi
+              <textarea lang="hi" required={!!readings.details.trim()} maxLength={600} value={readings.detailsHi} onChange={(e) => setReadings({ ...readings, detailsHi: e.target.value })} className={field} />
+            </label>
+            <p className="text-xs text-muted">Review and save both readings before sending. Changes release unpaid reservations and require a new plan and renewed maker consent.</p>
+            <button type="submit" disabled={busy} className="text-xs underline underline-offset-4 disabled:opacity-30">Save bilingual requirements</button>
+          </form>
+        )}
       </section>
 
       {open !== false && (
@@ -358,7 +377,7 @@ function OrderDetail({ detail: d, busy, onAction, onBack }: { detail: Detail; bu
                     <span lang="hi">{a.hi}</span>
                     <span className="block text-xs text-muted">{a.en}</span>
                   </span>
-                  <button type="button" disabled={busy} onClick={() => onAction({ action: "offer", choice: a.choice })} className="border border-ink px-4 py-2 text-xs hover:bg-ink hover:text-paper disabled:opacity-30">
+                  <button type="button" disabled={busy || readingsChanged || (!!d.spec.details && !d.spec.detailsHi)} onClick={() => onAction({ action: "offer", choice: a.choice })} className="border border-ink px-4 py-2 text-xs hover:bg-ink hover:text-paper disabled:opacity-30">
                     {p ? "Send as new version" : "Send to makers"}
                   </button>
                 </div>
