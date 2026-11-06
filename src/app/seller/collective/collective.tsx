@@ -37,9 +37,14 @@ type Detail = {
     parts: Part[];
     schedule: { dates: string[]; rows: { name: string; pieces: number[] }[]; finishing: { date: string; pieces: number }[] };
     money: { makersInr: number; finishingInr: number; packagingInr: number; collectionInr: number; chargeInr: number; shippingInr: number; totalCostInr: number; priceUsdCents: number; estFeeUsdCents: number };
+    payment: { paypalOrderId: string; captureId: string | null; status: string; amountCents: number; feeCents: number | null; netCents: number | null; refundedCents: number; capturedAt: string | null } | null;
+    shares: ShareRowData[];
   } | null;
   history: { id: string; version: number; choice: string; status: string; createdAt: string }[];
 };
+
+type MakerPayment = { id: string; amountPaise: number; method: "upi" | "bank"; reference: string; reportedBy: string; reportedAt: string; status: "reported" | "confirmed" | "disputed" | "withdrawn"; respondedAt: string | null; note: string | null };
+type ShareRowData = { shareId: string; memberId: string; name: string; owedPaise: number; confirmedPaise: number; awaitingPaise: number; disputedPaise: number; leftPaise: number; settled: boolean; payments: MakerPayment[] };
 
 const ORDER_HI: Record<string, string> = { new: "नया", offered: "भेजा", approved: "मंज़ूर", paying: "भुगतान", paid: "पैसे मिले", declined: "मना", cancelled: "रद्द" };
 const PLAN: Record<string, Words> = {
@@ -50,11 +55,14 @@ const PLAN: Record<string, Words> = {
   needs_replan: { hi: "फिर से योजना बनानी है", en: "Needs a new plan" },
   paying: { hi: "भुगतान चल रहा है", en: "Payment in progress" },
   paid: { hi: "पैसे मिले", en: "Paid" },
+  superseded: { hi: "नया रूप भेजा गया", en: "Replaced" },
+  cancelled: { hi: "रद्द", en: "Cancelled" },
 };
 const DAYS = ["रवि", "सोम", "मंगल", "बुध", "गुरु", "शुक्र", "शनि"];
 const when = (iso: string) => new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 const inr = (n: number) => `₹${Math.round(n).toLocaleString("en-IN")}`;
 const usd = (c: number) => `$${(c / 100).toFixed(2)}`;
+const paise = (n: number) => `₹${(n / 100).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
 const short = (iso: string) => new Date(`${iso.slice(0, 10)}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
 const field = "w-full border-b border-line bg-transparent py-2 text-sm focus:border-ink focus:outline-none";
 
@@ -291,6 +299,136 @@ export function Collective() {
   );
 }
 
+const PAYMENT_EN: Record<MakerPayment["status"], string> = { reported: "○ waiting for her to confirm", confirmed: "✓ she confirmed receiving it", disputed: "✗ she says it didn't arrive", withdrawn: "withdrawn" };
+
+/** The buyer's PayPal payment (PayPal's own numbers) and what the collective owes and has paid each maker. */
+function PaymentSection({ plan: p, busy, onAction }: { plan: NonNullable<Detail["plan"]>; busy: boolean; onAction: (b: Record<string, unknown>) => void }) {
+  const pay = p.payment;
+  const refunded = pay && ["REFUNDED", "PARTIALLY_REFUNDED", "REVERSED"].includes(pay.status);
+  return (
+    <div className="mt-8 border-t border-line pt-6">
+      <SectionHeading hi="भुगतान" en="Payment" className="mb-2" />
+      {pay && (
+        <>
+          <dl className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-3">
+            <div>
+              <dt className="text-xs text-muted">Buyer paid the collective</dt>
+              <dd className="font-medium">{p.status === "paid" ? usd(pay.amountCents) : "—"}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-muted">PayPal fee</dt>
+              <dd>
+                {pay.feeCents !== null ? usd(pay.feeCents) : "—"} <span className="text-xs text-muted">est. {usd(p.money.estFeeUsdCents)}</span>
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs text-muted">Collective receives</dt>
+              <dd>{pay.netCents !== null ? usd(pay.netCents) : "—"}</dd>
+            </div>
+          </dl>
+          <p className="mt-2 break-all text-xs text-muted">
+            PayPal order <span className="font-mono">{pay.paypalOrderId}</span>
+            {pay.captureId && (
+              <>
+                {" "}
+                · capture <span className="font-mono">{pay.captureId}</span>
+              </>
+            )}
+            {pay.capturedAt && <> · {when(pay.capturedAt)}</>} · {pay.status.toLowerCase().replace(/_/g, " ")}
+          </p>
+          {refunded && (
+            <p className="mt-2 text-xs text-marigold">
+              PayPal reports this payment as {pay.status.toLowerCase().replace(/_/g, " ")}. Changes after payment aren&apos;t handled in this version; the makers&apos; shares below are unchanged.
+            </p>
+          )}
+        </>
+      )}
+      {p.shares.length > 0 && (
+        <>
+          <p className="mt-6 text-sm">
+            <span lang="hi">कारीगरों का हिस्सा</span> <span className="text-xs text-muted">· Makers&apos; shares, owed from the buyer&apos;s payment</span>
+          </p>
+          <ul className="mt-3 space-y-5">
+            {p.shares.map((sh) => (
+              <ShareRow key={sh.shareId} share={sh} busy={busy} onAction={onAction} />
+            ))}
+          </ul>
+          <p className="mt-4 text-xs leading-relaxed text-muted">
+            Reported is not paid: only the maker can confirm a payment reached her, on her own link. Haat doesn&apos;t see bank or UPI records. A record she hasn&apos;t confirmed can be withdrawn.
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
+function ShareRow({ share: sh, busy, onAction }: { share: ShareRowData; busy: boolean; onAction: (b: Record<string, unknown>) => void }) {
+  const [form, setForm] = useState({ amount: "", method: "upi" as "upi" | "bank", reference: "" });
+  const shown = sh.payments.filter((x) => x.status !== "withdrawn");
+  return (
+    <li className="border border-line bg-card p-4">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <p>
+          {sh.name} <span className="text-xs text-muted">· owed {paise(sh.owedPaise)}</span>
+        </p>
+        <p className={`text-xs ${sh.settled ? "text-leaf" : "text-muted"}`}>
+          {sh.settled ? "✓ settled: she confirmed every rupee" : `she confirmed ${paise(sh.confirmedPaise)} of ${paise(sh.owedPaise)}`}
+        </p>
+      </div>
+      {shown.length > 0 && (
+        <ul className="mt-3 divide-y divide-line border-t border-line text-xs">
+          {shown.map((x) => (
+            <li key={x.id} className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 py-2">
+              <span>
+                {paise(x.amountPaise)} · {x.method === "upi" ? "UPI" : "bank"} <span className="break-all font-mono">{x.reference}</span>
+                <span className="text-muted"> · {when(x.reportedAt)}</span>
+                {x.note && <span className="block text-muted">“{x.note}”</span>}
+              </span>
+              <span className={x.status === "confirmed" ? "text-leaf" : x.status === "disputed" ? "text-danger" : "text-muted"}>
+                {PAYMENT_EN[x.status]}
+                {x.status !== "confirmed" && (
+                  <button type="button" disabled={busy} onClick={() => onAction({ action: "withdraw_payment", paymentId: x.id })} className="ml-3 text-ink underline underline-offset-4 disabled:opacity-30">
+                    Withdraw
+                  </button>
+                )}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {sh.leftPaise > 0 && (
+        <form
+          className="mt-3 grid grid-cols-2 items-end gap-x-4 gap-y-3 border-t border-line pt-3 text-xs sm:grid-cols-[7rem_6rem_1fr_auto]"
+          onSubmit={(e) => {
+            e.preventDefault();
+            onAction({ action: "report_payment", shareId: sh.shareId, amountInr: form.amount || sh.leftPaise / 100, method: form.method, reference: form.reference });
+            setForm({ ...form, amount: "", reference: "" });
+          }}
+        >
+          <label className="text-muted">
+            Amount (₹)
+            <input inputMode="decimal" placeholder={String(sh.leftPaise / 100)} value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value.replace(/[^0-9.]/g, "") })} className={field} />
+          </label>
+          <label className="text-muted">
+            Sent by
+            <select value={form.method} onChange={(e) => setForm({ ...form, method: e.target.value as "upi" | "bank" })} className={field}>
+              <option value="upi">UPI</option>
+              <option value="bank">Bank</option>
+            </select>
+          </label>
+          <label className="col-span-2 text-muted sm:col-span-1">
+            {form.method === "upi" ? "UPI reference (12 digits)" : "Bank UTR"}
+            <input required value={form.reference} onChange={(e) => setForm({ ...form, reference: e.target.value })} className={`${field} font-mono`} />
+          </label>
+          <button type="submit" disabled={busy} className="col-span-2 border border-ink px-4 py-2 hover:bg-ink hover:text-paper disabled:opacity-30 sm:col-span-1">
+            Record payment
+          </button>
+        </form>
+      )}
+    </li>
+  );
+}
+
 function OrderDetail({ detail: d, busy, onAction, onBack }: { detail: Detail; busy: boolean; onAction: (b: Record<string, unknown>) => void; onBack: () => void }) {
   const ev = d.evaluation;
   const p = d.plan;
@@ -470,6 +608,8 @@ function OrderDetail({ detail: d, busy, onAction, onBack }: { detail: Detail; bu
               </div>
             ))}
           </dl>
+
+          {(p.payment || p.shares.length > 0) && <PaymentSection plan={p} busy={busy} onAction={onAction} />}
 
           <div className="mt-8 border-t border-line pt-6">
             <p className="eyebrow">What the buyer sees</p>

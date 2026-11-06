@@ -6,7 +6,7 @@ import { captureCheckoutOrder } from "@/lib/paypal/orders";
 /**
  * PayPal redirect target (?token=<PayPal order id>&PayerID=…). Used when a buyer
  * approves a checkout link an AI agent created for them, and for custom-order
- * agreements. Captures, then shows the confirmation (or the agreement page).
+ * agreements and collective orders. Captures, then shows the confirmation (or the terms page).
  */
 export async function GET(request: Request) {
   const token = new URL(request.url).searchParams.get("token") ?? "";
@@ -23,6 +23,13 @@ export async function GET(request: Request) {
 async function destinationFor(paypalOrderId: string, failed: boolean): Promise<string> {
   if (!/^[A-Z0-9]{10,32}$/.test(paypalOrderId)) return "/?checkout=failed";
   const d = await db();
+  // Collective orders are sold by the collective, not a shop: back to the buyer's order page.
+  const [collective] = await d
+    .select({ orderId: schema.collectivePlans.orderId })
+    .from(schema.orders)
+    .innerJoin(schema.collectivePlans, eq(schema.collectivePlans.id, schema.orders.collectivePlanId))
+    .where(eq(schema.orders.paypalOrderId, paypalOrderId));
+  if (collective) return `/c/orders/${collective.orderId}${failed ? "?checkout=failed" : "?checkout=done"}`;
   const [row] = await d
     .select({ orderId: schema.orders.id, slug: schema.stores.slug, requestId: schema.agreements.requestId })
     .from(schema.orders)

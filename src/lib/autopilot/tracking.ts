@@ -84,6 +84,7 @@ export async function addTrackingToOrder(orderId: string, carrier: CarrierKey, r
   const d = await db();
   const [order] = await d.select().from(schema.orders).where(eq(schema.orders.id, orderId));
   if (!order?.paypalCaptureId) throw new Error("order is not paid yet");
+  if (!order.storeId) throw new Error("collective orders are shipped from the collective's own page");
   if (order.trackingNumber) return order; // already added — idempotent
 
   await runPayPalTool("create_shipment_tracking", {

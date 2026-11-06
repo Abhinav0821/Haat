@@ -11,7 +11,7 @@ import { dayDate, type Plan } from "@/lib/planner/model";
 
 export const hashOf = (x: unknown) => createHash("sha256").update(canonical(x)).digest("hex");
 
-const HANDMADE_EN = "Each piece is made by hand by a different maker in the collective: small differences between pieces are part of handmade work.";
+const HANDMADE_EN = "Each piece is made by hand by makers of the collective: small differences between pieces are part of handmade work.";
 const REFUND_EN = "Made to order, so no returns for change of mind. Pieces that arrive damaged or not as agreed are refunded by the collective.";
 
 export type Product = { en: string; hi: string };
@@ -49,6 +49,8 @@ export type BuyerTerms = {
   makers: number;
   handmadeVariation: string;
   refundTerms: string;
+  /** Who sells, and when payment must arrive. Absent only in plans made before checkout existed. */
+  payment?: string;
 };
 
 export type PlanTerms = { buyer: BuyerTerms; parts: { memberId: string; partId: string; termsHash: string }[] };
@@ -86,8 +88,8 @@ export function partTerms(
     askInrPerPiece: Math.round((payInr / pieces) * 100) / 100,
     payInr,
     payment: {
-      en: `The collective sells this order. When the buyer's payment is received, the collective owes you ₹${payInr.toLocaleString("en-IN")}. Each payment to you is recorded with its UPI or bank reference, and you confirm it.`,
-      hi: `यह ऑर्डर संगठन बेचता है। ख़रीदार का पैसा आने पर संगठन पर आपके ₹${payInr.toLocaleString("en-IN")} बकाया होंगे। आपको हर भुगतान UPI या बैंक के नंबर के साथ दर्ज होगा, और आप उसकी पुष्टि करेंगी।`,
+      en: `The collective sells this order. When the buyer's payment is received, the collective owes you ₹${payInr.toLocaleString("en-IN")}. Each payment to you is recorded with its UPI or bank reference, and you confirm it. Start only after this page says the buyer has paid.`,
+      hi: `यह ऑर्डर संगठन बेचता है। ख़रीदार का पैसा आने पर संगठन पर आपके ₹${payInr.toLocaleString("en-IN")} बकाया होंगे। आपको हर भुगतान UPI या बैंक के नंबर के साथ दर्ज होगा, और आप उसकी पुष्टि करेंगी। काम तभी शुरू करें जब यह पेज बताए कि ख़रीदार ने पैसे दे दिए हैं।`,
     },
   };
 }
@@ -110,6 +112,7 @@ export function buyerTerms(
     makers: new Set(plan.production.map((p) => p.makerId)).size,
     handmadeVariation: HANDMADE_EN,
     refundTerms: REFUND_EN,
+    payment: `You pay ${ctx.collective}, the seller of this order, through PayPal; the collective pays each maker. The makers start once your payment is received. If it isn't completed within 48 hours of your approval, or before the first work day if that is sooner, the reservation is released.`,
   };
 }
 
@@ -135,7 +138,7 @@ export function partReadbackHi(t: PartTerms): string {
     .join(", ");
   return [
     `${t.collective} का ऑर्डर, ${t.product.hi}।`,
-    ...(t.details ? [hasHindiRequirements(t) ? `ख़ास शर्तें: ${t.detailsHi}` : "ख़ास शर्तों का हिंदी अनुवाद बाकी है। अभी यह हिस्सा मंज़ूर न करें।"] : []),
+    ...(t.details ? [hasHindiRequirements(t) ? `ख़ास शर्तें: ${t.detailsHi!.trim().replace(/[।.!?]$/u, "")}।` : "ख़ास शर्तों का हिंदी अनुवाद बाकी है। अभी यह हिस्सा मंज़ूर न करें।"] : []),
     `आपका हिस्सा ${t.pieces} पीस: ${days}।`,
     `हर पीस ₹${t.askInrPerPiece.toLocaleString("en-IN")}, कुल ₹${t.payInr.toLocaleString("en-IN")}।`,
     `फ़िनिशिंग ${hiDay(t.finishingEnds)} तक पूरी होनी है और ऑर्डर ${hiDay(t.dispatchBy)} को भेजा जाएगा, इसलिए आपके पीस तय दिनों पर चाहिए।`,
@@ -172,5 +175,6 @@ export function buyerLinesEn(t: BuyerTerms): [string, string][] {
     ["Estimated delivery", `${longDay(t.deliveryEstimate)} (estimate — courier times vary)`],
     ["Handmade variation", t.handmadeVariation],
     ["Refunds", t.refundTerms],
+    ...(t.payment ? ([["Payment", t.payment]] as [string, string][]) : []),
   ];
 }

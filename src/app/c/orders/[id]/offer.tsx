@@ -1,5 +1,6 @@
 "use client";
 
+import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
 type View = {
@@ -19,6 +20,7 @@ type View = {
     makersConfirmed: number;
     makers: number;
     holdUntil: string | null;
+    paidAt: string | null;
   } | null;
 };
 
@@ -28,8 +30,11 @@ const day = (iso: string) => new Date(`${iso}T00:00:00Z`).toLocaleDateString("en
 export function CollectiveOffer({ orderId }: { orderId: string }) {
   const [view, setView] = useState<View | null>(null);
   const [missing, setMissing] = useState(false);
+  const params = useSearchParams();
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(
+    params.get("checkout") === "failed" ? "The payment didn't complete. You have not been charged." : params.get("paypal") === "cancel" ? "You left PayPal before paying. Nothing was charged." : null,
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -47,7 +52,7 @@ export function CollectiveOffer({ orderId }: { orderId: string }) {
     };
   }, [orderId]);
 
-  async function approve() {
+  async function act(action: "approve" | "checkout") {
     if (!view?.offer) return;
     setBusy(true);
     setError(null);
@@ -55,10 +60,15 @@ export function CollectiveOffer({ orderId }: { orderId: string }) {
       const res = await fetch(`/api/c/orders/${orderId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "approve", planId: view.offer.id, hash: view.offer.termsHash }),
+        body: JSON.stringify({ action, planId: view.offer.id, hash: view.offer.termsHash }),
       });
       const out = await res.json();
       if (!res.ok) throw new Error(out.error);
+      if (action === "checkout") {
+        if (!out.approveUrl) throw new Error("PayPal did not return a payment link. Nothing was charged.");
+        window.location.assign(out.approveUrl);
+        return;
+      }
       setView(out);
     } catch (e) {
       setError((e as Error).message);
@@ -128,22 +138,42 @@ export function CollectiveOffer({ orderId }: { orderId: string }) {
           </p>
 
           <p className={`mt-6 text-sm ${o.makersConfirmed === o.makers ? "text-leaf" : "text-muted"}`}>
-            {o.makersConfirmed === o.makers ? "✓" : "○"} {o.makersConfirmed} of {o.makers} makers have confirmed their part on their own link
+            {o.makersConfirmed === o.makers ? "✓" : "○"} {o.makers === 1 ? (o.makersConfirmed ? "The maker has confirmed her part on her own link" : "Waiting for the maker to confirm her part on her own link") : `${o.makersConfirmed} of ${o.makers} makers have confirmed their part on their own link`}
           </p>
 
           {o.status === "awaiting_makers" && <p className="mt-3 text-sm leading-relaxed text-muted">You can approve once every maker has confirmed her part. This page updates by itself.</p>}
           {o.status === "ready" && (
-            <button type="button" disabled={busy} onClick={approve} className="mt-6 w-full bg-ink px-6 py-4 text-paper hover:bg-ink/85 disabled:opacity-30">
+            <button type="button" disabled={busy} onClick={() => void act("approve")} className="mt-6 w-full bg-ink px-6 py-4 text-paper hover:bg-ink/85 disabled:opacity-30">
               I agree to these exact terms
             </button>
           )}
           {o.status === "approved" && (
+            <>
+              <div className="mt-6 bg-card p-5 text-sm leading-relaxed">
+                <p className="text-leaf">✓ You approved these terms. The makers&apos; time and the finishing table are reserved for this order.</p>
+                {o.holdUntil && (
+                  <p className="mt-1 text-muted">
+                    Reserved until {new Date(o.holdUntil).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}. The makers start once you pay.
+                  </p>
+                )}
+              </div>
+              <button type="button" disabled={busy} onClick={() => void act("checkout")} className="mt-4 w-full bg-ink px-6 py-4 text-paper hover:bg-ink/85 disabled:opacity-30">
+                Pay {usd(o.totalUsdCents)} to {view.collective} with PayPal
+              </button>
+              <p className="mt-2 text-center text-xs text-muted">You pay the collective, the seller of this order, for exactly the terms above.</p>
+            </>
+          )}
+          {o.status === "paying" && (
+            <p className="mt-6 bg-card p-5 text-sm leading-relaxed">
+              Your payment is being processed with PayPal. These terms are locked until it completes; this page updates by itself.
+            </p>
+          )}
+          {o.status === "paid" && (
             <div className="mt-6 bg-card p-5 text-sm leading-relaxed">
-              <p className="text-leaf">✓ You approved these terms. The makers&apos; time and the finishing table are reserved for this order.</p>
-              {o.holdUntil && <p className="mt-1 text-muted">Held until {new Date(o.holdUntil).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}. Payment opens here next.</p>}
+              <p className="text-leaf">✓ Paid{o.paidAt ? ` on ${new Date(o.paidAt).toLocaleDateString("en-US", { month: "long", day: "numeric" })}` : ""}. Thank you.</p>
+              <p className="mt-1 text-muted">The makers now start on their scheduled days; the dispatch date above stands.</p>
             </div>
           )}
-          {(o.status === "paying" || o.status === "paid") && <p className="mt-6 bg-card p-5 text-sm">{o.status === "paid" ? "Paid. Thank you." : "Your payment is being processed."}</p>}
         </section>
       )}
 

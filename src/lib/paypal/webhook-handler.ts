@@ -166,7 +166,7 @@ export async function handleWebhookEvent(
     // buyer approved on PayPal (agent checkout or custom-order agreement) may still
     // need capturing — including on a redelivery after a transient failure, when
     // the order already reads APPROVED.
-    if (order && target.status === "APPROVED" && (order.channel === "mcp" || order.agreementId)) {
+    if (order && target.status === "APPROVED" && (order.channel === "mcp" || order.agreementId || order.collectivePlanId)) {
       const [fresh] = await d.select({ status: orders.status }).from(orders).where(eq(orders.id, order.id));
       if (fresh?.status === "APPROVED" || fresh?.status === "CREATED") {
         try {

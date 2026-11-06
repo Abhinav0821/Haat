@@ -40,7 +40,9 @@ async function main() {
   }
   await d.delete(schema.events);
   await d.update(schema.products).set({ soldQuantity: 0 });
-  // Collective orders: parts and plans reference orders; the collective and its makers (and their links) are kept.
+  // Collective orders: payouts, parts and plans reference orders; the collective and its makers (and their links) are kept.
+  await d.delete(schema.makerPayments); // payments → shares → plans/parts
+  await d.delete(schema.makerShares);
   await d.delete(schema.memberParts);
   await d.delete(schema.collectivePlans);
   const collectiveOrders = await d.delete(schema.collectiveOrders).returning({ id: schema.collectiveOrders.id });

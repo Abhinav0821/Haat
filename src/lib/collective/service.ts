@@ -48,7 +48,11 @@ type CollectiveRow = typeof schema.collectives.$inferSelect;
 export type OrderSpec = { quantity: number; deadline: string; budgetUsdCents: number | null; details: string | null; detailsHi?: string | null };
 export type Choice = "primary" | "lowest_price" | "within_budget" | "largest_by_date" | "earliest";
 
-const today = (now: Date) => now.toISOString().slice(0, 10);
+/** The collective works on India's calendar (UTC+5:30, no daylight saving): a plan's dates are IST dates. */
+export const LOCAL_OFFSET_MS = 330 * 60_000;
+const today = (now: Date) => new Date(now.getTime() + LOCAL_OFFSET_MS).toISOString().slice(0, 10);
+/** The instant a collective calendar date begins (midnight IST). */
+export const dayBegins = (date: string) => Date.parse(`${date}T00:00:00Z`) - LOCAL_OFFSET_MS;
 /** Plans start the day after they are made: nobody is asked for work on a day that is already under way. */
 export const planStart = (now: Date) => dayDate(today(now), 1);
 
@@ -192,7 +196,19 @@ const lockOrder = (tx: Tx, id: string) => tx.execute(sql`select id from collecti
 const lockPlans = (tx: Tx, orderId: string) => tx.execute(sql`select id from collective_plans where order_id = ${orderId} for update`);
 const lockParts = (tx: Tx, orderId: string) => tx.execute(sql`select id from member_parts where order_id = ${orderId} for update`);
 
-const LIVE: PlanRow["status"][] = ["awaiting_makers", "ready", "maker_declined", "approved", "needs_replan"];
+/** Every lock for one order, in the one order used everywhere: collective, order, plans, parts. */
+export async function lockOrderTree(tx: Tx, orderId: string) {
+  const [ref] = await tx.select({ collectiveId: schema.collectiveOrders.collectiveId }).from(schema.collectiveOrders).where(eq(schema.collectiveOrders.id, orderId)); // immutable
+  if (!ref) throw new CollectiveError("order not found", 404);
+  await lockCollective(tx, ref.collectiveId);
+  await lockOrder(tx, orderId);
+  await lockPlans(tx, orderId);
+  await lockParts(tx, orderId);
+  return ref.collectiveId;
+}
+export { lockCollective };
+
+export const LIVE: PlanRow["status"][] = ["awaiting_makers", "ready", "maker_declined", "approved", "needs_replan"];
 
 /** Test-only pause points to force interleavings. */
 export type Hooks = { afterRead?: () => Promise<void>; afterFactsRead?: () => Promise<void> };
@@ -284,7 +300,7 @@ export async function offerPlan(orderId: string, choice: Choice, now = new Date(
 }
 
 /** Every referenced part is accepted, by her, on exactly the referenced hash. */
-async function partsAllAccepted(q: DB | Tx, refs: PlanTerms["parts"]): Promise<boolean> {
+export async function partsAllAccepted(q: DB | Tx, refs: PlanTerms["parts"]): Promise<boolean> {
   if (!refs.length) return false;
   const rows = await q.select().from(schema.memberParts).where(inArray(schema.memberParts.id, refs.map((r) => r.partId)));
   return refs.every((r) => {
@@ -442,6 +458,19 @@ export async function excludeMember(orderId: string, memberId: string) {
 
 // ── The buyer approves: consent, re-check and reservation in one transaction ──
 
+/** First calendar date with any work (a maker's or finishing) in the plan. */
+export function firstWorkDate(p: Plan, startDate: string): string {
+  return dayDate(startDate, Math.min(...p.production.map((x) => x.day), ...p.finishing.map((x) => x.day)));
+}
+
+/**
+ * An unpaid hold ends after 48 hours or when the first work day starts, whichever is
+ * first: makers start only once the buyer has paid, so a plan unpaid by then can't be kept.
+ */
+export function holdEnd(p: Plan, startDate: string, now: Date): Date {
+  return new Date(Math.min(now.getTime() + HOLD_MS, dayBegins(firstWorkDate(p, startDate))));
+}
+
 class RecheckFailed extends Error {}
 
 export async function buyerApprove(planId: string, hash: string, now = new Date(), hooks: Hooks = {}) {
@@ -490,7 +519,7 @@ export async function buyerApprove(planId: string, hash: string, now = new Date(
       };
       const [approved] = await tx
         .update(schema.collectivePlans)
-        .set({ status: "approved", buyerApprovedHash: hash, buyerApprovedAt: now, holdUntil: new Date(now.getTime() + HOLD_MS), reserved: reserved as unknown as Record<string, unknown>, statusNote: null })
+        .set({ status: "approved", buyerApprovedHash: hash, buyerApprovedAt: now, holdUntil: holdEnd(p, startDate, now), reserved: reserved as unknown as Record<string, unknown>, statusNote: null })
         .where(and(eq(schema.collectivePlans.id, plan.id), eq(schema.collectivePlans.status, "ready")))
         .returning();
       if (!approved) throw new CollectiveError("The terms changed while approving — please try again.");

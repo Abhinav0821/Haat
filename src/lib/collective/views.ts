@@ -1,7 +1,9 @@
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { dayDate, type Plan } from "@/lib/planner/model";
+import { reconcileCollectiveIfStale } from "./checkout";
 import { summarise } from "./explain";
+import { shareSummaries } from "./payouts";
 import { materialsReadyOn, MemberFactsSchema } from "./facts";
 import { CollectiveError, currentPlan, evaluateOrder, memberByLink, partStatuses, settingsOf, type OrderSpec } from "./service";
 import { buyerLinesEn, hasHindiRequirements, partLinesEn, partReadbackHi, type BuyerTerms, type PartTerms, type PlanTerms } from "./terms";
@@ -16,9 +18,26 @@ import { buyerLinesEn, hasHindiRequirements, partLinesEn, partReadbackHi, type B
 
 const PROV_EN: Record<string, string> = { maker_confirmed: "confirmed by her", coordinator_entered: "entered by the coordinator (estimate)" };
 
+/** The PayPal record behind a paying/paid plan: PayPal's own capture id, fee and net, never estimates. */
+async function paymentOf(d: Awaited<ReturnType<typeof db>>, paymentRef: string | null) {
+  if (!paymentRef) return null;
+  const [o] = await d.select().from(schema.orders).where(eq(schema.orders.id, paymentRef));
+  if (!o) return null;
+  return {
+    paypalOrderId: o.paypalOrderId,
+    captureId: o.paypalCaptureId,
+    status: o.status,
+    amountCents: o.amountCents,
+    feeCents: o.feeCents,
+    netCents: o.netCents,
+    refundedCents: o.refundedCents,
+    capturedAt: o.capturedAt?.toISOString() ?? null,
+  };
+}
+
 export async function internalView(orderId: string, now = new Date()) {
   const d = await db();
-  const plan = await currentPlan(d, orderId, now);
+  const plan = await reconcileCollectiveIfStale(await currentPlan(d, orderId, now), { now });
   const { order, collective, facts, request, evaluation, problems } = await evaluateOrder(orderId, now, plan?.id);
   const spec = order.spec as OrderSpec;
   const members = await d.select().from(schema.members).where(eq(schema.members.collectiveId, collective.id)).orderBy(asc(schema.members.createdAt), asc(schema.members.id));
@@ -54,6 +73,8 @@ export async function internalView(orderId: string, now = new Date()) {
         finishing: p.finishing.map((f) => ({ date: dayDate(start, f.day), pieces: f.pieces })),
       },
       money: p.money,
+      payment: await paymentOf(d, plan.paymentRef),
+      shares: (await shareSummaries(d, { planId: plan.id })).map((s) => ({ ...s, name: parts.find((x) => x.memberId === s.memberId)?.name ?? "?" })),
     };
   }
 
@@ -92,7 +113,7 @@ export async function buyerView(orderId: string, now = new Date()) {
   const [order] = await d.select().from(schema.collectiveOrders).where(eq(schema.collectiveOrders.id, orderId));
   if (!order) throw new CollectiveError("order not found", 404);
   const [c] = await d.select().from(schema.collectives).where(eq(schema.collectives.id, order.collectiveId));
-  const plan = await currentPlan(d, orderId, now);
+  const plan = await reconcileCollectiveIfStale(await currentPlan(d, orderId, now), { now });
   const spec = order.spec as OrderSpec;
   let offer = null;
   if (plan && plan.status !== "needs_replan" && plan.status !== "maker_declined") {
@@ -108,6 +129,8 @@ export async function buyerView(orderId: string, now = new Date()) {
       makersConfirmed: parts.filter((p) => p.status === "accepted").length,
       makers: terms.parts.length,
       holdUntil: plan.holdUntil?.toISOString() ?? null,
+      /** Only what the buyer needs: when PayPal captured the payment (never fees or maker payouts). */
+      paidAt: plan.status === "paid" ? ((await paymentOf(d, plan.paymentRef))?.capturedAt ?? null) : null,
     };
   }
   return {
@@ -135,6 +158,7 @@ export async function makerView(token: string, now = new Date()) {
   // Her latest version per order (a reused part is the latest: new versions exist only when her terms changed).
   const latest = orderIds.map((id) => parts.filter((p) => p.orderId === id).sort((a, b) => b.version - a.version)[0]);
   const f = MemberFactsSchema.parse(member.facts);
+  const shares = await shareSummaries(d, { memberId: member.id });
   return {
     name: member.name,
     nameHi: member.nameHi,
@@ -161,6 +185,9 @@ export async function makerView(token: string, now = new Date()) {
           payInr: t.payInr,
           schedule: t.schedule,
           respondedAt: p.respondedAt?.toISOString() ?? null,
+          /** The buyer has paid for the plan that includes exactly this part: she can start. */
+          paid: !!plan?.partIds.has(p.id) && plan.status === "paid",
+          share: shares.find((s) => s.partId === p.id) ?? null,
         };
       }),
     /** Orders where her part is no longer needed after a re-plan. */

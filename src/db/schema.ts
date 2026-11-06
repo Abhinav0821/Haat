@@ -50,7 +50,8 @@ export const orders = pgTable(
   "orders",
   {
     id: id(),
-    storeId: text("store_id").notNull().references(() => stores.id),
+    /** The shop that sold it; null for a collective order (the collective is the seller: collectivePlanId). */
+    storeId: text("store_id").references(() => stores.id),
     paypalOrderId: text("paypal_order_id").notNull(),
     paypalCaptureId: text("paypal_capture_id"),
     /** CREATED → APPROVED → COMPLETED (captured) → REFUNDED / PARTIALLY_REFUNDED */
@@ -81,8 +82,10 @@ export const orders = pgTable(
     trackingAddedAt: timestamp("tracking_added_at", { withTimezone: true }),
     /** Set when the order pays for a custom-order agreement: the exact terms paid for. */
     agreementId: text("agreement_id"),
+    /** Set when the order pays for a collective plan (the collective is the seller); termsHash is then the plan's. */
+    collectivePlanId: text("collective_plan_id"),
     termsHash: text("terms_hash"),
-    /** "storefront" | "mcp" (bought by an AI agent) | "chat" */
+    /** "storefront" | "mcp" (bought by an AI agent) | "chat" | "custom" | "collective" */
     channel: text("channel").notNull().default("storefront"),
     createdAt: createdAt(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -404,4 +407,51 @@ export const memberParts = pgTable(
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex("member_parts_order_member_version").on(t.orderId, t.memberId, t.version)],
+);
+
+/**
+ * What the collective owes one maker for one paid plan: created exactly once, when the
+ * buyer's payment is captured, from her accepted part (its id and hash). Amounts in paise.
+ */
+export const makerShares = pgTable(
+  "maker_shares",
+  {
+    id: id(),
+    collectiveId: text("collective_id").notNull().references(() => collectives.id),
+    orderId: text("order_id").notNull().references(() => collectiveOrders.id),
+    planId: text("plan_id").notNull().references(() => collectivePlans.id),
+    memberId: text("member_id").notNull().references(() => members.id),
+    partId: text("part_id").notNull().references(() => memberParts.id),
+    partTermsHash: text("part_terms_hash").notNull(),
+    owedPaise: integer("owed_paise").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("maker_shares_plan_member").on(t.planId, t.memberId), index("maker_shares_member").on(t.memberId)],
+);
+
+/**
+ * A payment the coordinator reports making to a maker, with its UPI or bank reference.
+ * Reported is not paid: only her own confirmation, on her personal link, marks it received.
+ * Confirmed payments are final; a reported or disputed one can be withdrawn by the coordinator.
+ */
+export const makerPayments = pgTable(
+  "maker_payments",
+  {
+    id: id(),
+    shareId: text("share_id").notNull().references(() => makerShares.id),
+    collectiveId: text("collective_id").notNull().references(() => collectives.id),
+    memberId: text("member_id").notNull().references(() => members.id),
+    amountPaise: integer("amount_paise").notNull(),
+    method: text("method", { enum: ["upi", "bank"] }).notNull(),
+    reference: text("reference").notNull(),
+    reportedBy: text("reported_by").notNull(),
+    reportedAt: timestamp("reported_at", { withTimezone: true }).notNull(),
+    status: text("status", { enum: ["reported", "confirmed", "disputed", "withdrawn"] }).notNull(),
+    respondedAt: timestamp("responded_at", { withTimezone: true }),
+    /** Always "personal_link" (link possession, not identity). */
+    respondedVia: text("responded_via"),
+    note: text("note"),
+    createdAt: createdAt(),
+  },
+  (t) => [index("maker_payments_share").on(t.shareId), index("maker_payments_collective_ref").on(t.collectiveId, t.method, t.reference)],
 );

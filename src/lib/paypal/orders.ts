@@ -6,6 +6,8 @@ import { randomUUID } from "node:crypto";
 import { CAPTURED_STATUSES } from "@/lib/paypal/order-status";
 import { AgreementError, beginAgreementCapture, endAgreementCapture } from "@/lib/custom/agreement";
 import { finalizePayment, type PayPalOrderSnapshot } from "@/lib/paypal/finalize";
+import { beginCollectiveCapture, endCollectiveCapture } from "@/lib/collective/checkout";
+import { CollectiveError } from "@/lib/collective/service";
 import { availableQuantity, ensureReservedForCapture, release, reserve, SoldOutError } from "@/lib/inventory";
 import { readEconomics } from "@/lib/economics";
 
@@ -143,8 +145,9 @@ export async function createCheckoutOrder({
 
 type CaptureResponse = PayPalOrderSnapshot;
 
-export async function captureCheckoutOrder(paypalOrderId: string, deps: { paypalCall?: typeof paypal } = {}) {
+export async function captureCheckoutOrder(paypalOrderId: string, deps: { paypalCall?: typeof paypal; now?: Date } = {}) {
   const call = deps.paypalCall ?? paypal;
+  const now = deps.now ?? new Date();
   if (!/^[A-Z0-9]{10,32}$/.test(paypalOrderId)) throw new CheckoutError("invalid order id");
   const d = await db();
   const [order] = await d.select().from(schema.orders).where(eq(schema.orders.paypalOrderId, paypalOrderId));
@@ -154,13 +157,14 @@ export async function captureCheckoutOrder(paypalOrderId: string, deps: { paypal
   }
 
   // Every capture path (browser, return URL, webhook) re-checks the stock hold and,
-  // for custom orders, atomically locks the exact agreement version as "paying" so
-  // nothing can revise or cancel it while PayPal is capturing.
+  // for custom orders and collective plans, atomically locks the exact terms version as
+  // "paying" so nothing can revise or cancel it while PayPal is capturing.
   try {
-    await ensureReservedForCapture(order.id);
-    await beginAgreementCapture(order);
+    await ensureReservedForCapture(order.id, now);
+    await beginAgreementCapture(order, now);
+    await beginCollectiveCapture(order, now);
   } catch (e) {
-    if (e instanceof SoldOutError || e instanceof AgreementError) throw new CheckoutError(e.message, 409);
+    if (e instanceof SoldOutError || e instanceof AgreementError || e instanceof CollectiveError) throw new CheckoutError(e.message, 409);
     throw e;
   }
 
@@ -177,16 +181,18 @@ export async function captureCheckoutOrder(paypalOrderId: string, deps: { paypal
       if (issue.includes("ORDER_ALREADY_CAPTURED")) {
         // Captured earlier (a lost response, or another path got there first): record it from PayPal's own data.
         const pp = await call<PayPalOrderSnapshot>(`/v2/checkout/orders/${paypalOrderId}`);
-        const done = await finalizePayment(order.id, pp);
+        const done = await finalizePayment(order.id, pp, now);
         return { orderId: order.id, status: done.status };
       }
       // Definite refusals: no money moved, so the terms are no longer "paying".
       if (issue.includes("INSTRUMENT_DECLINED")) {
         await endAgreementCapture(order);
+        await endCollectiveCapture(order, now);
         throw new CheckoutError("Your payment method was declined. Please choose another in PayPal.", 422);
       }
       if (issue.includes("ORDER_NOT_APPROVED")) {
         await endAgreementCapture(order);
+        await endCollectiveCapture(order, now);
         throw new CheckoutError("Payment not approved yet.", 409);
       }
     }
@@ -196,7 +202,7 @@ export async function captureCheckoutOrder(paypalOrderId: string, deps: { paypal
   }
 
   // Record the outcome from the CAPTURE record (pending ≠ paid; no capture record ≠ paid or failed).
-  const done = await finalizePayment(order.id, captured);
+  const done = await finalizePayment(order.id, captured, now);
   return { orderId: order.id, status: done.status };
 }
 

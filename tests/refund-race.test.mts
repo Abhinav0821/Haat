@@ -32,7 +32,7 @@ async function paidOrder(amountCents = 3000) {
     .insert(schema.orders)
     .values({ storeId: s.id, paypalOrderId, status: "COMPLETED", amountCents, currency: "USD", items: [], paypalCaptureId: `CAP-${paypalOrderId}`, capturedAt: new Date() })
     .returning();
-  return o;
+  return { ...o, storeId: s.id };
 }
 async function proposal(o: { id: string; storeId: string; paypalCaptureId: string | null }, amountCents: number) {
   const [a] = await d

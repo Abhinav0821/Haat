@@ -122,13 +122,16 @@ export async function finalizePayment(orderId: string, pp: PayPalOrderSnapshot, 
 
   const { consume, release } = await import("@/lib/inventory");
   const { markAgreementPaid, endAgreementCapture } = await import("@/lib/custom/agreement");
+  const { markCollectivePaid, endCollectiveCapture } = await import("@/lib/collective/checkout");
   if (outcome === "COMPLETED") {
     // A completed capture is final money movement: always (idempotently) count it.
     await consume(applied.order.id);
     await markAgreementPaid(applied.order);
+    await markCollectivePaid(applied.order, now);
   } else if (outcome === "DENIED" && applied.advanced) {
     await release(applied.order.id);
     await endAgreementCapture(applied.order);
+    await endCollectiveCapture(applied.order, now);
   } // PENDING: wait — the agreement stays "paying" and stock stays held until PayPal reports the outcome.
   return { outcome, status: applied.status };
 }

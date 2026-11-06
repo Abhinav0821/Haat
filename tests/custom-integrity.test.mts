@@ -340,7 +340,7 @@ test("8. reconciliation records the whole payment, not just the agreement — an
   // Downstream: production → ready to ship (needs a capture id) → refundable capture on record.
   const { getAutopilotBoard } = await import("@/lib/autopilot/refunds");
   await svc.recordProgress(r.id, 1);
-  const board = await getAutopilotBoard(order.storeId);
+  const board = await getAutopilotBoard(order.storeId!);
   assert.ok(board.toShip.some((x) => x.id === o.id && x.shipTo === "Austin, US"), "ready to ship with the buyer's address");
 
   // Idempotent: reconciling / finalising again changes nothing.

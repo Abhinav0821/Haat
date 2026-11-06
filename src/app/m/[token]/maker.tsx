@@ -30,12 +30,18 @@ type Part = {
   pieces: number;
   payInr: number;
   respondedAt: string | null;
+  /** The buyer has paid for the plan with exactly this part. */
+  paid: boolean;
+  share: Share | null;
 };
+type Payment = { id: string; amountPaise: number; method: "upi" | "bank"; reference: string; reportedAt: string; status: "reported" | "confirmed" | "disputed" | "withdrawn"; respondedAt: string | null; note: string | null };
+type Share = { shareId: string; owedPaise: number; confirmedPaise: number; awaitingPaise: number; disputedPaise: number; leftPaise: number; settled: boolean; payments: Payment[] };
 type View = { name: string; nameHi: string | null; collective: string; product: { en: string; hi: string }; facts: Facts; parts: Part[]; removed: { orderRef: string }[] };
 
 const DAYS = ["रवि", "सोम", "मंगल", "बुध", "गुरु", "शुक्र", "शनि"];
 const DAYS_EN = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const hiDate = (iso: string) => new Date(iso).toLocaleDateString("hi-IN", { day: "numeric", month: "long", timeZone: "UTC" });
+const rupees = (paise: number) => `₹${(paise / 100).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
 const field = "w-full border-b border-line bg-transparent py-2 text-base focus:border-ink focus:outline-none";
 
 export function MakerHome({ token }: { token: string }) {
@@ -150,6 +156,8 @@ export function MakerHome({ token }: { token: string }) {
                     ✓ आपने यह हिस्सा मंज़ूर किया{p.respondedAt ? ` (${hiDate(p.respondedAt)})` : ""}।
                     <span className="ml-1 text-xs text-muted">You accepted this part on this link.</span>
                   </p>
+                  <PaymentState part={p} />
+                  {p.share && <ShareLedger share={p.share} busy={busy} onAnswer={(paymentId, answer) => void post({ action: "payment", paymentId, answer })} />}
                   {p.orderStatus !== "paid" && p.orderStatus !== "paying" && (
                     <button type="button" disabled={busy} onClick={() => setDeclining(p.id)} className="mt-3 text-xs text-muted underline underline-offset-4 disabled:opacity-30" lang="hi">
                       अब नहीं कर पाएँगी? · Can no longer do it?
@@ -345,6 +353,97 @@ export function MakerHome({ token }: { token: string }) {
         </p>
       )}
     </Shell>
+  );
+}
+
+/** Whether she may start: only once the buyer has paid for exactly this part. */
+function PaymentState({ part }: { part: Part }) {
+  if (part.paid)
+    return (
+      <p className="mt-3 border-l-2 border-leaf pl-3 leading-relaxed" lang="hi">
+        ख़रीदार ने पैसे दे दिए हैं। अपने तय दिनों पर पीस बनाना शुरू करें।
+        <span className="block text-xs text-muted">The buyer has paid. Start making your pieces on your dates.</span>
+      </p>
+    );
+  if (part.orderStatus === "paying")
+    return (
+      <p className="mt-3 border-l-2 border-line pl-3 leading-relaxed text-muted" lang="hi">
+        ख़रीदार का पैसा आ रहा है। पक्का होने तक काम शुरू न करें।
+        <span className="block text-xs">The buyer&apos;s payment is being processed. Don&apos;t start until it is confirmed.</span>
+      </p>
+    );
+  return (
+    <p className="mt-3 border-l-2 border-marigold pl-3 leading-relaxed" lang="hi">
+      ख़रीदार ने अभी पैसे नहीं दिए। अभी काम शुरू न करें; पैसे आते ही यहाँ बताया जाएगा।
+      <span className="block text-xs text-muted">The buyer hasn&apos;t paid yet. Don&apos;t start; this page will tell you when they have.</span>
+    </p>
+  );
+}
+
+/** What the collective owes her, and each payment it reports: hers to confirm. */
+function ShareLedger({ share, busy, onAnswer }: { share: Share; busy: boolean; onAnswer: (paymentId: string, answer: "confirm" | "dispute") => void }) {
+  const shown = share.payments.filter((x) => x.status !== "withdrawn");
+  const due = share.owedPaise - share.confirmedPaise;
+  return (
+    <div className="mt-6 border-t border-line pt-5">
+      <h3 className="font-display text-lg" lang="hi">
+        आपका हिसाब <span className="font-sans text-xs font-light text-muted">Your pay</span>
+      </h3>
+      <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-3">
+        <div>
+          <dt className="text-xs text-muted" lang="hi">संगठन पर बकाया · Owed</dt>
+          <dd>{rupees(share.owedPaise)}</dd>
+        </div>
+        <div>
+          <dt className="text-xs text-muted" lang="hi">आपने पाया · Received</dt>
+          <dd className={share.confirmedPaise ? "text-leaf" : ""}>{rupees(share.confirmedPaise)}</dd>
+        </div>
+        <div>
+          <dt className="text-xs text-muted" lang="hi">बाकी · Still due</dt>
+          <dd className={due ? "text-marigold" : "text-leaf"}>{share.settled ? "✓ पूरा मिला" : rupees(due)}</dd>
+        </div>
+      </dl>
+      {shown.length > 0 && (
+        <ul className="mt-4 divide-y divide-line border-y border-line text-sm">
+          {shown.map((x) => (
+            <li key={x.id} className="py-3">
+              <p>
+                {rupees(x.amountPaise)} <span className="text-muted">· {x.method === "upi" ? "UPI" : "Bank"} </span>
+                <span className="break-all font-mono text-xs">{x.reference}</span>
+                <span className="text-xs text-muted"> · {hiDate(x.reportedAt)}</span>
+              </p>
+              {x.status === "confirmed" && (
+                <p className="mt-1 text-xs text-leaf" lang="hi">
+                  ✓ आपने पुष्टि की कि यह मिला · You confirmed you received it
+                </p>
+              )}
+              {x.status !== "confirmed" && (
+                <>
+                  <p className="mt-1 text-xs text-muted" lang="hi">
+                    {x.status === "disputed" ? "आपने कहा यह नहीं मिला। संयोजक को बताया गया है।" : "संयोजक ने भेजा बताया है। अपने खाते में देखकर बताइए।"}
+                    <span className="block">{x.status === "disputed" ? "You said it didn't arrive; the coordinator can see that." : "The coordinator says this was sent. Check your account, then answer."}</span>
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-3">
+                    <button type="button" disabled={busy} onClick={() => onAnswer(x.id, "confirm")} className="bg-ink px-4 py-2 text-paper hover:bg-ink/85 disabled:opacity-30" lang="hi">
+                      {x.status === "disputed" ? "अब मिल गया" : "हाँ, मिल गया"} <span className="text-xs opacity-70">Received</span>
+                    </button>
+                    {x.status === "reported" && (
+                      <button type="button" disabled={busy} onClick={() => onAnswer(x.id, "dispute")} className="border border-ink px-4 py-2 hover:bg-ink hover:text-paper disabled:opacity-30" lang="hi">
+                        नहीं मिला <span className="text-xs opacity-70">Not received</span>
+                      </button>
+                    )}
+                  </div>
+                </>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="mt-3 text-xs leading-relaxed text-muted" lang="hi">
+        &ldquo;मिल गया&rdquo; सिर्फ़ आप कह सकती हैं, और उसके बाद बदला नहीं जा सकता। हाट बैंक या UPI रिकॉर्ड नहीं देखता।
+        <span className="block">Only you can mark a payment received, and that is final. Haat doesn&apos;t see bank or UPI records.</span>
+      </p>
+    </div>
   );
 }
 
