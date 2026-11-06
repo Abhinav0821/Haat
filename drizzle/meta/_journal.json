@@ -120,6 +120,13 @@
       "when": 1793880375806,
       "tag": "0016_payment_in_progress",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1793984681410,
+      "tag": "0017_collectives",
+      "breakpoints": true
     }
   ]
 }

@@ -56,11 +56,12 @@ export function EmptyState({ hi, en, detailHi, detailEn, children }: { hi: strin
 }
 
 /** Top bar for the seller studio: add, inbox, view shop, sign out. */
-export function SellerNav({ active }: { active: "list" | "inbox" | "products" | "ask" | "rules" | "custom" }) {
+export function SellerNav({ active }: { active: "list" | "inbox" | "products" | "ask" | "rules" | "custom" | "collective" }) {
   const router = useRouter();
   const links = [
     { href: "/seller/inbox", hi: "आज का काम", en: "Inbox", key: "inbox" },
     { href: "/seller/custom", hi: "फ़रमाइश", en: "Custom requests", key: "custom" },
+    { href: "/seller/collective", hi: "समूह", en: "Collective orders", key: "collective" },
     { href: "/seller/ask", hi: "पूछो", en: "Ask", key: "ask" },
     { href: "/seller/products", hi: "सामान", en: "Pieces", key: "products" },
     { href: "/seller/list", hi: "नया", en: "Add", key: "list" },

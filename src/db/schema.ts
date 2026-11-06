@@ -288,3 +288,120 @@ export const rateHits = pgTable(
   },
   (t) => [index("rate_hits_key_at").on(t.key, t.at)],
 );
+
+// ── Collective orders (model M1, docs/planner-model.md; consent rules in docs/collective-consent.md) ──
+
+/** A group of makers that sells together. The collective is the seller (merchant of record). */
+export const collectives = pgTable("collectives", {
+  id: id(),
+  slug: text("slug").notNull().unique(),
+  name: text("name").notNull(),
+  coordinatorName: text("coordinator_name").notNull(),
+  /** CollectiveSettings: product, shared finishing capacity, lags, costs, fee estimate (src/lib/collective/facts.ts). */
+  settings: jsonb("settings").$type<Record<string, unknown>>().notNull(),
+  createdAt: createdAt(),
+});
+
+/**
+ * One maker in a collective. Her personal link is a secret token (only its hash is
+ * stored). Possessing the link is NOT proof of identity; it is recorded as such.
+ */
+export const members = pgTable("members", {
+  id: id(),
+  collectiveId: text("collective_id").notNull().references(() => collectives.id),
+  name: text("name").notNull(),
+  nameHi: text("name_hi"),
+  linkHash: text("link_hash").notNull().unique(),
+  /** StoredMemberFacts with provenance (who stated them, when). */
+  facts: jsonb("facts").$type<Record<string, unknown>>().notNull(),
+  active: integer("active").notNull().default(1),
+  createdAt: createdAt(),
+});
+
+/** A buyer's request to the collective. */
+export const collectiveOrders = pgTable("collective_orders", {
+  id: id(),
+  collectiveId: text("collective_id").notNull().references(() => collectives.id),
+  channel: text("channel").notNull().default("web"),
+  buyerName: text("buyer_name"),
+  buyerEmail: text("buyer_email"),
+  buyerText: text("buyer_text").notNull(),
+  /** { quantity, deadline (YYYY-MM-DD), budgetUsdCents | null, item, details } */
+  spec: jsonb("spec").$type<Record<string, unknown>>().notNull(),
+  /** Makers the coordinator explicitly left out after they declined (never silent). */
+  excludedMemberIds: jsonb("excluded_member_ids").$type<string[]>().notNull().default([]),
+  /** Last planner run, kept for the record (model, facts hash, result kind, checker verdict). */
+  lastEvaluation: jsonb("last_evaluation").$type<Record<string, unknown>>(),
+  status: text("status", { enum: ["new", "offered", "approved", "paying", "paid", "declined", "cancelled"] }).notNull().default("new"),
+  createdAt: createdAt(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * A versioned overall plan. It references each maker's part (member_parts) by id and
+ * terms hash; its own terms hash covers the buyer's terms AND those references, so any
+ * change to any part makes a new plan version. Capacity is reserved only when the
+ * buyer approves, inside one transaction that re-checks the plan against current facts.
+ */
+export const collectivePlans = pgTable(
+  "collective_plans",
+  {
+    id: id(),
+    orderId: text("order_id").notNull().references(() => collectiveOrders.id),
+    collectiveId: text("collective_id").notNull().references(() => collectives.id),
+    version: integer("version").notNull(),
+    supersededById: text("superseded_by_id"),
+    /** Which answer was offered: primary | earliest | largest_by_date | within_budget | lowest_price. */
+    choice: text("choice").notNull(),
+    /** Planner inputs and outputs, kept whole for audit: facts, request, plan, certificate, check result. */
+    facts: jsonb("facts").$type<Record<string, unknown>>().notNull(),
+    request: jsonb("request").$type<Record<string, unknown>>().notNull(),
+    plan: jsonb("plan").$type<Record<string, unknown>>().notNull(),
+    optimality: jsonb("optimality").$type<Record<string, unknown>>(),
+    certified: integer("certified").notNull(),
+    /** BuyerTerms + parts [{ memberId, partId, termsHash }]. */
+    terms: jsonb("terms").$type<Record<string, unknown>>().notNull(),
+    termsHash: text("terms_hash").notNull(),
+    status: text("status", {
+      enum: ["awaiting_makers", "ready", "maker_declined", "approved", "paying", "paid", "needs_replan", "superseded", "cancelled"],
+    }).notNull(),
+    statusNote: text("status_note"),
+    buyerApprovedHash: text("buyer_approved_hash"),
+    buyerApprovedAt: timestamp("buyer_approved_at", { withTimezone: true }),
+    /** Capacity is reserved from buyer approval until this time if unpaid. */
+    holdUntil: timestamp("hold_until", { withTimezone: true }),
+    /** The reserved capacity (ISO dates), counted while approved-and-held, paying or paid. */
+    reserved: jsonb("reserved").$type<Record<string, unknown>>(),
+    paymentRef: text("payment_ref"),
+    payingSince: timestamp("paying_since", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("collective_plans_order_version").on(t.orderId, t.version), index("collective_plans_collective_status").on(t.collectiveId, t.status)],
+);
+
+/**
+ * One maker's part of an order: immutable terms + hash, versioned per maker per order.
+ * A new plan version reuses the same part row when her terms are unchanged, so she is
+ * asked again only when HER part changed. Only her own response (on her personal link)
+ * counts as acceptance; there is no coordinator path that accepts for her.
+ */
+export const memberParts = pgTable(
+  "member_parts",
+  {
+    id: id(),
+    orderId: text("order_id").notNull().references(() => collectiveOrders.id),
+    memberId: text("member_id").notNull().references(() => members.id),
+    version: integer("version").notNull(),
+    supersededById: text("superseded_by_id"),
+    terms: jsonb("terms").$type<Record<string, unknown>>().notNull(),
+    termsHash: text("terms_hash").notNull(),
+    status: text("status", { enum: ["pending", "accepted", "declined", "superseded"] }).notNull(),
+    respondedHash: text("responded_hash"),
+    respondedAt: timestamp("responded_at", { withTimezone: true }),
+    /** How the response arrived. Always "personal_link" in this version (link possession, not identity). */
+    respondedVia: text("responded_via"),
+    responseNote: text("response_note"),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("member_parts_order_member_version").on(t.orderId, t.memberId, t.version)],
+);

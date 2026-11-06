@@ -231,7 +231,11 @@ export function CustomRequests() {
               {view.summaryHi}
             </p>
             <p className="mt-3 text-xs italic text-muted">“{view.request.text}”</p>
-            {view.otherWishes && <p className="mt-1 text-xs text-muted">Also: {view.otherWishes}</p>}
+            {view.otherWishes && (
+              <p className="mt-1 text-xs text-muted">
+                <span lang="hi">और बातें</span> · Also: {view.otherWishes}
+              </p>
+            )}
           </section>
 
           {view.status !== "paid" && view.status !== "declined" && (

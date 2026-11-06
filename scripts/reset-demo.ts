@@ -40,6 +40,10 @@ async function main() {
   }
   await d.delete(schema.events);
   await d.update(schema.products).set({ soldQuantity: 0 });
+  // Collective orders: parts and plans reference orders; the collective and its makers (and their links) are kept.
+  await d.delete(schema.memberParts);
+  await d.delete(schema.collectivePlans);
+  const collectiveOrders = await d.delete(schema.collectiveOrders).returning({ id: schema.collectiveOrders.id });
   await d.delete(schema.agreements); // references custom requests; orders reference agreements by id only
   const custom = await d.delete(schema.customRequests).returning({ id: schema.customRequests.id });
   const orders = await d.delete(schema.orders).returning({ id: schema.orders.id });
@@ -56,7 +60,7 @@ async function main() {
   const remaining = keep.length ? await d.select({ id: schema.media.id }).from(schema.media).where(inArray(schema.media.id, keep)) : [];
 
   console.log(
-    `removed: ${orders.length} orders, ${custom.length} custom requests, ${messages.length} messages, ${actions.length} autopilot actions, ` +
+    `removed: ${orders.length} orders, ${custom.length} custom requests, ${collectiveOrders.length} collective orders, ${messages.length} messages, ${actions.length} autopilot actions, ` +
       `${events.length} webhook events, ${archived.length} archived products, ${media.length} unused media files`,
   );
   console.log(`kept: ${live.length} live product(s), ${remaining.length} media file(s)`);
