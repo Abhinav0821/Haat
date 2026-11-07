@@ -75,10 +75,10 @@ export function makeFacts(makers: MakerSpec[], finishingWeek: number[]): Collect
 }
 
 /** The checked M1 answer for a case; throws if the checker rejects it (then it can't be truth). */
-export function truthOf(facts: CollectiveFacts, request: OrderRequest) {
-  const ev = evaluate(facts, request, NOW);
+export function truthOf(facts: CollectiveFacts, request: OrderRequest, now = NOW) {
+  const ev = evaluate(facts, request, now);
   if (ev.kind !== "unresolved") {
-    const problems = checkEvaluation(facts, request, ev, NOW);
+    const problems = checkEvaluation(facts, request, ev, now);
     if (problems.length) throw new Error(`checker rejected the planner's answer: ${problems[0]}`);
   }
   const truth: Truth = ev.kind === "feasible" ? "yes" : ev.kind === "infeasible_capacity" ? "no_capacity" : ev.kind === "infeasible_budget" ? "no_budget" : "undecided";

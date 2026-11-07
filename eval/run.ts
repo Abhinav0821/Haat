@@ -8,25 +8,22 @@
  *   npm run eval -- --seed 7
  *
  * The AI model's answers are saved one by one in eval/results/llm-cache-*.json, so a run
- * stopped by the daily quota resumes where it stopped. Set EVAL_GOOGLE_API_KEY (and
- * optionally EVAL_MODEL) to keep the app's own quota free.
+ * stopped by a quota/rate limit resumes where it stopped. Quotas are per Google project,
+ * not per key: use EVAL_GOOGLE_API_KEY from a separate project to isolate app quota.
  *
  * Writes eval/results/seed-<seed>.json (every case, answer, score, raw model output)
  * and eval/results/seed-<seed>.md (summary tables).
  */
 import { config } from "dotenv";
-config({ path: ".env.local", quiet: true });
 import fs from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { handcrafted, randomScenarios, truthOf, type Scenario, type Truth } from "./scenarios";
 import { oldHaat, planner, ruleBased, type Answer } from "./approaches";
-import { askModel, PROMPT_VERSION, SYSTEM, toAnswer, type LlmRaw } from "./llm";
-import { score, type Outcome, type Score } from "./score";
+import { askModel, modelInput, PROMPT_VERSION, SYSTEM, toAnswer, type LlmRecord } from "./llm";
+import { completeAnswerCorrect, score, type Outcome, type Score } from "./score";
 
-const args = process.argv.slice(2);
-const seed = Number(args[args.indexOf("--seed") + 1] || 20261108) || 20261108;
-const noLlm = args.includes("--no-llm");
-const llmAll = args.includes("--llm-all");
+import { inputFingerprint, matchingCache, reusableAnswer, saveAnswer } from "./cache";
 const QUOTA: Record<Truth, number> = { yes: 16, no_capacity: 12, no_budget: 6, undecided: 6 };
 /** The AI subset: every hand-written case + the first generated cases of each answer type. */
 const SUBSET: Record<Truth, number> = { yes: 4, no_capacity: 3, no_budget: 2, undecided: 3 };
@@ -39,18 +36,13 @@ const LABEL: Record<Approach, string> = {
   llm_direct: "AI model, direct",
 };
 
-const outDir = path.join(process.cwd(), "eval", "results");
-const outJson = path.join(outDir, `seed-${seed}.json`);
-const modelId = process.env.EVAL_MODEL || process.env.GOOGLE_MODEL || "gemini-3.6-flash";
-const apiKey = process.env.EVAL_GOOGLE_API_KEY || process.env.GOOGLE_API_KEY;
-const cachePath = path.join(outDir, `llm-cache-seed-${seed}-${modelId}-${PROMPT_VERSION}.json`);
+export type EvalOptions = { seed?: number; noLlm?: boolean; llmAll?: boolean; retryErrors?: boolean; modelId?: string; apiKey?: string; outDir?: string; ask?: typeof askModel; wait?: (ms: number) => Promise<void> };
 
-type LlmRecord = { raw: LlmRaw | null; error: string | null; attempts: number; ms: number; at?: string };
-type Row = { id: string; label: string; truth: Truth; request: Scenario["request"]; makers: number; inSubset: boolean; answers: Record<Approach, { answer: Answer | null; score: Score | null }>; llm?: LlmRecord };
+type Row = { id: string; label: string; truth: Truth; request: Scenario["request"]; makers: number; inSubset: boolean; answers: Record<Approach, { answer: Answer | null; score: Score | null }>; llm?: LlmRecord; llmFingerprint?: string };
 
 const summariseAnswer = (a: Answer | null) => {
   if (!a) return null;
-  if (a.kind === "yes") return { kind: a.kind, quantity: a.plan.quantity, priceUsdCents: a.plan.money.priceUsdCents, statedPriceUsdCents: a.statedPriceUsdCents ?? null, production: a.plan.production, finishing: a.plan.finishing };
+  if (a.kind === "yes") return { kind: a.kind, quantity: a.plan.quantity, priceUsdCents: a.plan.money.priceUsdCents, statedPriceUsdCents: "statedPriceUsdCents" in a ? a.statedPriceUsdCents ?? null : a.plan.money.priceUsdCents, production: a.plan.production, finishing: a.plan.finishing };
   return a;
 };
 
@@ -67,13 +59,18 @@ export function subsetIds(scenarios: Scenario[]): Set<string> {
   return ids;
 }
 
-const collected: Row[] = [];
-
-async function runAll() {
+export async function runAll(options: EvalOptions = {}) {
+  const { seed = 20261108, noLlm = true, llmAll = false, retryErrors = false, modelId = "gemini-3.6-flash", apiKey } = options;
+  const outDir = options.outDir ?? path.join(process.cwd(), "eval", "results");
+  const outJson = path.join(outDir, `seed-${seed}${noLlm ? "" : "-ai"}.json`);
+  const cachePath = path.join(outDir, `llm-cache-v2-seed-${seed}-${encodeURIComponent(modelId)}.json`);
+  const collected: Row[] = [];
+  let requestsThisRun = 0;
+  let requestsRecorded = 0;
   const scenarios = [...handcrafted(), ...randomScenarios(seed, QUOTA)];
   const subset = subsetIds(scenarios);
   fs.mkdirSync(outDir, { recursive: true });
-  const cache: Record<string, LlmRecord> = fs.existsSync(cachePath) ? JSON.parse(fs.readFileSync(cachePath, "utf8")) : {};
+  const cache: Record<string, unknown> = fs.existsSync(cachePath) ? JSON.parse(fs.readFileSync(cachePath, "utf8")) : {};
   const useLlm = !noLlm && (!!apiKey || Object.keys(cache).length > 0);
   if (!noLlm && !apiKey) console.warn("No API key: scoring only the model answers already saved.");
   let lastCall = 0;
@@ -88,20 +85,27 @@ async function runAll() {
     run("old_haat", oldHaat(s.facts, s.request));
     row.answers.llm_direct = { answer: null, score: null };
     if (useLlm && inSubset) {
-      let rec: LlmRecord | undefined = cache[s.id]?.raw ? cache[s.id] : undefined;
+      const input = await modelInput(modelId, s.facts, s.request);
+      const fingerprint = inputFingerprint(input);
+      const previous = matchingCache(cache[fingerprint], input);
+      let rec = reusableAnswer(previous, retryErrors);
+      let saved = previous;
       if (!rec && apiKey && !stopped) {
-        const wait = lastCall + 13_000 - Date.now(); // free tier: about 5 requests a minute
-        if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+        const wait = lastCall + 13_000 - Date.now();
+        if (wait > 0) await (options.wait ?? ((ms) => new Promise((r) => setTimeout(r, ms))))(wait);
         lastCall = Date.now();
-        const r = await askModel(modelId, apiKey, s.facts, s.request);
-        if (r.quotaExhausted) stopped = r.error;
-        else {
-          rec = { raw: r.raw, error: r.error, attempts: r.attempts, ms: r.ms, at: new Date().toISOString() };
-          cache[s.id] = rec;
-          fs.writeFileSync(cachePath, JSON.stringify(cache, null, 1));
-        }
+        const r = { ...await (options.ask ?? askModel)(modelId, apiKey, s.facts, s.request), at: new Date().toISOString() };
+        requestsThisRun += r.attempts;
+        saved = saveAnswer(input, r, previous);
+        cache[fingerprint] = saved;
+        const temporary = `${cachePath}.tmp-${process.pid}`;
+        fs.writeFileSync(temporary, JSON.stringify(cache, null, 1));
+        fs.renameSync(temporary, cachePath);
+        if (r.quotaExhausted) stopped = r.error ?? "Provider rate/quota limit";
+        else rec = r;
       }
-      rec ??= cache[s.id];
+      requestsRecorded += saved?.runs.reduce((n, r) => n + r.attempts, 0) ?? 0;
+      row.llmFingerprint = fingerprint;
       if (rec) {
         row.llm = rec;
         run("llm_direct", rec.raw ? toAnswer(s.facts, s.request, rec.raw) : { kind: "error", reason: rec.error ?? "no answer" });
@@ -110,15 +114,17 @@ async function runAll() {
     }
     collected.push(row);
   }
-  if (stopped) console.warn(`Stopped asking the model: daily quota exhausted. Re-run later to continue.\n  ${stopped.slice(0, 160)}`);
+  if (stopped) console.warn(`Stopped asking the model: provider rate/quota limit. Check AI Studio and re-run later to continue.\n  ${stopped.slice(0, 160)}`);
   const asked = collected.filter((r) => r.inSubset && r.answers.llm_direct.score).length;
+  const answered = collected.filter((r) => r.inSubset && r.llm?.raw).length;
   const meta = {
     seed,
     generatedAt: new Date().toISOString(),
     quota: QUOTA,
     cases: scenarios.length,
     handcrafted: scenarios.filter((s) => s.id.startsWith("h")).length,
-    subset: { definition: llmAll ? "all cases" : { handcrafted: "all", ...SUBSET }, size: collected.filter((r) => r.inSubset).length, answeredByModel: asked, complete: !stopped && asked === collected.filter((r) => r.inSubset).length },
+    subset: { definition: llmAll ? "all cases" : { handcrafted: "all", ...SUBSET }, size: collected.filter((r) => r.inSubset).length, answeredByModel: answered, scoredCases: asked, complete: !stopped && asked === collected.filter((r) => r.inSubset).length },
+    requestsThisRun, requestsRecorded, retryErrors,
     model: useLlm ? { provider: "google", id: modelId, temperature: 0, promptVersion: PROMPT_VERSION, system: SYSTEM } : null,
   };
   fs.writeFileSync(
@@ -126,8 +132,9 @@ async function runAll() {
     JSON.stringify({ meta, rows: collected, scenarios: scenarios.map((s) => ({ id: s.id, label: s.label, truth: s.truth, request: s.request, facts: s.facts })) }, (k, v) => (k === "answer" ? summariseAnswer(v) : v), 1),
   );
   const md = report(meta, collected);
-  fs.writeFileSync(path.join(outDir, `seed-${seed}.md`), md);
+  fs.writeFileSync(outJson.replace(/\.json$/, ".md"), md);
   console.log(md);
+  return { meta, rows: collected, scenarios };
 }
 
 const pct = (n: number, d: number) => (d ? `${n}/${d}` : "—");
@@ -138,7 +145,7 @@ const median = (xs: number[]) => {
 };
 const asPct = (x: number | null) => (x === null ? "—" : `${(x * 100).toFixed(1)}%`);
 
-type Meta = { seed: number; cases: number; handcrafted: number; model: { id: string; promptVersion: string } | null; generatedAt: string; subset: { size: number; answeredByModel: number; complete: boolean } };
+type Meta = { seed: number; cases: number; handcrafted: number; model: { id: string; promptVersion: string } | null; generatedAt: string; subset: { size: number; answeredByModel: number; scoredCases: number; complete: boolean }; requestsThisRun: number; requestsRecorded: number; retryErrors: boolean };
 
 function tables(rows: Row[], used: readonly Approach[]): string[] {
   const count = (a: Approach, o: Outcome | Outcome[], filter: (r: Row) => boolean = () => true) =>
@@ -148,14 +155,17 @@ function tables(rows: Row[], used: readonly Approach[]): string[] {
   const answered = (a: Approach) => rows.filter((r) => r.answers[a]?.score && !["unsupported", "error"].includes(r.answers[a].score!.outcome)).length;
   const lines = [head, sep];
   lines.push(`| Cases answered (excl. unsupported / errors) | ${used.map((a) => answered(a)).join(" | ")} |`);
-  lines.push(`| Right decision | ${used.map((a) => pct(count(a, ["correct_yes", "correct_no", "correct_undecided"]), answered(a))).join(" | ")} |`);
+  lines.push(`| Decision/schedule correct (price separate) | ${used.map((a) => pct(count(a, ["correct_yes", "correct_no", "correct_undecided"]), answered(a))).join(" | ")} |`);
+  lines.push(`| Complete answer correct (quote / maximum included) | ${used.map((a) => pct(rows.filter((r) => r.answers[a]?.score && completeAnswerCorrect(r.answers[a].score!)).length, rows.filter((r) => r.answers[a]?.score && r.answers[a].score!.outcome !== "unsupported").length)).join(" | ")} |`);
+  lines.push(`| Incorrect/missing prices on valid yes schedules | ${used.map((a) => rows.filter((r) => r.answers[a]?.score?.outcome === "correct_yes" && r.answers[a].score!.statedPriceRight === false).length).join(" | ")} |`);
   lines.push(`| **Unsafe promises** (a yes that breaks a fact, or is over budget) | ${used.map((a) => count(a, ["unsafe_yes", "over_budget_yes"])).join(" | ")} |`);
   lines.push(`| Orders missed (said no when a valid plan existed) | ${used.map((a) => count(a, "missed")).join(" | ")} |`);
-  lines.push(`| Wrong kind of no | ${used.map((a) => count(a, "wrong_kind")).join(" | ")} |`);
+  lines.push(`| Refusal category differs from M1 | ${used.map((a) => count(a, "wrong_kind")).join(" | ")} |`);
   lines.push(`| Unsupported (reported separately) | ${used.map((a) => count(a, "unsupported")).join(" | ")} |`);
   lines.push(`| No answer (errors) | ${used.map((a) => count(a, "error")).join(" | ")} |`);
   const gaps = (a: Approach) => rows.filter((r) => r.truth === "yes" && r.answers[a]?.score?.outcome === "correct_yes" && r.answers[a].score!.priceGap !== null).map((r) => r.answers[a].score!.priceGap!);
-  lines.push(`| Price above the cheapest possible (median / worst, valid yeses) | ${used.map((a) => { const g = gaps(a); return g.length ? `${asPct(median(g))} / ${asPct(Math.max(...g))}` : "—"; }).join(" | ")} |`);
+  lines.push(`| Valid yes schedules with a certified minimum for price comparison | ${used.map((a) => gaps(a).length).join(" | ")} |`);
+  lines.push(`| Calculated cost of valid schedules above cheapest (median / worst) | ${used.map((a) => { const g = gaps(a); return g.length ? `${asPct(median(g))} / ${asPct(Math.max(...g))}` : "—"; }).join(" | ")} |`);
   const maxClaims = (a: Approach) => rows.filter((r) => r.answers[a]?.score?.maxClaim).map((r) => r.answers[a].score!.maxClaim);
   lines.push(`| "Most we can do" exact, when saying no to capacity | ${used.map((a) => { const m = maxClaims(a); return m.length ? `${m.filter((x) => x === "exact").length}/${m.length}` : "—"; }).join(" | ")} |`);
   lines.push("", "By the true answer:", "", head, sep);
@@ -187,6 +197,7 @@ export function report(meta: Meta, rows: Row[]): string {
   lines.push(`${meta.cases} cases (${meta.handcrafted} hand-written, ${meta.cases - meta.handcrafted} generated from the seed). Generated ${meta.generatedAt.slice(0, 10)}.`);
   lines.push("Every schedule is judged by the independent checker. Truth is the planner's answer after the checker accepts it, so the planner's own column is a consistency check, not evidence; its correctness rests on the checker and the exhaustive reference tests.", "");
 
+  lines.push("Decision/schedule correctness does not repair an incorrect quote. Complete-answer correctness also requires a correct quote at the minimum price where a certified minimum exists, and an exact stated maximum for a capacity refusal; errors count as failures in that denominator. Price gaps are not computed against uncertified minima.", "");
   lines.push(`## All ${rows.length} cases: deterministic approaches`, "");
   lines.push(...tables(rows, ["planner", "rule_based", "old_haat"]), "");
 
@@ -194,11 +205,13 @@ export function report(meta: Meta, rows: Row[]): string {
   lines.push(`## The AI subset: all four approaches on the same ${sub.length} cases`, "");
   if (!meta.model) lines.push("The AI model was not run.");
   else {
-    lines.push(`AI model: \`${meta.model.id}\`, temperature 0, prompt \`${meta.model.promptVersion}\` (no tools, no solver). It answered ${meta.subset.answeredByModel} of ${sub.length} cases${meta.subset.complete ? "." : " — **incomplete**: the rest were not asked yet (daily quota)."}`, "");
+    lines.push(`AI model: \`${meta.model.id}\`, temperature 0, prompt \`${meta.model.promptVersion}\` (no tools, no solver). It produced ${meta.subset.answeredByModel} answers; ${meta.subset.scoredCases} of ${sub.length} cases were processed (malformed output counts as an error)${meta.subset.complete ? "." : " — **incomplete**: remaining cases are pending."}`, "");
+    lines.push(`Provider requests this invocation: ${meta.requestsThisRun}; recorded across resumptions: ${meta.requestsRecorded}. Automatic retries: off.`, "");
+    if (meta.retryErrors) lines.push("Explicit retries of previous errors were requested; full attempt histories are retained in the cache. Treat this as a rerun, not first-attempt accuracy.", "");
     const answeredRows = sub.filter((r) => r.answers.llm_direct.score);
     lines.push(...tables(answeredRows, APPROACHES), "");
     if (answeredRows.length < sub.length) lines.push(`(Only the ${answeredRows.length} cases the model answered are in this table, for every approach.)`, "");
-    const stated = answeredRows.map((r) => r.answers.llm_direct.score?.statedPriceRight).filter((x): x is boolean => x !== null && x !== undefined);
+    const stated = answeredRows.filter((r) => r.answers.llm_direct.answer?.kind === "yes").map((r) => r.answers.llm_direct.score?.statedPriceRight).filter((x): x is boolean => x !== null && x !== undefined);
     if (stated.length) lines.push(`The AI model's stated price equalled the correct price of its own schedule in ${stated.filter(Boolean).length} of ${stated.length} "yes" answers.`, "");
   }
   const disagree = rows.flatMap((r) => APPROACHES.filter((a) => r.answers[a]?.score?.truthDisagreement).map((a) => `${r.id}/${a}`));
@@ -208,7 +221,13 @@ export function report(meta: Meta, rows: Row[]): string {
   return lines.join("\n") + "\n";
 }
 
-runAll().catch((e) => {
-  console.error(e);
-  process.exit(1);
-});
+// Importing report/runAll in tests never reads keys or starts a model run.
+if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url) {
+  config({ path: ".env.local", quiet: true });
+  const args = process.argv.slice(2), seedAt = args.indexOf("--seed");
+  const seed = seedAt >= 0 ? Number(args[seedAt + 1]) : 20261108;
+  if (!Number.isSafeInteger(seed)) throw new Error("--seed needs a whole number");
+  runAll({ seed, noLlm: args.includes("--no-llm"), llmAll: args.includes("--llm-all"), retryErrors: args.includes("--retry-errors"),
+    modelId: process.env.EVAL_MODEL || process.env.GOOGLE_MODEL || "gemini-3.6-flash", apiKey: process.env.EVAL_GOOGLE_API_KEY || process.env.GOOGLE_API_KEY,
+  }).catch((e) => { console.error(e); process.exitCode = 1; });
+}

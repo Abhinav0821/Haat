@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { handcrafted, makeFacts, randomScenarios, truthOf, NOW } from "../eval/scenarios";
-import { asPlan, oldHaat, planner, ruleBased } from "../eval/approaches";
+import { asPlan, oldHaat, planner, ruleBased, ruleBasedGreedy } from "../eval/approaches";
 import { score } from "../eval/score";
 import { toAnswer } from "../eval/llm";
 import { checkPlan } from "@/lib/planner/check";
@@ -75,4 +75,23 @@ test("a model answer is converted faithfully: its quantity is what it finishes, 
   assert.equal(sc.outcome, "unsafe_yes");
   assert.ok(sc.categories.includes("wrong quantity"));
   assert.equal(sc.statedPriceRight, false);
+});
+
+test("the strengthened heuristic asks for unknown or inconsistent facts without using the planner", () => {
+  const missing = handcrafted().find((s) => s.id === "h5-unknown-materials")!;
+  assert.equal(ruleBasedGreedy(missing.facts, missing.request).kind, "no_capacity");
+  assert.equal(ruleBased(missing.facts, missing.request).kind, "undecided");
+  const f = makeFacts([{ id: "A", week: [1, 1, 1, 1, 1, 1, 1], ready: 0, ask: 400, commits: [{ pieces: 3, dueDay: 0 }] }], [8, 8, 8, 8, 8, 8, 8]);
+  const request = { quantity: 1, deliveryDay: 20, budgetUsdCents: null };
+  assert.equal(ruleBasedGreedy(f, request).kind, "yes");
+  assert.equal(ruleBased(f, request).kind, "undecided", "cannot promise work using contradictory existing promises");
+});
+
+test("uncertified feasible plans are not treated as certified minimum-price oracles", () => {
+  const s = cases().find((s) => { const ev = truthOf(s.facts, s.request).ev; return ev.kind === "feasible" && !ev.certified; })!;
+  assert.ok(s, "suite includes a feasible plan with incomplete information about another maker");
+  const ev = truthOf(s.facts, s.request).ev;
+  const result = score(s, ev, planner(s.facts, s.request));
+  assert.equal(result.outcome, "correct_yes");
+  assert.equal(result.priceGap, null);
 });

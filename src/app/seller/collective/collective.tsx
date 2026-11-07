@@ -638,6 +638,12 @@ function OrderDetail({ detail: d, busy, onAction, onBack }: { detail: Detail; bu
         </section>
       )}
 
+      <details className="mt-8 text-xs text-muted">
+        <summary className="cursor-pointer">Role-play evaluation</summary>
+        <p className="mt-2">Save the facts for both comparison rounds before making changes. This file contains private maker information; keep it with the observer.</p>
+        <a href={`/api/seller/collective/orders/${d.id}?export=evaluation`} className="mt-2 inline-block underline underline-offset-4">Download evaluation facts</a>
+      </details>
+
       {d.history.length > 1 && (
         <section className="mt-12">
           <SectionHeading hi="पुराने रूप" en="Versions" className="mb-2" />

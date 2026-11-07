@@ -8,6 +8,7 @@ import { dayDate, dayIndex, factsHash, PLANNER_MODEL, type CollectiveFacts, type
 import { buildFacts, materialsReadyOn, MemberFactsSchema, SettingsSchema, type CollectiveSettings, type DatedReservation, type MemberRow, type StoredMemberFacts } from "./facts";
 import { buyerTerms, hasHindiRequirements, hashOf, partTerms, type PartTerms, type PlanTerms } from "./terms";
 import { calendarDate as today, dayBegins } from "./calendar";
+import { createSnapshot } from "@/lib/planner/snapshot";
 export { LOCAL_OFFSET_MS, dayBegins } from "./calendar";
 
 /**
@@ -166,6 +167,20 @@ export async function evaluateOrder(orderId: string, now = new Date(), ownPlanId
     })
     .where(eq(schema.collectiveOrders.id, orderId));
   return { ...r, order, collective: c };
+}
+
+/** Freeze the exact current inputs under the same locks as planning and reservation. No model calls. */
+export async function exportEvaluationSnapshot(orderId: string, at?: Date) {
+  return withTx(async (tx) => {
+    await lockOrderTree(tx, orderId);
+    const now = at ?? new Date();
+    const { order, c } = await loadOrder(tx, orderId);
+    const plan = await currentPlan(tx, orderId, now);
+    const start = planStart(now);
+    const facts = await currentFacts(tx, c, order, start, now, plan?.id);
+    return createSnapshot(facts, requestFor(specOf(order), start), now, { orderId, offeredFactsHash: plan ? (plan.plan as unknown as Plan).factsHash : null,
+      evaluatedFactsHash: typeof order.lastEvaluation?.factsHash === "string" ? order.lastEvaluation.factsHash : null });
+  });
 }
 
 /** The plan behind each offerable answer, with the request it is bound to. */

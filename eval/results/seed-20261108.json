@@ -1,7 +1,7 @@
 {
  "meta": {
   "seed": 20261108,
-  "generatedAt": "2026-11-07T16:37:22.257Z",
+  "generatedAt": "2026-11-07T17:38:37.423Z",
   "quota": {
    "yes": 16,
    "no_capacity": 12,
@@ -20,8 +20,12 @@
    },
    "size": 18,
    "answeredByModel": 0,
+   "scoredCases": 0,
    "complete": false
   },
+  "requestsThisRun": 0,
+  "requestsRecorded": 0,
+  "retryErrors": false,
   "model": null
  },
  "rows": [
@@ -110,7 +114,7 @@
       "kind": "yes",
       "quantity": 40,
       "priceUsdCents": 31650,
-      "statedPriceUsdCents": null,
+      "statedPriceUsdCents": 31650,
       "production": [
        {
         "makerId": "Meera",
@@ -227,7 +231,7 @@
       "categories": [],
       "priceGap": 0,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
@@ -236,7 +240,7 @@
       "kind": "yes",
       "quantity": 40,
       "priceUsdCents": 31650,
-      "statedPriceUsdCents": null,
+      "statedPriceUsdCents": 31650,
       "production": [
        {
         "makerId": "Meera",
@@ -365,7 +369,7 @@
       "categories": [],
       "priceGap": 0,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
@@ -412,7 +416,7 @@
       "kind": "yes",
       "quantity": 30,
       "priceUsdCents": 23924,
-      "statedPriceUsdCents": null,
+      "statedPriceUsdCents": 23924,
       "production": [
        {
         "makerId": "Lata",
@@ -521,7 +525,7 @@
       "categories": [],
       "priceGap": 0,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
@@ -530,7 +534,7 @@
       "kind": "yes",
       "quantity": 30,
       "priceUsdCents": 23924,
-      "statedPriceUsdCents": null,
+      "statedPriceUsdCents": 23924,
       "production": [
        {
         "makerId": "Lata",
@@ -651,7 +655,7 @@
       "categories": [],
       "priceGap": 0,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
@@ -768,11 +772,11 @@
     },
     "rule_based": {
      "answer": {
-      "kind": "no_capacity",
-      "maxQuantity": 30
+      "kind": "undecided",
+      "reason": "The answer may change when the missing materials date is known."
      },
      "score": {
-      "outcome": "wrong_kind",
+      "outcome": "correct_undecided",
       "violations": [],
       "categories": [],
       "priceGap": null,
@@ -830,7 +834,7 @@
       "categories": [],
       "priceGap": null,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
@@ -845,7 +849,7 @@
       "categories": [],
       "priceGap": null,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
@@ -860,7 +864,7 @@
       "categories": [],
       "priceGap": null,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
@@ -887,7 +891,7 @@
       "kind": "yes",
       "quantity": 17,
       "priceUsdCents": 15128,
-      "statedPriceUsdCents": null,
+      "statedPriceUsdCents": 15128,
       "production": [
        {
         "makerId": "Meera",
@@ -944,7 +948,7 @@
       "categories": [],
       "priceGap": 0,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
@@ -953,7 +957,7 @@
       "kind": "yes",
       "quantity": 17,
       "priceUsdCents": 15128,
-      "statedPriceUsdCents": null,
+      "statedPriceUsdCents": 15128,
       "production": [
        {
         "makerId": "Meera",
@@ -1010,7 +1014,7 @@
       "categories": [],
       "priceGap": 0,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
@@ -1026,7 +1030,7 @@
       "categories": [],
       "priceGap": 0,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
@@ -1116,7 +1120,7 @@
       "kind": "yes",
       "quantity": 26,
       "priceUsdCents": 20476,
-      "statedPriceUsdCents": null,
+      "statedPriceUsdCents": 20476,
       "production": [
        {
         "makerId": "Sunita",
@@ -1207,9 +1211,9 @@
       "outcome": "correct_yes",
       "violations": [],
       "categories": [],
-      "priceGap": 0,
+      "priceGap": null,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
@@ -1218,7 +1222,7 @@
       "kind": "yes",
       "quantity": 26,
       "priceUsdCents": 20476,
-      "statedPriceUsdCents": null,
+      "statedPriceUsdCents": 20476,
       "production": [
        {
         "makerId": "Sunita",
@@ -1300,9 +1304,9 @@
       "outcome": "correct_yes",
       "violations": [],
       "categories": [],
-      "priceGap": 0,
+      "priceGap": null,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
@@ -1316,9 +1320,9 @@
       "outcome": "correct_yes",
       "violations": [],
       "categories": [],
-      "priceGap": 0,
+      "priceGap": null,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
@@ -1345,7 +1349,7 @@
       "kind": "yes",
       "quantity": 68,
       "priceUsdCents": 47364,
-      "statedPriceUsdCents": null,
+      "statedPriceUsdCents": 47364,
       "production": [
        {
         "makerId": "Sunita",
@@ -1571,9 +1575,9 @@
       "outcome": "correct_yes",
       "violations": [],
       "categories": [],
-      "priceGap": 0,
+      "priceGap": null,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
@@ -1582,7 +1586,7 @@
       "kind": "yes",
       "quantity": 68,
       "priceUsdCents": 47364,
-      "statedPriceUsdCents": null,
+      "statedPriceUsdCents": 47364,
       "production": [
        {
         "makerId": "Sunita",
@@ -1799,9 +1803,9 @@
       "outcome": "correct_yes",
       "violations": [],
       "categories": [],
-      "priceGap": 0,
+      "priceGap": null,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
@@ -1848,7 +1852,7 @@
       "kind": "yes",
       "quantity": 17,
       "priceUsdCents": 15935,
-      "statedPriceUsdCents": null,
+      "statedPriceUsdCents": 15935,
       "production": [
        {
         "makerId": "Meera",
@@ -1896,7 +1900,7 @@
       "categories": [],
       "priceGap": 0,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
@@ -1905,7 +1909,7 @@
       "kind": "yes",
       "quantity": 17,
       "priceUsdCents": 15935,
-      "statedPriceUsdCents": null,
+      "statedPriceUsdCents": 15935,
       "production": [
        {
         "makerId": "Meera",
@@ -1953,7 +1957,7 @@
       "categories": [],
       "priceGap": 0,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
@@ -1969,7 +1973,7 @@
       "categories": [],
       "priceGap": 0,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
@@ -2008,11 +2012,11 @@
     },
     "rule_based": {
      "answer": {
-      "kind": "no_capacity",
-      "maxQuantity": 23
+      "kind": "undecided",
+      "reason": "Existing promises exceed a maker's capacity before their due date; confirm her facts."
      },
      "score": {
-      "outcome": "wrong_kind",
+      "outcome": "correct_undecided",
       "violations": [],
       "categories": [],
       "priceGap": null,
@@ -2071,11 +2075,11 @@
     },
     "rule_based": {
      "answer": {
-      "kind": "no_capacity",
-      "maxQuantity": 26
+      "kind": "undecided",
+      "reason": "The answer may change when the missing materials date is known."
      },
      "score": {
-      "outcome": "wrong_kind",
+      "outcome": "correct_undecided",
       "violations": [],
       "categories": [],
       "priceGap": null,
@@ -2134,11 +2138,11 @@
     },
     "rule_based": {
      "answer": {
-      "kind": "no_capacity",
-      "maxQuantity": 11
+      "kind": "undecided",
+      "reason": "Existing promises exceed a maker's capacity before their due date; confirm her facts."
      },
      "score": {
-      "outcome": "wrong_kind",
+      "outcome": "correct_undecided",
       "violations": [],
       "categories": [],
       "priceGap": null,
@@ -2248,7 +2252,7 @@
       "kind": "yes",
       "quantity": 55,
       "priceUsdCents": 38615,
-      "statedPriceUsdCents": null,
+      "statedPriceUsdCents": 38615,
       "production": [
        {
         "makerId": "Meera",
@@ -2403,9 +2407,9 @@
       "outcome": "correct_yes",
       "violations": [],
       "categories": [],
-      "priceGap": 0,
+      "priceGap": null,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
@@ -2414,7 +2418,7 @@
       "kind": "yes",
       "quantity": 55,
       "priceUsdCents": 38615,
-      "statedPriceUsdCents": null,
+      "statedPriceUsdCents": 38615,
       "production": [
        {
         "makerId": "Meera",
@@ -2566,9 +2570,9 @@
       "outcome": "correct_yes",
       "violations": [],
       "categories": [],
-      "priceGap": 0,
+      "priceGap": null,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
@@ -2615,7 +2619,7 @@
       "kind": "yes",
       "quantity": 63,
       "priceUsdCents": 44594,
-      "statedPriceUsdCents": null,
+      "statedPriceUsdCents": 44594,
       "production": [
        {
         "makerId": "Meera",
@@ -2916,7 +2920,7 @@
       "categories": [],
       "priceGap": 0,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
@@ -2925,7 +2929,7 @@
       "kind": "yes",
       "quantity": 63,
       "priceUsdCents": 44594,
-      "statedPriceUsdCents": null,
+      "statedPriceUsdCents": 44594,
       "production": [
        {
         "makerId": "Sunita",
@@ -3233,7 +3237,7 @@
       "categories": [],
       "priceGap": 0,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
@@ -3249,7 +3253,7 @@
       "categories": [],
       "priceGap": 0.05305646499529093,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
@@ -3276,7 +3280,7 @@
       "kind": "yes",
       "quantity": 51,
       "priceUsdCents": 35763,
-      "statedPriceUsdCents": null,
+      "statedPriceUsdCents": 35763,
       "production": [
        {
         "makerId": "Meera",
@@ -3428,16 +3432,16 @@
       "outcome": "correct_yes",
       "violations": [],
       "categories": [],
-      "priceGap": 0,
+      "priceGap": null,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
     "rule_based": {
      "answer": {
-      "kind": "no_capacity",
-      "maxQuantity": 50
+      "kind": "undecided",
+      "reason": "The answer may change when the missing materials date is known."
      },
      "score": {
       "outcome": "missed",
@@ -3459,9 +3463,9 @@
       "outcome": "correct_yes",
       "violations": [],
       "categories": [],
-      "priceGap": 0.004949249224058372,
+      "priceGap": null,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
@@ -3488,7 +3492,7 @@
       "kind": "yes",
       "quantity": 82,
       "priceUsdCents": 55090,
-      "statedPriceUsdCents": null,
+      "statedPriceUsdCents": 55090,
       "production": [
        {
         "makerId": "Meera",
@@ -3699,7 +3703,7 @@
       "categories": [],
       "priceGap": 0,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
@@ -3708,7 +3712,7 @@
       "kind": "yes",
       "quantity": 82,
       "priceUsdCents": 55090,
-      "statedPriceUsdCents": null,
+      "statedPriceUsdCents": 55090,
       "production": [
        {
         "makerId": "Sunita",
@@ -3912,7 +3916,7 @@
       "categories": [],
       "priceGap": 0,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
@@ -3928,7 +3932,7 @@
       "categories": [],
       "priceGap": 0.011218006897803612,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
@@ -4024,7 +4028,7 @@
       "categories": [],
       "priceGap": null,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
@@ -4039,7 +4043,7 @@
       "categories": [],
       "priceGap": null,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
@@ -4054,7 +4058,7 @@
       "categories": [],
       "priceGap": null,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
@@ -4093,11 +4097,11 @@
     },
     "rule_based": {
      "answer": {
-      "kind": "no_capacity",
-      "maxQuantity": 58
+      "kind": "undecided",
+      "reason": "The answer may change when the missing materials date is known."
      },
      "score": {
-      "outcome": "wrong_kind",
+      "outcome": "correct_undecided",
       "violations": [],
       "categories": [],
       "priceGap": null,
@@ -4144,7 +4148,7 @@
       "kind": "yes",
       "quantity": 49,
       "priceUsdCents": 34051,
-      "statedPriceUsdCents": null,
+      "statedPriceUsdCents": 34051,
       "production": [
        {
         "makerId": "Rukhsana",
@@ -4362,7 +4366,7 @@
       "categories": [],
       "priceGap": 0,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
@@ -4371,7 +4375,7 @@
       "kind": "yes",
       "quantity": 49,
       "priceUsdCents": 34051,
-      "statedPriceUsdCents": null,
+      "statedPriceUsdCents": 34051,
       "production": [
        {
         "makerId": "Rukhsana",
@@ -4589,7 +4593,7 @@
       "categories": [],
       "priceGap": 0,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
@@ -4631,7 +4635,7 @@
       "kind": "yes",
       "quantity": 44,
       "priceUsdCents": 31175,
-      "statedPriceUsdCents": null,
+      "statedPriceUsdCents": 31175,
       "production": [
        {
         "makerId": "Sunita",
@@ -4731,9 +4735,9 @@
       "outcome": "correct_yes",
       "violations": [],
       "categories": [],
-      "priceGap": 0,
+      "priceGap": null,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
@@ -4742,7 +4746,7 @@
       "kind": "yes",
       "quantity": 44,
       "priceUsdCents": 31175,
-      "statedPriceUsdCents": null,
+      "statedPriceUsdCents": 31175,
       "production": [
        {
         "makerId": "Sunita",
@@ -4851,9 +4855,9 @@
       "outcome": "correct_yes",
       "violations": [],
       "categories": [],
-      "priceGap": 0,
+      "priceGap": null,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
@@ -4867,9 +4871,9 @@
       "outcome": "correct_yes",
       "violations": [],
       "categories": [],
-      "priceGap": 0,
+      "priceGap": null,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
@@ -4959,7 +4963,7 @@
       "kind": "yes",
       "quantity": 54,
       "priceUsdCents": 35834,
-      "statedPriceUsdCents": null,
+      "statedPriceUsdCents": 35834,
       "production": [
        {
         "makerId": "Sunita",
@@ -5090,7 +5094,7 @@
       "categories": [],
       "priceGap": 0,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
@@ -5099,7 +5103,7 @@
       "kind": "yes",
       "quantity": 54,
       "priceUsdCents": 35834,
-      "statedPriceUsdCents": null,
+      "statedPriceUsdCents": 35834,
       "production": [
        {
         "makerId": "Sunita",
@@ -5219,7 +5223,7 @@
       "categories": [],
       "priceGap": 0,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
@@ -5235,7 +5239,7 @@
       "categories": [],
       "priceGap": 0,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
@@ -5325,7 +5329,7 @@
       "kind": "yes",
       "quantity": 77,
       "priceUsdCents": 52213,
-      "statedPriceUsdCents": null,
+      "statedPriceUsdCents": 52213,
       "production": [
        {
         "makerId": "Meera",
@@ -5539,7 +5543,7 @@
       "categories": [],
       "priceGap": 0,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
@@ -5548,7 +5552,7 @@
       "kind": "yes",
       "quantity": 77,
       "priceUsdCents": 52213,
-      "statedPriceUsdCents": null,
+      "statedPriceUsdCents": 52213,
       "production": [
        {
         "makerId": "Sunita",
@@ -5762,7 +5766,7 @@
       "categories": [],
       "priceGap": 0,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
@@ -5804,7 +5808,7 @@
       "kind": "yes",
       "quantity": 13,
       "priceUsdCents": 12441,
-      "statedPriceUsdCents": null,
+      "statedPriceUsdCents": 12441,
       "production": [
        {
         "makerId": "Lata",
@@ -5897,7 +5901,7 @@
       "categories": [],
       "priceGap": 0,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
@@ -5906,7 +5910,7 @@
       "kind": "yes",
       "quantity": 13,
       "priceUsdCents": 12441,
-      "statedPriceUsdCents": null,
+      "statedPriceUsdCents": 12441,
       "production": [
        {
         "makerId": "Lata",
@@ -5999,7 +6003,7 @@
       "categories": [],
       "priceGap": 0,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
@@ -6015,7 +6019,7 @@
       "categories": [],
       "priceGap": 0,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
@@ -6048,7 +6052,7 @@
       "categories": [],
       "priceGap": null,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
@@ -6063,7 +6067,7 @@
       "categories": [],
       "priceGap": null,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
@@ -6078,7 +6082,7 @@
       "categories": [],
       "priceGap": null,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
@@ -6105,7 +6109,7 @@
       "kind": "yes",
       "quantity": 9,
       "priceUsdCents": 11442,
-      "statedPriceUsdCents": null,
+      "statedPriceUsdCents": 11442,
       "production": [
        {
         "makerId": "Sunita",
@@ -6144,7 +6148,7 @@
       "categories": [],
       "priceGap": 0,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
@@ -6153,7 +6157,7 @@
       "kind": "yes",
       "quantity": 9,
       "priceUsdCents": 11442,
-      "statedPriceUsdCents": null,
+      "statedPriceUsdCents": 11442,
       "production": [
        {
         "makerId": "Meera",
@@ -6192,7 +6196,7 @@
       "categories": [],
       "priceGap": 0,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
@@ -6208,7 +6212,7 @@
       "categories": [],
       "priceGap": 0,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
@@ -6235,7 +6239,7 @@
       "kind": "yes",
       "quantity": 68,
       "priceUsdCents": 49480,
-      "statedPriceUsdCents": null,
+      "statedPriceUsdCents": 49480,
       "production": [
        {
         "makerId": "Sunita",
@@ -6439,9 +6443,9 @@
       "outcome": "correct_yes",
       "violations": [],
       "categories": [],
-      "priceGap": 0,
+      "priceGap": null,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
@@ -6450,7 +6454,7 @@
       "kind": "yes",
       "quantity": 68,
       "priceUsdCents": 49480,
-      "statedPriceUsdCents": null,
+      "statedPriceUsdCents": 49480,
       "production": [
        {
         "makerId": "Sunita",
@@ -6633,9 +6637,9 @@
       "outcome": "correct_yes",
       "violations": [],
       "categories": [],
-      "priceGap": 0,
+      "priceGap": null,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
@@ -6682,7 +6686,7 @@
       "kind": "yes",
       "quantity": 8,
       "priceUsdCents": 9588,
-      "statedPriceUsdCents": null,
+      "statedPriceUsdCents": 9588,
       "production": [
        {
         "makerId": "Sunita",
@@ -6721,7 +6725,7 @@
       "categories": [],
       "priceGap": 0,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
@@ -6730,7 +6734,7 @@
       "kind": "yes",
       "quantity": 8,
       "priceUsdCents": 9588,
-      "statedPriceUsdCents": null,
+      "statedPriceUsdCents": 9588,
       "production": [
        {
         "makerId": "Sunita",
@@ -6778,7 +6782,7 @@
       "categories": [],
       "priceGap": 0,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
@@ -6794,7 +6798,7 @@
       "categories": [],
       "priceGap": 0,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
@@ -6833,11 +6837,11 @@
     },
     "rule_based": {
      "answer": {
-      "kind": "no_capacity",
-      "maxQuantity": 20
+      "kind": "undecided",
+      "reason": "The answer may change when the missing materials date is known."
      },
      "score": {
-      "outcome": "wrong_kind",
+      "outcome": "correct_undecided",
       "violations": [],
       "categories": [],
       "priceGap": null,
@@ -7341,7 +7345,7 @@
       "categories": [],
       "priceGap": null,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
@@ -7356,7 +7360,7 @@
       "categories": [],
       "priceGap": null,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
@@ -7371,7 +7375,7 @@
       "categories": [],
       "priceGap": null,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": false,
       "truthDisagreement": false
      }
     },
@@ -7467,7 +7471,7 @@
       "categories": [],
       "priceGap": null,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
@@ -7482,7 +7486,7 @@
       "categories": [],
       "priceGap": null,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
@@ -7497,7 +7501,7 @@
       "categories": [],
       "priceGap": null,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
@@ -7530,7 +7534,7 @@
       "categories": [],
       "priceGap": null,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
@@ -7545,7 +7549,7 @@
       "categories": [],
       "priceGap": null,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
@@ -7560,7 +7564,7 @@
       "categories": [],
       "priceGap": null,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": false,
       "truthDisagreement": false
      }
     },
@@ -7593,7 +7597,7 @@
       "categories": [],
       "priceGap": null,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },
@@ -7608,7 +7612,7 @@
       "categories": [],
       "priceGap": null,
       "maxClaim": null,
-      "statedPriceRight": null,
+      "statedPriceRight": true,
       "truthDisagreement": false
      }
     },

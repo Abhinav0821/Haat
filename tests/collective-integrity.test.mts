@@ -220,3 +220,51 @@ test("fact and requirement edits are refused while a payment is in progress", as
   const [after] = await (await db()).select().from(schema.members).where(eq(schema.members.id, who.id));
   assert.deepEqual(after.facts, before.facts);
 });
+
+test("evaluation exports freeze actual reservations and current prices under the planning locks", async () => {
+  const { s, p, who } = await setup();
+  await svc.buyerApprove(p.id, p.termsHash, NOW);
+  const other = await svc.createOrder(s.collective.id, { buyerText: "50 scarves", spec: { quantity: 50, deadline: "2026-11-30", budgetUsdCents: null, details: null } });
+  const snapshot = await svc.exportEvaluationSnapshot(other.id, NOW);
+  assert.equal(snapshot.facts.reservations.length, 1);
+  assert.equal(snapshot.facts.reservations[0].production.reduce((n, p) => n + p.pieces, 0), 25);
+  const run = await svc.evaluateOrder(other.id, NOW);
+  const { factsHash } = await import("@/lib/planner/model");
+  assert.equal(snapshot.factsFingerprint, factsHash(run.facts, run.request));
+  const f = DEMO_MEMBERS.find((m) => m.name === who.name)!.facts;
+  await svc.updateMemberFacts(who.id, { ...f, askInr: f.askInr + 30 }, { source: "maker_confirmed", name: who.name }, NOW);
+  const changed = await svc.exportEvaluationSnapshot(other.id, NOW);
+  assert.equal(changed.facts.makers.find((m) => m.id === who.id)!.askInrPerPiece.value, f.askInr + 30);
+  assert.equal(changed.facts.reservations.length, 0);
+  assert.notEqual(changed.fingerprint, snapshot.fingerprint);
+});
+
+test("evaluation exports retain an explicitly excluded maker as incapable", async () => {
+  const { o, refs, who } = await setup();
+  await svc.respondToPart(who.token, refs[0].partId, refs[0].termsHash, "decline", null, NOW);
+  await svc.excludeMember(o.id, who.id);
+  const snapshot = await svc.exportEvaluationSnapshot(o.id, NOW);
+  assert.equal(snapshot.facts.makers.find((m) => m.id === who.id)?.capable.value, false);
+});
+
+test("the evaluation download is private and requires the coordinator's own order", async () => {
+  process.env.SELLER_PASSCODE = "offline-evaluation-test";
+  process.env.SESSION_SECRET = "offline-evaluation-secret";
+  const { GET } = await import("@/app/api/seller/collective/orders/[id]/route");
+  const { createSessionToken } = await import("@/lib/auth/session");
+  const { getDemoCollective } = await import("@/lib/collective/demo");
+  const { parseSnapshot } = await import("@/lib/planner/snapshot");
+  const c = await getDemoCollective();
+  const order = await svc.createOrder(c.id, { buyerText: "10 scarves", spec: { quantity: 10, deadline: "2026-12-31", budgetUsdCents: null, details: null } });
+  const url = `https://haat.test/api/seller/collective/orders/${order.id}?export=evaluation`;
+  const context = { params: Promise.resolve({ id: order.id }) };
+  assert.equal((await GET(new Request(url), context)).status, 401);
+  const cookie = `haat_seller=${await createSessionToken()}`;
+  const response = await GET(new Request(url, { headers: { cookie } }), context);
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get("cache-control")!, /private, no-store/);
+  assert.match(response.headers.get("content-disposition")!, /attachment/);
+  assert.equal(parseSnapshot(await response.json()).source?.orderId, order.id);
+  const { o } = await setup(); // another collective is not owned by this coordinator
+  assert.equal((await GET(new Request(url, { headers: { cookie } }), { params: Promise.resolve({ id: o.id }) })).status, 404);
+});

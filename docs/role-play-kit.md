@@ -15,9 +15,15 @@ participants.
 
 - **Setup:** the app runs locally (`npm run dev`) or at the deployed URL. Use the
   `collective` branch, with migrations up to `0019` applied.
-- **Clear the previous session.** Remove collective orders from the last session
-  (collective tables only). For a full demo reset, use `npm run demo:reset`; note that
-  it also clears shop orders and custom requests.
+- **Use isolated session data.** Preserve the paid sandbox order and its redacted
+  receipt/ledger evidence. Stop the existing dev server, then use a fresh embedded
+  database for each session, for example:
+  `DATABASE_URL='' PGLITE_DIR=.data/role-play-session-01 npm run dev`.
+  This keeps the original database intact. Do not use `demo:reset` on the evidence database.
+- **Confirm facts before comparing.** Makers review and confirm their own facts and
+  absolute materials dates before either timed round. Existing stored dates do not
+  move forward automatically when the session date changes. The cards below are an
+  example; the exported scenario's dated facts control the actual task.
 - **Coordinator:** signs in at `/seller/login` with the studio PIN and opens
   **समूह · Collective orders**.
 - **Maker links:** for each maker, press **New personal link**. Each link appears once
@@ -61,27 +67,84 @@ participants.
 | Sunita | 2 Mon–Fri | in 3 days | — | ₹380 | ₹340 | 20 pieces |
 | Rukhsana | 4 Mon, Tue, Wed, Fri, Sat | in 2 days | — | ₹450 | ₹400 | — |
 
-## Design: the same task twice
+## Design: freeze the same inputs for both rounds
 
-Run each task once by the **manual method** and once **with Haat**. Alternate which
-comes first between sessions, so learning doesn't favour one method.
+Run each planning task once manually and once with Haat. Alternate the order between
+sessions and record it. Repeating the same task creates learning effects even with
+counterbalancing; report that limit. Task 5 tests workflow/comprehension, not a manual
+optimisation benchmark.
 
-**The manual method is the competent baseline.** The coordinator gets the facts sheet,
-paper or a spreadsheet, and 15 minutes. She is asked for one of two answers:
-- a split of pieces by maker and day, plus a price;
-- a clear "no", with the most that could be done.
+Before each paired task, the **observer** sets up the task's starting state, including
+price changes, other orders' holds or an explicit maker exclusion. Do not change these
+between the manual and Haat rounds. For a new task, export a new scenario.
 
-Afterwards, check her answer with the same independent checker the planner is held to.
-Write her split as JSON (the format is at the top of `eval/check-split.ts`) and run
-`npx tsx eval/check-split.ts split.json`. It reports whether the split is valid, what it
-breaks, and the cheapest possible price. It uses the facts on the cards below with no
-other orders holding capacity, so it fits task 1.
+1. In the coordinator order detail, open **Role-play evaluation → Download evaluation
+   facts**. Save as `before.json`. Only the observer handles the studio at this point:
+   its page already contains Haat's answer, which the manual-first participant must not
+   see. The export contains facts and fingerprints, no planner answer, and includes
+   private maker facts. Keep the raw file with the observer.
+2. Generate the manual facts sheet without revealing a solution:
+
+   ```
+   npx tsx eval/check-split.ts before.json --sheet > facts.txt
+   npx tsx eval/check-split.ts before.json --template > split.json
+   ```
+
+   Give the coordinator the sheet and paper/spreadsheet, with 15 minutes. The sheet
+   includes dated capacities, materials, costs, existing promises and reservations.
+   Give makers only their own cards. They may answer:
+   - yes: production/finishing dates and **their own USD price**;
+   - no capacity: the most they think can fit;
+   - no budget: the minimum price they think is needed;
+   - cannot decide: what fact needs confirmation.
+
+3. Seal/record the manual answer before running its checker. For a yes, fill the
+   template with `priceUsdCents` (e.g. 23686 means $236.86), production entries
+   `{ "maker": "<id or unique name>", "date": "YYYY-MM-DD", "pieces": 3 }`, and
+   finishing entries `{ "date": "YYYY-MM-DD", "pieces": 8 }`. A null price is an
+   unfinished template and is rejected. For other decisions use:
+
+   ```json
+   { "scenarioFingerprint": "<copy from before.json>", "decision": "no_capacity", "maxQuantityByDate": 14 }
+   ```
+
+   Or `decision: "no_budget", priceUsdCents: ...`, or
+   `decision: "cannot_decide", reason: "..."`. Keep the fingerprint in every answer.
+   Do not run the checker until the manual answer is recorded: it prints Haat's result
+   as well, which would otherwise reveal the solution.
+4. Run the Haat round on the same starting state. Afterwards refresh the coordinator
+   page and download **another** evaluation export as `after.json`. Then run:
+
+   ```
+   npx tsx eval/check-split.ts before.json split.json --compare after.json
+   ```
+
+   This checks the manual answer against the **original saved facts**, and verifies
+   that Haat's displayed evaluation used the same facts/request. If the inputs differ,
+   do not report a paired comparison: repeat both rounds on a new snapshot. This works
+   for refusals and alternatives too; it checks the original request's evaluation,
+   rather than confusing a smaller offered alternative with that request.
+
+The JSON result separates decision/schedule correctness, quoted-price correctness and
+maximum-quantity accuracy. `valid` requires all applicable parts to be correct. Exit
+code 0 means valid, 1 means an incorrect answer, 2 means invalid files or mismatched
+comparison inputs. The checker uses the snapshot's own timestamp, not a fixed demo date.
+
+## Fairness of the manual round
+
+The exported facts are the source for both rounds. Do not rebuild the manual round
+from the illustrative cards: that would drop current prices, declined makers and other
+orders' reservations. Do not give the manual participant Haat's answer, minimum-price
+result or manual-checker feedback before recording her answer. A session that runs
+across a change of planning day may need to be repeated.
 
 ## Tasks
 
-Delivery dates are given as "days from today", so the cards work on any session date.
+Delivery dates below are relative prompts. Record actual dates in the app and on the
+exported sheet. These are tasks to observe, not predetermined outcomes; actual available
+capacity depends on the session date and reservations.
 
-1. **A big order (should fit).**
+1. **A big order.**
    - Lena asks for 60 indigo scarves, delivered in 24 days.
    - The coordinator records it (Hindi requirement: "नीला रंग") and sends a plan.
    - Each maker listens to her part (🔊) and accepts or declines.
@@ -89,14 +152,21 @@ Delivery dates are given as "days from today", so the cards work on any session 
 2. **A maker changes her price.**
    - After task 1's plan is sent, Rukhsana raises her asking price by ₹30 on her own page.
    - The coordinator sends a new plan.
-   - *Check:* is only Rukhsana asked again? Do Meera and Sunita keep their answers?
+   - Start this paired task **after** the price edit. Export its changed facts before
+     either round. Re-approve the revised plan before task 3.
+   - *Check:* changed parts need renewed consent; unchanged parts retain it. If an
+     allocation or shared date changes, more than one part may legitimately change.
 3. **A competing order.**
    - With task 1 approved, a second buyer asks for 50 scarves by the same date.
-   - *Check:* does the coordinator see "No", with the most that fits? Can she offer that
+   - Export the second order's facts **with the first reservation active** for both
+     rounds. Do not use an empty-reservation checker.
+   - *Check:* if it cannot fit, does the coordinator see "No", with the most that fits? Can she offer that
      smaller order, or the earliest date for all 50?
 4. **A maker says no.**
    - In a fresh order, one maker declines her part, with a reason.
    - The coordinator chooses whether to leave her out and re-plan.
+   - For a planning comparison, export the new starting state after the explicit
+     exclusion, and use it for both rounds. Record the decline/consent flow separately.
    - *Check:* is anyone replaced without a new plan that the buyer approves?
 5. **Payment and payout.**
    - Lena pays with the PayPal sandbox buyer.
@@ -126,13 +196,15 @@ Ask in Hindi, without looking at the screen together:
 
 ## Recording form (one row per task per method)
 
-| Session | Task | Method (manual / Haat) | Order (1st / 2nd) | Minutes to a decision | Decision | Checker: valid? | If "no": kind right? | Maker answers right (of 4) | Felt able to say no (1–5) | Buyer understood (of 3) | Confusions / quotes |
+| Session + scenario fingerprint | Task | Method (manual / Haat) | Order (1st / 2nd) | Minutes to a decision | Decision | Schedule valid? / price correct? / maximum exact? | If "no": kind right? | Maker answers right (of 4) | Felt able to say no (1–5) | Buyer understood (of 3) | Confusions / quotes |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | | | | | | | | | | | | |
 
 **Report:**
-- **Per method:** decisions the checker accepted, unsafe promises, wrong kinds of "no",
-  and the median minutes.
+- **Per method:** decisions/schedules accepted, complete answers accepted (including
+  the participant's price/maximum), unsafe schedules, refusal-category differences
+  from M1 and median minutes. Keep errors/timeouts, uncompleted tasks and input-mismatch
+  exclusions visible. Do not describe a valid schedule with a wrong quote as fully correct.
 - **Per question:** how many people answered correctly.
 - **Quotes:** verbatim, including critical ones.
 
@@ -141,5 +213,6 @@ statistical significance.
 
 ## After the session
 
-- Clear the session's collective orders before the next one (see "Before the session").
-- Keep the forms and the manual splits; check each split with `eval/check-split.ts`.
+- Use a new isolated database directory for the next session.
+- Keep both snapshots, sealed manual answers, checker results and observation forms.
+- The core sandbox transaction record remains separate from these role-play datasets.

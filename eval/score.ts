@@ -58,35 +58,39 @@ export function onlyMaker(f: CollectiveFacts, makerId: string): CollectiveFacts 
 }
 
 /** Could ANY single maker alone deliver it? (Old Haat can't combine makers.) */
-export function singleMakerFeasible(s: Scenario): boolean {
-  return s.facts.makers.some((m) => evaluate(onlyMaker(s.facts, m.id), s.request, NOW).kind === "feasible");
+export function singleMakerFeasible(s: Scenario, now = NOW): boolean {
+  return s.facts.makers.some((m) => evaluate(onlyMaker(s.facts, m.id), s.request, now).kind === "feasible");
 }
 
-export function score(s: Scenario, truthEv: Evaluation, a: Answer, opts: { singleMakerOnly?: boolean } = {}): Score {
+/** A right decision is separate from a usable answer with a correct quote/maximum. */
+export const completeAnswerCorrect = (s: Score) => s.outcome.startsWith("correct_") && s.statedPriceRight !== false && (s.priceGap === null || s.priceGap === 0) && (s.maxClaim === null || s.maxClaim === "exact");
+
+export function score(s: Scenario, truthEv: Evaluation, a: Answer, opts: { singleMakerOnly?: boolean; now?: Date } = {}): Score {
+  const now = opts.now ?? NOW;
   const truth = s.truth;
-  const minPrice = truthEv.kind === "feasible" ? truthEv.plan.money.priceUsdCents : null;
+  const minPrice = truthEv.kind === "feasible" && truthEv.certified ? truthEv.plan.money.priceUsdCents : null;
   const trueMax = truthEv.kind === "infeasible_capacity" ? truthEv.maxQuantity : null;
-  const missedOrUnsupported = (): Score => (opts.singleMakerOnly && truth === "yes" && !singleMakerFeasible(s) ? base("unsupported") : base("missed"));
+  const missedOrUnsupported = (): Score => (opts.singleMakerOnly && truth === "yes" && !singleMakerFeasible(s, now) ? base("unsupported") : base("missed"));
 
   switch (a.kind) {
     case "error":
       return base("error", { violations: [a.reason] });
     case "yes": {
-      const problems = checkPlan(s.facts, s.request, a.plan, NOW);
-      const stated = a.statedPriceUsdCents === undefined || a.statedPriceUsdCents === null ? null : a.statedPriceUsdCents === a.plan.money.priceUsdCents;
+      const problems = checkPlan(s.facts, s.request, a.plan, now);
+      const stated = "statedPriceUsdCents" in a ? a.statedPriceUsdCents === a.plan.money.priceUsdCents : true;
       if (problems.length) return base("unsafe_yes", { violations: problems.slice(0, 5), categories: categorise(problems), statedPriceRight: stated });
       if (s.request.budgetUsdCents !== null && a.plan.money.priceUsdCents > s.request.budgetUsdCents) return base("over_budget_yes", { statedPriceRight: stated });
       return base("correct_yes", { priceGap: minPrice ? a.plan.money.priceUsdCents / minPrice - 1 : null, statedPriceRight: stated, truthDisagreement: truth !== "yes" });
     }
     case "claim_yes": {
-      const alone = evaluate(onlyMaker(s.facts, a.makerId), { ...s.request, budgetUsdCents: null }, NOW);
+      const alone = evaluate(onlyMaker(s.facts, a.makerId), { ...s.request, budgetUsdCents: null }, now);
       if (alone.kind !== "feasible") {
         const why = alone.kind === "infeasible_capacity" ? `she can make and finish at most ${alone.maxQuantity} by the date` : "it depends on facts that are unknown";
         const cats = alone.kind === "unresolved" ? ["relies on unknown facts"] : ["over-promise (one maker can't do it by the date)"];
         return base("unsafe_yes", { violations: [`${a.makerId} alone: ${why}`], categories: cats });
       }
       if (s.request.budgetUsdCents !== null && a.priceUsdCents > s.request.budgetUsdCents) return base("over_budget_yes");
-      return base("correct_yes", { priceGap: minPrice ? a.priceUsdCents / minPrice - 1 : null, truthDisagreement: truth !== "yes" });
+      return base("correct_yes", { priceGap: minPrice ? a.priceUsdCents / minPrice - 1 : null, statedPriceRight: a.priceUsdCents === alone.plan.money.priceUsdCents, truthDisagreement: truth !== "yes" });
     }
     case "no_capacity": {
       if (truth === "yes") return missedOrUnsupported();
@@ -98,7 +102,7 @@ export function score(s: Scenario, truthEv: Evaluation, a: Answer, opts: { singl
     case "no_budget":
       if (truth === "yes") return missedOrUnsupported();
       if (opts.singleMakerOnly && truth === "undecided") return base("unsupported");
-      return base(truth === "no_budget" ? "correct_no" : "wrong_kind");
+      return base(truth === "no_budget" ? "correct_no" : "wrong_kind", { statedPriceRight: truthEv.kind === "infeasible_budget" && a.priceUsdCents === truthEv.plan.money.priceUsdCents });
     case "undecided":
       if (truth === "yes") return missedOrUnsupported();
       return base(truth === "undecided" ? "correct_undecided" : "wrong_kind");

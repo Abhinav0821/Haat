@@ -1,5 +1,5 @@
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
-import { generateText, Output } from "ai";
+import { APICallError, asSchema, generateText, Output } from "ai";
 import { z } from "zod";
 import type { CollectiveFacts, OrderRequest } from "@/lib/planner/model";
 import { asPlan, type Answer } from "./approaches";
@@ -44,6 +44,14 @@ export const LlmAnswer = z.object({
   reason: z.string(),
 });
 export type LlmRaw = z.infer<typeof LlmAnswer>;
+
+export const promptForModel = (f: CollectiveFacts, request: OrderRequest) => `Facts and request:\n${JSON.stringify(factsForModel(f, request))}`;
+
+/** Everything that determines the answer, kept with the cache entry for audit. */
+export async function modelInput(modelId: string, f: CollectiveFacts, request: OrderRequest) {
+  return { provider: "google", model: modelId, temperature: 0, promptVersion: PROMPT_VERSION, system: SYSTEM,
+    prompt: promptForModel(f, request), schema: await asSchema(LlmAnswer).jsonSchema, facts: f, request };
+}
 
 export function factsForModel(f: CollectiveFacts, request: OrderRequest) {
   return {
@@ -92,17 +100,20 @@ export function toAnswer(f: CollectiveFacts, request: OrderRequest, raw: LlmRaw)
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/** One call, one fixed model (no silent fallback to another model). Stops at once when the daily quota is gone. */
-export async function askModel(modelId: string, apiKey: string, f: CollectiveFacts, request: OrderRequest): Promise<{ raw: LlmRaw | null; error: string | null; attempts: number; ms: number; quotaExhausted?: boolean }> {
+export type LlmRecord = { raw: LlmRaw | null; error: string | null; attempts: number; ms: number; quotaExhausted?: boolean; at?: string };
+
+/** No fallback or automatic retries by default. All 429s stop the run: the limit may be daily or per-minute. */
+export async function askModel(modelId: string, apiKey: string, f: CollectiveFacts, request: OrderRequest, options: { maxAttempts?: number; wait?: (ms: number) => Promise<void> } = {}): Promise<LlmRecord> {
+  const maxAttempts = options.maxAttempts ?? 1;
+  if (!Number.isInteger(maxAttempts) || maxAttempts < 1 || maxAttempts > 3) throw new Error("maxAttempts must be 1, 2 or 3");
   const model = createGoogleGenerativeAI({ apiKey })(modelId);
   const started = Date.now();
-  let last = "";
-  for (let attempt = 1; attempt <= 3; attempt++) {
+  for (let attempt = 1; ; attempt++) {
     try {
       const { output } = await generateText({
         model,
         system: SYSTEM,
-        prompt: `Facts and request:\n${JSON.stringify(factsForModel(f, request))}`,
+        prompt: promptForModel(f, request),
         temperature: 0,
         maxRetries: 0,
         output: Output.object({ schema: LlmAnswer, name: "plan_answer" }),
@@ -110,12 +121,13 @@ export async function askModel(modelId: string, apiKey: string, f: CollectiveFac
       });
       return { raw: output, error: null, attempts: attempt, ms: Date.now() - started };
     } catch (e) {
-      last = (e as Error).message.slice(0, 300);
-      // A spent daily quota won't come back by retrying; retries would only spend more.
-      if (/exceeded your current quota|RESOURCE_EXHAUSTED|per day/i.test(last)) return { raw: null, error: last, attempts: attempt, ms: Date.now() - started, quotaExhausted: true };
-      if (!/429|rate|503|overload|unavailable/i.test(last)) break; // timeouts and malformed output are recorded, not retried
-      await sleep(30_000 * attempt);
+      const error = e instanceof Error ? e.message : String(e);
+      const status = APICallError.isInstance(e) ? e.statusCode : undefined;
+      const result = { raw: null, error, attempts: attempt, ms: Date.now() - started };
+      if (status === 429) return { ...result, quotaExhausted: true };
+      // Parsing/schema errors (including "No object generated") are results, not rate limits.
+      if (attempt >= maxAttempts || ![500, 502, 503, 504].includes(status ?? 0)) return result;
+      await (options.wait ?? sleep)(30_000 * attempt);
     }
   }
-  return { raw: null, error: last, attempts: 3, ms: Date.now() - started };
 }

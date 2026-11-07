@@ -42,13 +42,17 @@ will be reported separately, with the number of participants.
   (`tests/planner-oracle.test.ts`). The planner's own column is therefore a consistency
   check, not evidence.
 - **The approaches** (`eval/approaches.ts`, `eval/llm.ts`):
-  - **Rule-based split** — the competent baseline, i.e. what a careful coordinator does
-    in a spreadsheet:
+  - **Rule-based split** — one spreadsheet-style heuristic with basic uncertainty
+    handling, rather than a claim to represent every skilled coordinator:
     - each maker's own promises go on her earliest days;
     - makers are filled cheapest first, each on her earliest free days, up to her cap;
     - if that misses the date, the split is redone earliest available first;
     - finishing is first-in, first-out, after the rest day;
-    - makers with an unknown materials date are not counted on.
+    - makers with an unknown materials date are not counted on;
+    - inconsistent existing promises trigger a request to confirm facts;
+    - for an unknown materials date, a loose optimistic capacity bound can still prove
+      a capacity refusal; otherwise the answer is "cannot decide yet". This wrapper
+      uses no solver or optimality oracle. The allocation heuristic itself is unchanged.
   - **Old Haat** — the single-maker quote rule Haat used before the planner
     (`src/lib/custom/quote.ts`): weekly rate minus promised work, over the days before
     the deadline less courier days. It can't combine makers, and it doesn't see the
@@ -71,6 +75,15 @@ will be reported separately, with the number of participants.
   - unsupported;
   - no answer.
 
+  **Separate accuracy measures:** decision/schedule correctness uses the buckets above.
+  A **complete answer** additionally needs the correct quoted price (including the
+  claimed minimum on a budget refusal), minimum-price allocation where that minimum
+  is certified, and an exact stated maximum on a capacity refusal. Price gaps are not
+  computed against uncertified minima. A valid schedule quoted at $0.01 is not a completely correct answer.
+  Missing model prices count as incorrect. Calculation of a schedule's true cost does
+  not repair the answer's quoted price. Errors count as failures in the complete-answer
+  denominator; unsupported cases remain separate.
+
   **Unsupported** cases are reported separately: old Haat can't combine makers, and it
   has no way to say "not decided yet". They are not counted as mistakes. For valid yeses,
   the price is compared with the certified cheapest price. For capacity refusals, the
@@ -82,37 +95,38 @@ From `eval/results/seed-20261108.md` (re-run with `npm run eval -- --no-llm`; de
 
 | | Planner | Rule-based split | Old Haat (one maker) |
 |---|---|---|---|
-| Right decision | 46/46 | 38/46 | 29/38 answered |
-| **Unsafe promises** | 0 | 0 | **8** |
+| Decision/schedule correct (price separate) | 46/46 | 44/46 | 29/38 answered |
+| Complete answer correct (quote / maximum included) | 46/46 | 43/46 | 13/38 |
+| **Unsafe schedule promises** | 0 | 0 | **8** |
 | Orders missed | 0 | 1 | 0 |
-| Wrong kind of no | 0 | 7 | 1 |
+| Different refusal category from M1 | 0 | 1 | 1 |
 | Unsupported (separate) | 0 | 0 | 8 |
-| Price above the cheapest (median / worst) | 0% / 0% | 0% / 0% | 0% / 5.3% |
+| Calculated schedule cost above cheapest (median / worst) | 0% / 0% | 0% / 0% | 0% / 5.3% |
 | "Most we can do" exact | 14/14 | 13/14 | 0/12 |
 
 **What this shows, without overstating it:**
 
-- **The competent rule-based split is strong.** It made **no unsafe promises**, and
-  when it found a plan, its price was the cheapest possible.
-- **Where it falls short:**
-  - In all 7 cases where the honest answer is "can't decide yet", it says a flat
-    "no". Telling a buyer an order is impossible when it really depends on one maker's
-    materials date loses orders the collective could take.
-  - It missed one feasible order (case r12). It offered 50 when 51 fit, because its
-    fill order wastes finishing-table days.
-- **Old Haat over-promised in 8 of 46 cases.** Four were promises one maker can't keep
-  once the finishing table, her weekday pattern or her promise due dates are counted
-  (e.g. case h1, where the finishing table is the limit). Four relied on facts that
-  were unknown. It also can't combine makers at all: 3 feasible orders were out of its
-  reach.
-- **The planner's advantage over a careful manual method is narrower than over old
-  Haat.** It comes from:
-  - separating the kinds of "no";
-  - finding plans heuristics miss;
-  - exact "most we can do" figures;
-  - every answer carrying a certificate that a separate checker verifies.
-
-  It is not about avoiding unsafe promises that a careful person would also avoid.
+- The original heuristic in commit `4398681` scored 38/46. Seven disagreements were
+  refusals where M1 asked for more information. Adding basic uncertainty/inconsistency
+  handling raises the heuristic to **44/46**, without changing its allocation method.
+  The old implementation remains available as `ruleBasedGreedy` for audit.
+- **The stronger heuristic is strong:** no unsafe schedules on this suite, and the
+  cheapest price whenever it found a plan. It missed one feasible order (`r12`): it
+  found 50 pieces where 51 fit, due to its allocation order and finishing-table timing.
+- Its remaining refusal-category disagreement (`r02`) is partly a **policy difference**:
+  its loose optimistic bound proves the requested 80 cannot fit despite one unknown
+  materials date. M1 requires complete facts before a capacity refusal with an exact
+  maximum, and therefore returns "cannot decide yet". The classification metric is
+  agreement with M1's policy, not independent proof that this refusal is unsafe.
+- **Old Haat over-promised in 8 cases.** Four ignored constraints such as shared
+  finishing or promise due dates; four depended on unknown/inconsistent facts. It
+  cannot combine makers, making three feasible orders unsupported. Its complete-answer
+  score also penalises inaccurate maxima and an inaccurate claimed minimum price.
+- The demonstrated optimisation advantage over this strengthened heuristic is small
+  on this suite. Do not claim a large real-world impact or a large advantage over a
+  skilled coordinator. Verified schedules, exact boundary answers and consent/payment
+  integrity are separate product benefits. The planner's 46/46 remains a consistency
+  check against its own checked truth, not independent performance evidence.
 
 ### Results: the AI model (pending)
 
@@ -120,7 +134,9 @@ The AI-direct baseline needs about one model call per case, and each call took 1
 minutes. On 7 November, the free Gemini tier's daily quota for `gemini-3.6-flash` and
 `gemini-3.5-flash` ran out after roughly 20 requests. That figure is our estimate; the
 exact quota isn't shown to us. Among those were silent retries inside the AI library,
-which are now switched off.
+which are now switched off. The review also found that a message regex accidentally
+retried malformed output ("generated" matched "rate"). That application retry is now
+removed from the default runner too.
 
 The run was stopped, and its partial answers were not used. The 9 answers it got:
 - 6 were right;
@@ -132,16 +148,29 @@ Too few to report.
 
 **Plan.** The AI model will answer a fixed **18-case subset**: all 6 hand-written cases,
 plus the first generated cases of each answer type (4 yes, 3 capacity, 2 budget, 3
-undecided). All four approaches are scored on exactly those cases. Answers are saved one
-by one, so a run stopped by the quota resumes later. Run after the daily reset (midnight
-Pacific, 13:30 IST):
+undecided). All four approaches are scored on exactly those cases. Answers are saved atomically one
+by one, with the exact model, full prompt, output schema, facts and request fingerprint.
+Only identical inputs are reusable. Invalid answers remain recorded as errors on resume;
+`--retry-errors` explicitly starts additional attempts and preserves their history, so
+those results must be labelled as a rerun. Legacy unbound caches are not trusted.
+
+The default is **one provider request per case**, with no SDK/application retries and
+no model fallback. Any HTTP 429 stops the invocation immediately; it can mean a
+per-minute or daily limit, so check AI Studio rather than assuming every 429 is daily.
+The report records actual requests, valid responses, errors and pending cases separately.
+Run when the project's applicable limit permits it. Daily quotas reset at midnight
+Pacific (13:30 IST during November 2026):
 
 ```
 npm run eval
 ```
 
-To leave the app's own quota untouched, set `EVAL_GOOGLE_API_KEY` to a separate key (and
-optionally `EVAL_MODEL`). The results will be added here, whatever they show.
+Limits apply **per Google project, not per key**. To isolate the app's quota, use
+`EVAL_GOOGLE_API_KEY` from a separate project with its own applicable limits (and
+optionally `EVAL_MODEL`); another key in the app's project shares its quota. See
+[Google's rate-limit documentation](https://ai.google.dev/gemini-api/docs/rate-limits).
+The results will be added here, whatever they show. No AI comparison was run as part
+of the review corrections; only offline stubs were used to verify the runner.
 
 ### Limits
 
@@ -178,8 +207,12 @@ with the PayPal sandbox.
 
 - **The fee estimate is low.** PayPal's actual fee on this sandbox account ($11.26,
   about 4.75%) was higher than the collective's fee setting (4.4% + 30¢ = $10.72). The
-  collective would net about ₹47 less than planned on this order. The fee setting should
-  be raised before real use. Haat already shows the actual fee next to the estimate.
+  collective nets **$0.54 = ₹47.52** less than estimated at ₹88/USD. Holding the 30¢
+  fixed component constant, this one observation implies 4.6272% rather than 4.4%:
+  a difference of about **0.227 percentage points**, not 0.35. This arithmetic is not
+  a live-fee tariff: check the actual merchant account's pricing before real use.
+  The configured fee was not silently changed from one sandbox observation. Haat
+  already shows the actual fee next to the estimate.
 - **Webhooks.** The payment was captured on PayPal's return to the order page. Webhooks
   can't reach a local server, so that path was not part of this run. It is covered by
   tests.
@@ -194,5 +227,15 @@ npm run eval                      # adds the AI model on the 18-case subset (nee
 npx tsx --test tests/eval-harness.test.ts
 ```
 
-Every case, answer, score and raw model output is written to
-`eval/results/seed-20261108.json`.
+Deterministic results are written to `eval/results/seed-20261108.json` and `.md`.
+AI comparison reports use `seed-20261108-ai.json` and `.md`, so `--no-llm` cannot erase
+an AI report. Fingerprinted raw answers and all recorded attempts are kept in
+`eval/results/llm-cache-v2-seed-20261108-<model>.json`.
+
+For role-play, download a private scenario from the coordinator page before each
+paired task. The manual checker now requires that file, the participant's own price,
+and an answer tied to its fingerprint; it does not recreate an empty-reservation demo.
+See [the updated protocol](role-play-kit.md).
+
+Submission deadline: **12 November 2026, 12:00 PST = 13 November, 01:30 IST**.
+[Official schedule](https://paypalaihackathon.devpost.com/details/dates).

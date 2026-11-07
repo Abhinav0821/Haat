@@ -83,7 +83,7 @@ export function planner(f: CollectiveFacts, request: OrderRequest): Answer {
  * as soon as they have rested a day. Makers whose materials date is unknown are left
  * out (a careful coordinator doesn't count on them).
  */
-export function ruleBased(f: CollectiveFacts, request: OrderRequest): Answer {
+export function ruleBasedGreedy(f: CollectiveFacts, request: OrderRequest): Answer {
   const L = lastFinishOf(f, request.deliveryDay);
   if (L < 0) return { kind: "no_capacity", maxQuantity: 0 };
   const usable = f.makers.filter((m) => m.capable.value && m.materialsReadyDay !== null);
@@ -132,6 +132,30 @@ export function ruleBased(f: CollectiveFacts, request: OrderRequest): Answer {
     }
   }
   return { kind: "no_capacity", maxQuantity: best };
+}
+
+/** Same allocation heuristic, with explicit missing/inconsistent-fact handling.
+ * No solver or optimality oracle is used. A loose optimistic bound can still prove
+ * a capacity refusal despite an unknown materials date; otherwise ask for facts.
+ */
+export function ruleBased(f: CollectiveFacts, request: OrderRequest): Answer {
+  const answer = ruleBasedGreedy(f, request);
+  const makers = f.makers.filter((m) => m.capable.value);
+  const inconsistent = new Set(makers.filter((m) => {
+    const dueDates = [...new Set(m.commitments.value.map((c) => c.dueDay).filter((d): d is number => d !== null))];
+    return dueDates.some((day) => m.commitments.value.filter((c) => c.dueDay !== null && c.dueDay <= day).reduce((n, c) => n + c.pieces, 0) > m.dailyCapacity.value.slice(0, day + 1).reduce((n, x) => n + x, 0));
+  }).map((m) => m.id));
+  const needsConfirmation: Answer = { kind: "undecided", reason: "Existing promises exceed a maker's capacity before their due date; confirm her facts." };
+  if (answer.kind === "yes") return answer.plan.production.some((p) => inconsistent.has(p.makerId)) ? needsConfirmation : answer;
+  if (inconsistent.size) return needsConfirmation;
+  if (!makers.some((m) => m.materialsReadyDay === null)) return answer;
+  const L = Math.min(lastFinishOf(f, request.deliveryDay), f.horizonDays - 1);
+  // Relax promises, materials for unknown makers, and finishing timing. This is an
+  // upper bound, not a feasible schedule or an exact maximum.
+  const upperProduction = makers.reduce((n, m) => n + Math.min(m.maxPieces?.value ?? Infinity, m.dailyCapacity.value.slice(Math.max(0, m.materialsReadyDay?.value ?? 0), Math.max(0, L - f.lagDays + 1)).reduce((a, b) => a + b, 0)), 0);
+  const upperFinishing = f.finishingPerDay.value.slice(0, Math.max(0, L + 1)).reduce((n, x) => n + x, 0);
+  if (answer.kind === "no_capacity" && Math.min(upperProduction, upperFinishing) < request.quantity) return answer;
+  return { kind: "undecided", reason: "The answer may change when the missing materials date is known." };
 }
 
 // ── 3. Old Haat: the single-maker quote rule used before the planner ──────────

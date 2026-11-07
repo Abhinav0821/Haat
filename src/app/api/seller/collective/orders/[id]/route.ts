@@ -1,7 +1,7 @@
 import { requireSeller } from "@/lib/auth/seller";
 import { errorResponse } from "@/lib/custom/http";
 import { getDemoCollective } from "@/lib/collective/demo";
-import { CollectiveError, excludeMember, offerPlan, updateOrderRequirements, type Choice } from "@/lib/collective/service";
+import { CollectiveError, excludeMember, exportEvaluationSnapshot, offerPlan, updateOrderRequirements, type Choice } from "@/lib/collective/service";
 import { internalView } from "@/lib/collective/views";
 import { reportMakerPayment, withdrawMakerPayment } from "@/lib/collective/payouts";
 import { db, schema } from "@/db";
@@ -22,6 +22,9 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   const { id } = await params;
   try {
     await own(id);
+    if (new URL(request.url).searchParams.get("export") === "evaluation") {
+      return Response.json(await exportEvaluationSnapshot(id), { headers: { "Content-Disposition": `attachment; filename="evaluation-${id}.json"`, "Cache-Control": "private, no-store" } });
+    }
     return Response.json(await internalView(id));
   } catch (e) {
     return errorResponse(e, "collective order view");
