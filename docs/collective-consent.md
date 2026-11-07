@@ -25,7 +25,8 @@ check that a test fails.
 - `buildFacts` is the single conversion from stored facts into M1 facts for one start
   date.
   - **Materials keep their date.** Legacy "in N days" records are anchored to the date
-    she stated them, not to the plan's start. Confirming or editing unrelated facts
+    she stated them in India (including statements just after midnight IST), not to
+    the plan's start or the UTC date. Confirming or editing unrelated facts
     preserves that date. Changing a legacy delay anchors the new delay to the edit date.
   - **Plans start the day after they are made.** Nobody is asked for work on a day already
     under way. Days are India's calendar dates (IST, UTC+5:30). Just after midnight in
@@ -134,14 +135,33 @@ part's pay. Code: `src/lib/collective/checkout.ts` and `src/lib/collective/payou
    - changing the requirements;
    - a second payment for the same plan.
 
+   Capture attempts also have a persisted random id and a one-minute HTTP lease.
+   Overlapping callers receive an in-progress result; only one sends a capture request.
+   The capture HTTP call has a deadline of at most 45 seconds, ending before the lease.
+   When it finishes, only its own lease is cleared; an unknown payment stays `paying`.
+   A retry gets a new attempt id and restarts the stale-outcome timer, while keeping
+   the same PayPal idempotency key. Old responses cannot clear a newer attempt's lease
+   or payment lock. A crashed process's lease expires, so recovery does not depend on
+   its `finally` block running.
+
    A refusal happens before PayPal is asked to capture, so the buyer is not charged.
 3. **Outcomes come from PayPal's capture record**, through the same finaliser as every
    other Haat payment:
    - **Completed:** the plan is `paid`, its reservation is kept, and each maker's share
      is created exactly once from her accepted part (id, hash, pay).
-   - **Definite refusal:** the plan goes back to `approved`.
+   - **Definite refusal:** the plan goes back to `approved` only if the result belongs
+     to the exact current attempt and its HTTP lease has ended.
    - **Unknown outcome:** the plan stays `paying`. After 10 minutes it is reconciled
      against PayPal's own order record. Anything ambiguous stays `paying`.
+     A negative lookup is checked against the attempt id and start time captured before
+     that lookup. A stale lookup cannot unlock a retry of the same payment. A negative
+     webhook has no local attempt id, so it records the payment status but leaves the
+     plan locked until a fenced capture response or authoritative reconciliation settles
+     it. A positive completion is recorded immediately.
+   - **Successful retry after a failure:** `DENIED` can advance to `COMPLETED`. Late
+     failure/pending payloads cannot replace the successful capture's id or fees. In
+     an order history, one completed capture after earlier failed captures is recognised;
+     multiple live captures remain ambiguous.
    - **A second capture for terms already paid** is never counted. The first payment
      stands, and the plan is flagged for a refund.
    - **Paid while not marked paying.** This should not occur, because every capture
@@ -160,7 +180,8 @@ part's pay. Code: `src/lib/collective/checkout.ts` and `src/lib/collective/payou
 
    **Limits:**
    - Reported, disputed and confirmed amounts together never exceed what she is owed.
-   - A reference is used once per collective.
+   - A normalised reference is used once per collective across both UPI and bank;
+     changing the method does not make the same transfer a new payment.
    - The coordinator can withdraw any record she hasn't confirmed.
    - Haat does not read bank or UPI records. "Confirmed" means confirmed by her, not
      verified with a bank.
@@ -190,9 +211,16 @@ part's pay. Code: `src/lib/collective/checkout.ts` and `src/lib/collective/payou
 - **Testing limits:**
   - The tests default to embedded Postgres, which serialises transactions. To use an
     isolated disposable PostgreSQL database, set `COLLECTIVE_TEST_DATABASE_URL` and run
-    `node --import tsx --test --test-concurrency=1 tests/collective.test.mts tests/collective-integrity.test.mts`.
+    `node --import tsx --test --test-concurrency=1 tests/collective.test.mts tests/collective-integrity.test.mts tests/collective-checkout.test.mts`.
     Sequential file startup avoids competing startup migrations; races within each file
     still use concurrent connections.
   - Forced race tests also run on local PostgreSQL 18. They observe actual server lock
     waits for both fact-edit/approval directions, and force a stale expiry read across
-    a renewal. These are targeted concurrency checks, not a Neon load test.
+    a renewal. All 48 collective checks also pass there, including capture/recovery
+    interleavings and competing cross-method payout reports. These are targeted
+    concurrency checks, not a Neon load test.
+
+Migration `0019_collective_capture_attempts.sql` adds nullable attempt/lease columns.
+Existing paying records without an attempt id can still be reconciled; their old
+lookups cannot unlock a new attempt created after the migration. No agreed terms or
+maker payment records are rewritten by this migration.

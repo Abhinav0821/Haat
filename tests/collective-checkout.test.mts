@@ -410,3 +410,218 @@ test("payouts exist only for paid plans", async () => {
   assert.equal(lapsed?.status, "ready");
   assert.equal((await shares(plan.id)).length, 0);
 });
+
+function gate() {
+  let open!: () => void;
+  const promise = new Promise<void>((resolve) => { open = resolve; });
+  return { promise, open };
+}
+
+test("a stale negative lookup cannot unlock a newer capture of the same payment", async () => {
+  const { o, plan } = await approved(25);
+  const c = await checkout(o, plan);
+  const row = await paymentRow(c.paypalOrderId);
+  await co.beginCollectiveCapture(row, NOW);
+  const stale = await planRow(plan.id);
+  const entered = gate(), resume = gate();
+  const recovery = co.reconcileCollectiveIfStale(stale, { now: later(0.2), lookup: async () => { entered.open(); await resume.promise; return { status: "APPROVED" }; } });
+  await entered.promise;
+  await co.reconcileCollectiveIfStale(stale, { now: later(0.2), lookup: async () => ({ status: "APPROVED" }) });
+  const capturing = gate(), finish = gate();
+  const flight = captureCheckoutOrder(c.paypalOrderId, { now: later(0.25), paypalCall: (async () => { capturing.open(); await finish.promise; return completed(); }) as never });
+  await capturing.promise;
+  const [part] = await partsOf(plan.id);
+  try {
+    resume.open(); await recovery;
+    assert.equal((await planRow(plan.id)).status, "paying");
+    await rejectsC(respondToPart(tokenOf(part.name), part.partId, part.termsHash, "decline", null, later(0.25)), /being processed/);
+  } finally { finish.open(); await flight; }
+  assert.equal((await planRow(plan.id)).status, "paid");
+  assert.equal((await planRow(plan.id)).statusNote, null);
+});
+
+test("simultaneous capture callers send only one PayPal capture", async () => {
+  const { o, plan } = await approved(25);
+  const c = await checkout(o, plan);
+  const entered = gate(), finish = gate();
+  let calls = 0;
+  const call = (async () => { calls++; entered.open(); await finish.promise; return completed(); }) as never;
+  const first = captureCheckoutOrder(c.paypalOrderId, { now: NOW, paypalCall: call });
+  await entered.promise;
+  try {
+    const second = await captureCheckoutOrder(c.paypalOrderId, { now: NOW, paypalCall: (async () => { calls++; return completed(); }) as never });
+    assert.equal(second.status, "PENDING");
+    assert.equal(calls, 1);
+    assert.equal((await planRow(plan.id)).status, "paying");
+  } finally { finish.open(); await first; }
+});
+
+test("a completed retry replaces DENIED and late failure data cannot overwrite its capture", async () => {
+  const { o, plan } = await approved(25);
+  const c = await checkout(o, plan);
+  const denied = { purchase_units: [{ payments: { captures: [{ id: "CAP-DECLINED", status: "DECLINED", seller_receivable_breakdown: { paypal_fee: { value: "0.00" }, net_amount: { value: "0.00" } } }] } }] };
+  await captureCheckoutOrder(c.paypalOrderId, { now: NOW, paypalCall: (async () => denied) as never });
+  assert.equal((await paymentRow(c.paypalOrderId)).status, "DENIED");
+  assert.equal((await planRow(plan.id)).status, "approved");
+  await captureCheckoutOrder(c.paypalOrderId, { now: later(0.1), paypalCall: okCapture });
+  let row = await paymentRow(c.paypalOrderId);
+  assert.equal(row.status, "COMPLETED");
+  assert.equal((await planRow(plan.id)).status, "paid");
+  await finalizePayment(row.id, denied, later(0.2));
+  row = await paymentRow(c.paypalOrderId);
+  assert.equal(row.status, "COMPLETED");
+  assert.equal(row.paypalCaptureId, "CAP-COLL-1");
+  assert.equal(row.feeCents, 1963);
+  assert.equal(row.netCents, 41966);
+  assert.equal((await planRow(plan.id)).status, "paid");
+});
+
+test("a payout reference cannot be reused by changing UPI to bank", async () => {
+  const { o, plan } = await approved(25);
+  const c = await checkout(o, plan);
+  await captureCheckoutOrder(c.paypalOrderId, { now: NOW, paypalCall: okCapture });
+  const [share] = await shares(plan.id);
+  await pay.reportMakerPayment(share.id, { amountInr: 1, method: "upi", reference: "123456789012" }, { name: "Coordinator" }, NOW);
+  await rejectsC(pay.reportMakerPayment(share.id, { amountInr: 1, method: "bank", reference: "1234-5678 9012" }, { name: "Coordinator" }, NOW), /already recorded/);
+});
+
+test("legacy material delays use the statement's India date and explicit dates stay fixed", async () => {
+  const { MemberFactsSchema, materialsReadyOn, buildFacts } = await import("@/lib/collective/facts");
+  const { demoSettings } = await import("@/lib/collective/seed");
+  const prov = { source: "maker_confirmed", at: "2026-11-06T19:00:00Z" };
+  const f = MemberFactsSchema.parse({ ...DEMO_MEMBERS[1].facts, materialsDays: 3, prov });
+  assert.equal(materialsReadyOn(f), "2026-11-10");
+  assert.equal(materialsReadyOn({ ...f, materialsReadyDate: "2026-11-09" }), "2026-11-09");
+  const facts = buildFacts(demoSettings(prov.at), [{ id: "maker", name: "Sunita", facts: f }], [], "2026-11-08");
+  assert.equal(facts.makers[0].materialsReadyDay?.value, 2);
+});
+
+test("retrying an uncertain payment refreshes the attempt even without an intermediate unlock", async () => {
+  const { o, plan } = await approved(25);
+  const c = await checkout(o, plan);
+  const timeout = (async () => { throw new Error("lost capture response"); }) as never;
+  await assert.rejects(captureCheckoutOrder(c.paypalOrderId, { now: NOW, paypalCall: timeout }));
+  const stale = await planRow(plan.id);
+  const entered = gate(), resume = gate();
+  const recovery = co.reconcileCollectiveIfStale(stale, { now: later(0.2), lookup: async () => { entered.open(); await resume.promise; return { status: "APPROVED" }; } });
+  await entered.promise;
+  const retrying = gate(), finish = gate();
+  const flight = captureCheckoutOrder(c.paypalOrderId, { now: later(0.25), paypalCall: (async (_path: string, request: { signal?: AbortSignal }) => {
+    assert.ok(request.signal, "collective captures have a bounded HTTP deadline");
+    retrying.open(); await finish.promise; return completed();
+  }) as never });
+  await retrying.promise;
+  try {
+    const next = await planRow(plan.id);
+    assert.notEqual(next.captureAttemptId, stale.captureAttemptId);
+    assert.equal(next.payingSince?.getTime(), later(0.25).getTime());
+    resume.open(); await recovery;
+    assert.equal((await planRow(plan.id)).status, "paying");
+  } finally { finish.open(); await flight; }
+});
+
+test("an older attempt cannot clear a newer attempt's lease or unlock its unknown outcome", async () => {
+  const { o, plan } = await approved(25);
+  const c = await checkout(o, plan);
+  const row = await paymentRow(c.paypalOrderId);
+  const a = await co.beginCollectiveCapture(row, NOW);
+  assert.equal(a.kind, "started");
+  if (a.kind !== "started") assert.fail("missing first attempt");
+  await co.finishCollectiveCaptureAttempt(row, a.fence);
+  const b = await co.beginCollectiveCapture(row, NOW); // even identical timestamps get different ids
+  if (b.kind !== "started") assert.fail("missing retry attempt");
+  assert.notEqual(b.fence.attemptId, a.fence.attemptId);
+  await co.finishCollectiveCaptureAttempt(row, a.fence);
+  assert.ok((await planRow(plan.id)).captureLeaseUntil);
+  await co.endCollectiveCapture(row, NOW, a.fence);
+  assert.equal((await planRow(plan.id)).status, "paying");
+  await co.finishCollectiveCaptureAttempt(row, b.fence);
+  await co.endCollectiveCapture(row, NOW, a.fence);
+  assert.equal((await planRow(plan.id)).status, "paying");
+  await co.endCollectiveCapture(row, NOW, b.fence);
+  assert.equal((await planRow(plan.id)).status, "approved");
+});
+
+test("a negative webhook cannot unlock an active call; authoritative reconciliation can settle a denial", async () => {
+  const { o, plan } = await approved(25);
+  const c = await checkout(o, plan);
+  const entered = gate(), finish = gate();
+  const timeout = captureCheckoutOrder(c.paypalOrderId, { now: NOW, paypalCall: (async () => { entered.open(); await finish.promise; throw new Error("connection lost"); }) as never });
+  const failed = assert.rejects(timeout, /connection lost/);
+  await entered.promise;
+  try {
+    await handleWebhookEvent({ id: `WH-DENIED-${n}`, event_type: "PAYMENT.CAPTURE.DENIED", resource: { id: "CAP-DENIED", status: "DECLINED", supplementary_data: { related_ids: { order_id: c.paypalOrderId } } } });
+    assert.equal((await planRow(plan.id)).status, "paying");
+  } finally { finish.open(); await failed; }
+  const paying = await planRow(plan.id);
+  const settled = await co.reconcileCollectiveIfStale(paying, { now: later(0.2), lookup: async () => ({ purchase_units: [{ payments: { captures: [{ id: "CAP-DENIED", status: "DECLINED" }] } }] }) });
+  assert.equal(settled?.status, "approved", "already-recorded DENIED still releases the fenced collective attempt");
+});
+
+test("a stale failure response cannot unlock a retry after its lease is released", async () => {
+  const { o, plan } = await approved(25);
+  const c = await checkout(o, plan);
+  const row = await paymentRow(c.paypalOrderId);
+  const a = await co.beginCollectiveCapture(row, NOW);
+  if (a.kind !== "started") assert.fail("missing first attempt");
+  await co.finishCollectiveCaptureAttempt(row, a.fence);
+  const b = await co.beginCollectiveCapture(row, later(0.1));
+  if (b.kind !== "started") assert.fail("missing second attempt");
+  await co.finishCollectiveCaptureAttempt(row, b.fence);
+  await finalizePayment(row.id, { purchase_units: [{ payments: { captures: [{ id: "OLD-DECLINE", status: "DECLINED" }] } }] }, later(0.1), { collectiveCaptureFence: a.fence });
+  assert.equal((await planRow(plan.id)).status, "paying");
+  assert.equal((await planRow(plan.id)).captureAttemptId, b.fence.attemptId);
+});
+
+test("order history with a failed capture before a completed retry resolves as paid", async () => {
+  const { o, plan } = await approved(25);
+  const c = await checkout(o, plan);
+  const timeout = (async () => { throw new Error("lost response"); }) as never;
+  await assert.rejects(captureCheckoutOrder(c.paypalOrderId, { now: NOW, paypalCall: timeout }));
+  const snapshot: Parameters<typeof finalizePayment>[1] = completed();
+  snapshot.purchase_units![0].payments!.captures!.unshift({ id: "EARLIER-DECLINE", status: "DECLINED" });
+  const p = await co.reconcileCollectiveIfStale(await planRow(plan.id), { now: later(0.2), lookup: async () => snapshot });
+  assert.equal(p?.status, "paid");
+  assert.equal((await paymentRow(c.paypalOrderId)).status, "COMPLETED");
+  assert.equal((await paymentRow(c.paypalOrderId)).paypalCaptureId, "CAP-COLL-1");
+});
+
+test("concurrent cross-method reports of the same normalised reference accept only one", async () => {
+  const { o, plan } = await approved(25);
+  const c = await checkout(o, plan);
+  await captureCheckoutOrder(c.paypalOrderId, { now: NOW, paypalCall: okCapture });
+  const [share] = await shares(plan.id);
+  const results = await Promise.allSettled(["upi", "bank"].map((method) => pay.reportMakerPayment(share.id, { amountInr: 1, method, reference: "1234-5678 9012" }, { name: "Coordinator" }, NOW)));
+  assert.equal(results.filter((r) => r.status === "fulfilled").length, 1);
+  const refused = results.find((r) => r.status === "rejected");
+  assert.ok(refused?.status === "rejected" && /already recorded/.test(String(refused.reason)));
+});
+
+test("legacy paying records with no attempt id recover without unlocking a newer attempt", async () => {
+  const { o, plan } = await approved(25);
+  const c = await checkout(o, plan);
+  const row = await paymentRow(c.paypalOrderId);
+  await (await db()).update(schema.collectivePlans).set({ status: "paying", paymentRef: row.id, payingSince: NOW, captureAttemptId: null, captureLeaseUntil: null }).where(eq(schema.collectivePlans.id, plan.id));
+  const legacy = await planRow(plan.id);
+  const entered = gate(), resume = gate();
+  const recovery = co.reconcileCollectiveIfStale(legacy, { now: later(0.2), lookup: async () => { entered.open(); await resume.promise; return { status: "APPROVED" }; } });
+  await entered.promise;
+  const newer = await co.beginCollectiveCapture(row, later(0.25));
+  assert.equal(newer.kind, "started");
+  resume.open(); await recovery;
+  assert.equal((await planRow(plan.id)).status, "paying");
+  assert.ok((await planRow(plan.id)).captureAttemptId);
+});
+
+test("even its own attempt's negative result cannot unlock a plan while that attempt's capture call is in flight", async () => {
+  const { o, plan } = await approved(20);
+  const c = await checkout(o, plan);
+  const row = await paymentRow(c.paypalOrderId);
+  const start = await co.beginCollectiveCapture(row, later(1));
+  assert.equal(start.kind, "started");
+  const fence = (start as { fence: { attemptId: string | null; payingSince: Date | null } }).fence;
+  await co.endCollectiveCapture(row, new Date(later(1).getTime() + 30_000), fence);
+  assert.equal((await planRow(plan.id)).status, "paying", "lease still active: stays locked");
+  await co.endCollectiveCapture(row, new Date(later(1).getTime() + co.CAPTURE_LEASE_MS + 1000), fence);
+  assert.equal((await planRow(plan.id)).status, "approved", "after the lease, the same attempt's definite refusal unlocks it");
+});

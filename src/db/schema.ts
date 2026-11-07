@@ -377,6 +377,10 @@ export const collectivePlans = pgTable(
     reserved: jsonb("reserved").$type<Record<string, unknown>>(),
     paymentRef: text("payment_ref"),
     payingSince: timestamp("paying_since", { withTimezone: true }),
+    /** Fences capture attempts/recovery results for the same payment. */
+    captureAttemptId: text("capture_attempt_id"),
+    /** A short lease for the HTTP capture call; cleared when that call finishes. */
+    captureLeaseUntil: timestamp("capture_lease_until", { withTimezone: true }),
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex("collective_plans_order_version").on(t.orderId, t.version), index("collective_plans_collective_status").on(t.collectiveId, t.status)],

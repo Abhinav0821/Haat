@@ -16,6 +16,8 @@ const STATUS_RANK: Record<string, number> = {
 export const CAPTURED_STATUSES = new Set(["COMPLETED", "PARTIALLY_REFUNDED", "REFUNDED", "REVERSED"]);
 
 export function shouldAdvance(from: string, to: string): boolean {
+  // A successful retry is final money movement even if an earlier capture failed.
+  if (from === "DENIED" && to === "COMPLETED") return true;
   // Partial refunds can repeat (each one is a new fact) and end in a full refund.
   if (from === "PARTIALLY_REFUNDED" && to === "PARTIALLY_REFUNDED") return true;
   if (from === to) return false;

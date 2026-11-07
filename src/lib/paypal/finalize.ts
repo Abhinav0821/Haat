@@ -1,6 +1,7 @@
 import { eq, sql } from "drizzle-orm";
 import { db, schema, withTx } from "@/db";
 import { shouldAdvance } from "@/lib/paypal/order-status";
+import type { CollectiveCaptureFence } from "@/lib/collective/checkout";
 
 /**
  * ONE place that records the outcome of a PayPal capture — used by the browser
@@ -37,7 +38,14 @@ export type PayPalOrderSnapshot = {
 export type CaptureOutcome = "COMPLETED" | "PENDING" | "DENIED" | "UNKNOWN";
 
 export function captureOutcome(pp: PayPalOrderSnapshot): { outcome: CaptureOutcome; capture: PayPalCapture | null } {
-  const capture = pp.purchase_units?.[0]?.payments?.captures?.[0] ?? null;
+  const captures = pp.purchase_units?.[0]?.payments?.captures ?? [];
+  const failed = (c: PayPalCapture) => ["DECLINED", "DENIED", "FAILED"].includes(c.status ?? "");
+  // A successful retry can follow a failed capture in the order's history. Do not
+  // assume the first element is the current outcome. Multiple live captures or
+  // unknown/refunded records are ambiguous and require further reconciliation.
+  const live = captures.filter((c) => !failed(c));
+  if (captures.length > 1 && (live.length > 1 || (live.length === 1 && !["COMPLETED", "PENDING"].includes(live[0].status ?? "")))) return { outcome: "UNKNOWN", capture: null };
+  const capture = live[0] ?? captures[captures.length - 1] ?? null;
   switch (capture?.status) {
     case "COMPLETED":
       return { outcome: "COMPLETED", capture };
@@ -74,7 +82,7 @@ export function feesFrom(b?: { paypal_fee?: { value: string }; net_amount?: { va
  * capture) can't move a completed order backwards. Effects follow what was
  * applied and are idempotent (stock counted once; agreement paid once).
  */
-export async function finalizePayment(orderId: string, pp: PayPalOrderSnapshot, now = new Date()): Promise<{ outcome: CaptureOutcome; status: string }> {
+export async function finalizePayment(orderId: string, pp: PayPalOrderSnapshot, now = new Date(), deps: { collectiveCaptureFence?: CollectiveCaptureFence } = {}): Promise<{ outcome: CaptureOutcome; status: string }> {
   const { outcome, capture } = captureOutcome(pp);
   if (outcome === "UNKNOWN") {
     const d = await db();
@@ -92,11 +100,13 @@ export async function finalizePayment(orderId: string, pp: PayPalOrderSnapshot, 
     const [order] = await tx.select().from(schema.orders).where(eq(schema.orders.id, orderId));
     if (!order) throw new Error(`order ${orderId} not found`);
     const advance = shouldAdvance(order.status, outcome); // decided against the LOCKED, current status
+    // An older failure/pending notification must not replace the successful capture's id or fees.
+    const recordCapture = advance || outcome === "COMPLETED" || order.status === outcome;
     await tx
       .update(schema.orders)
       .set({
         ...(advance ? { status: outcome } : {}),
-        paypalCaptureId: capture?.id ?? order.paypalCaptureId,
+        ...(recordCapture ? { paypalCaptureId: capture?.id ?? order.paypalCaptureId } : {}),
         // Only fill what this payload carries; never erase details recorded earlier.
         ...(pp.payer?.email_address ? { buyerEmail: pp.payer.email_address } : {}),
         ...(buyerName ? { buyerName } : {}),
@@ -113,7 +123,7 @@ export async function finalizePayment(orderId: string, pp: PayPalOrderSnapshot, 
             }
           : {}),
         ...(outcome === "COMPLETED" && !order.capturedAt ? { capturedAt: capture?.create_time ? new Date(capture.create_time) : now } : {}),
-        ...feesFrom(capture?.seller_receivable_breakdown),
+        ...(recordCapture ? feesFrom(capture?.seller_receivable_breakdown) : {}),
         updatedAt: now,
       })
       .where(eq(schema.orders.id, order.id));
@@ -128,10 +138,14 @@ export async function finalizePayment(orderId: string, pp: PayPalOrderSnapshot, 
     await consume(applied.order.id);
     await markAgreementPaid(applied.order);
     await markCollectivePaid(applied.order, now);
-  } else if (outcome === "DENIED" && applied.advanced) {
-    await release(applied.order.id);
-    await endAgreementCapture(applied.order);
-    await endCollectiveCapture(applied.order, now);
+  } else if (outcome === "DENIED" && applied.status === "DENIED") {
+    if (applied.advanced) {
+      await release(applied.order.id);
+      await endAgreementCapture(applied.order);
+    }
+    // A webhook's negative payload has no local attempt id. Keep collective terms
+    // locked until a fenced retry or authoritative order reconciliation settles it.
+    await endCollectiveCapture(applied.order, now, deps.collectiveCaptureFence);
   } // PENDING: wait — the agreement stays "paying" and stock stays held until PayPal reports the outcome.
   return { outcome, status: applied.status };
 }

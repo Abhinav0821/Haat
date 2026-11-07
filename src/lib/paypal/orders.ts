@@ -6,7 +6,7 @@ import { randomUUID } from "node:crypto";
 import { CAPTURED_STATUSES } from "@/lib/paypal/order-status";
 import { AgreementError, beginAgreementCapture, endAgreementCapture } from "@/lib/custom/agreement";
 import { finalizePayment, type PayPalOrderSnapshot } from "@/lib/paypal/finalize";
-import { beginCollectiveCapture, endCollectiveCapture } from "@/lib/collective/checkout";
+import { beginCollectiveCapture, CAPTURE_HTTP_TIMEOUT_MS, endCollectiveCapture, finishCollectiveCaptureAttempt, type CollectiveCaptureFence } from "@/lib/collective/checkout";
 import { CollectiveError } from "@/lib/collective/service";
 import { availableQuantity, ensureReservedForCapture, release, reserve, SoldOutError } from "@/lib/inventory";
 import { readEconomics } from "@/lib/economics";
@@ -147,7 +147,8 @@ type CaptureResponse = PayPalOrderSnapshot;
 
 export async function captureCheckoutOrder(paypalOrderId: string, deps: { paypalCall?: typeof paypal; now?: Date } = {}) {
   const call = deps.paypalCall ?? paypal;
-  const now = deps.now ?? new Date();
+  const clock = () => deps.now ?? new Date();
+  const now = clock();
   if (!/^[A-Z0-9]{10,32}$/.test(paypalOrderId)) throw new CheckoutError("invalid order id");
   const d = await db();
   const [order] = await d.select().from(schema.orders).where(eq(schema.orders.paypalOrderId, paypalOrderId));
@@ -159,10 +160,18 @@ export async function captureCheckoutOrder(paypalOrderId: string, deps: { paypal
   // Every capture path (browser, return URL, webhook) re-checks the stock hold and,
   // for custom orders and collective plans, atomically locks the exact terms version as
   // "paying" so nothing can revise or cancel it while PayPal is capturing.
+  let collectiveCaptureFence: CollectiveCaptureFence | undefined;
+  let collectiveLeaseUntil: Date | undefined;
   try {
     await ensureReservedForCapture(order.id, now);
     await beginAgreementCapture(order, now);
-    await beginCollectiveCapture(order, now);
+    const collective = await beginCollectiveCapture(order, clock);
+    if (collective.kind === "already_paid") return { orderId: order.id, status: "COMPLETED" };
+    if (collective.kind === "in_progress") return { orderId: order.id, status: "PENDING" };
+    if (collective.kind === "started") {
+      collectiveCaptureFence = collective.fence;
+      collectiveLeaseUntil = collective.leaseUntil;
+    }
   } catch (e) {
     if (e instanceof SoldOutError || e instanceof AgreementError || e instanceof CollectiveError) throw new CheckoutError(e.message, 409);
     throw e;
@@ -170,29 +179,37 @@ export async function captureCheckoutOrder(paypalOrderId: string, deps: { paypal
 
   let captured: CaptureResponse;
   try {
-    captured = await call<CaptureResponse>(`/v2/checkout/orders/${paypalOrderId}/capture`, {
-      method: "POST",
-      requestId: `capture-${order.id}`,
-      body: {},
-    });
+    try {
+      // Time waiting for the DB must not let the HTTP call outlive its lease.
+      const remaining = collectiveLeaseUntil ? collectiveLeaseUntil.getTime() - clock().getTime() - 1000 : CAPTURE_HTTP_TIMEOUT_MS;
+      if (remaining <= 0) throw new Error("The capture lease expired before contacting PayPal. Please retry.");
+      captured = await call<CaptureResponse>(`/v2/checkout/orders/${paypalOrderId}/capture`, {
+        method: "POST",
+        requestId: `capture-${order.id}`,
+        body: {},
+        ...(collectiveCaptureFence ? { signal: AbortSignal.timeout(Math.min(CAPTURE_HTTP_TIMEOUT_MS, remaining)) } : {}),
+      });
+    } finally {
+      if (collectiveCaptureFence) await finishCollectiveCaptureAttempt(order, collectiveCaptureFence);
+    }
   } catch (e) {
     if (e instanceof PayPalApiError) {
       const issue = JSON.stringify(e.body);
       if (issue.includes("ORDER_ALREADY_CAPTURED")) {
         // Captured earlier (a lost response, or another path got there first): record it from PayPal's own data.
         const pp = await call<PayPalOrderSnapshot>(`/v2/checkout/orders/${paypalOrderId}`);
-        const done = await finalizePayment(order.id, pp, now);
+        const done = await finalizePayment(order.id, pp, now, { collectiveCaptureFence });
         return { orderId: order.id, status: done.status };
       }
       // Definite refusals: no money moved, so the terms are no longer "paying".
       if (issue.includes("INSTRUMENT_DECLINED")) {
         await endAgreementCapture(order);
-        await endCollectiveCapture(order, now);
+        await endCollectiveCapture(order, now, collectiveCaptureFence);
         throw new CheckoutError("Your payment method was declined. Please choose another in PayPal.", 422);
       }
       if (issue.includes("ORDER_NOT_APPROVED")) {
         await endAgreementCapture(order);
-        await endCollectiveCapture(order, now);
+        await endCollectiveCapture(order, now, collectiveCaptureFence);
         throw new CheckoutError("Payment not approved yet.", 409);
       }
     }
@@ -202,7 +219,7 @@ export async function captureCheckoutOrder(paypalOrderId: string, deps: { paypal
   }
 
   // Record the outcome from the CAPTURE record (pending ≠ paid; no capture record ≠ paid or failed).
-  const done = await finalizePayment(order.id, captured, now);
+  const done = await finalizePayment(order.id, captured, now, { collectiveCaptureFence });
   return { orderId: order.id, status: done.status };
 }
 

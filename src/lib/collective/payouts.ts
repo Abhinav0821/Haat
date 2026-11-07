@@ -120,7 +120,7 @@ export async function reportMakerPayment(shareId: string, input: { amountInr: un
     const [reused] = await tx
       .select({ id: schema.makerPayments.id })
       .from(schema.makerPayments)
-      .where(and(eq(schema.makerPayments.collectiveId, collectiveId), eq(schema.makerPayments.method, method), eq(schema.makerPayments.reference, reference), ne(schema.makerPayments.status, "withdrawn")));
+      .where(and(eq(schema.makerPayments.collectiveId, collectiveId), eq(schema.makerPayments.reference, reference), ne(schema.makerPayments.status, "withdrawn")));
     if (reused) throw new CollectiveError("This reference is already recorded for another payment. Each transfer has its own reference.", 400);
     const [created] = await tx
       .insert(schema.makerPayments)

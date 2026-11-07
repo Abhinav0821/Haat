@@ -1,4 +1,5 @@
 import { and, eq, inArray, ne } from "drizzle-orm";
+import { randomUUID } from "node:crypto";
 import { db, schema, withTx, type DB, type Tx } from "@/db";
 import { logEvent } from "@/lib/events";
 import { paypal } from "@/lib/paypal/client";
@@ -28,9 +29,17 @@ import type { PartTerms, PlanTerms } from "./terms";
  */
 
 export const PAYING_STALE_MS = 10 * 60_000;
+// The HTTP deadline is shorter than the lease; recovery starts much later still.
+export const CAPTURE_HTTP_TIMEOUT_MS = 45_000;
+export const CAPTURE_LEASE_MS = 60_000;
 
 type PlanRow = typeof schema.collectivePlans.$inferSelect;
 export type CollectivePaymentRef = { id: string; collectivePlanId: string | null; termsHash: string | null; amountCents: number };
+export type CollectiveCaptureFence = { attemptId: string | null; payingSince: Date | null };
+type CaptureStart = { kind: "started"; fence: CollectiveCaptureFence; leaseUntil: Date } | { kind: "none" | "already_paid" | "in_progress" };
+
+const fenceOf = (p: PlanRow): CollectiveCaptureFence => ({ attemptId: p.captureAttemptId, payingSince: p.payingSince });
+const matchesAttempt = (p: PlanRow, fence: CollectiveCaptureFence) => p.captureAttemptId === fence.attemptId && p.payingSince?.getTime() === fence.payingSince?.getTime();
 
 /** Test-only pause points. */
 export type CheckoutHooks = { afterRead?: () => Promise<void> };
@@ -125,43 +134,63 @@ async function planRef(planId: string) {
  * Called by EVERY capture path BEFORE PayPal is asked to capture. Locks the exact plan this
  * PayPal order was created for as "paying", after re-checking that it may be paid now.
  */
-export async function beginCollectiveCapture(order: CollectivePaymentRef, now = new Date(), hooks: CheckoutHooks = {}): Promise<"ok" | "already_paid" | "none"> {
-  if (!order.collectivePlanId) return "none";
+export async function beginCollectiveCapture(order: CollectivePaymentRef, clock: Date | (() => Date) = () => new Date(), hooks: CheckoutHooks = {}): Promise<CaptureStart> {
+  if (!order.collectivePlanId) return { kind: "none" };
   const ref = await planRef(order.collectivePlanId);
   if (!ref) throw new CollectiveError("These terms weren't found. You have not been charged.");
   return withTx(async (tx) => {
     await lockOrderTree(tx, ref.orderId);
+    const now = typeof clock === "function" ? clock() : clock;
     const current = await currentPlan(tx, ref.orderId, now);
     const [plan] = await tx.select().from(schema.collectivePlans).where(eq(schema.collectivePlans.id, order.collectivePlanId!));
     await hooks.afterRead?.();
     if (!plan || plan.termsHash !== order.termsHash) throw new CollectiveError("These terms changed after checkout started. You have not been charged.");
     if (plan.status === "paid") {
-      if (plan.paymentRef === order.id) return "already_paid";
+      if (plan.paymentRef === order.id) return { kind: "already_paid" };
       throw new CollectiveError("These terms were already paid with another payment. You have not been charged.");
     }
-    if (plan.status === "paying") {
-      if (plan.paymentRef === order.id) return "ok"; // a retry of the same capture (PayPal capture is idempotent)
-      throw new CollectiveError("Another payment for these terms is in progress. You have not been charged.");
-    }
     if (order.amountCents !== (plan.terms as unknown as PlanTerms).buyer.totalUsdCents) throw new CollectiveError("This payment's amount doesn't match the terms. You have not been charged.");
-    const problem = await payableProblem(tx, plan, current, now);
-    if (problem) throw new CollectiveError(`${problem} You have not been charged.`);
-    await tx.update(schema.collectivePlans).set({ status: "paying", payingSince: now, paymentRef: order.id }).where(eq(schema.collectivePlans.id, plan.id));
+    if (plan.status === "paying") {
+      if (plan.paymentRef !== order.id) throw new CollectiveError("Another payment for these terms is in progress. You have not been charged.");
+      if (plan.captureLeaseUntil && plan.captureLeaseUntil > now) return { kind: "in_progress" };
+      // Unknown outcome: retry the SAME idempotent PayPal operation, with a new
+      // local attempt id so an earlier response/lookup cannot unlock this attempt.
+    } else {
+      const problem = await payableProblem(tx, plan, current, now);
+      if (problem) throw new CollectiveError(`${problem} You have not been charged.`);
+    }
+    const fence: CollectiveCaptureFence = { attemptId: randomUUID(), payingSince: now };
+    const leaseUntil = new Date(now.getTime() + CAPTURE_LEASE_MS);
+    await tx.update(schema.collectivePlans).set({ status: "paying", payingSince: now, paymentRef: order.id, captureAttemptId: fence.attemptId, captureLeaseUntil: leaseUntil }).where(eq(schema.collectivePlans.id, plan.id));
     await tx.update(schema.collectiveOrders).set({ status: "paying", updatedAt: now }).where(eq(schema.collectiveOrders.id, ref.orderId));
-    return "ok";
+    return { kind: "started", fence, leaseUntil };
   });
 }
 
-/** The capture definitely did not take money: back to approved (still held only if the hold hasn't lapsed). */
-export async function endCollectiveCapture(order: CollectivePaymentRef, now = new Date()) {
+/** Release only THIS HTTP call's lease; an uncertain payment stays locked as paying. */
+export async function finishCollectiveCaptureAttempt(order: CollectivePaymentRef, fence: CollectiveCaptureFence) {
   if (!order.collectivePlanId) return;
   const ref = await planRef(order.collectivePlanId);
   if (!ref) return;
   await withTx(async (tx) => {
     await lockOrderTree(tx, ref.orderId);
     const [plan] = await tx.select().from(schema.collectivePlans).where(eq(schema.collectivePlans.id, order.collectivePlanId!));
-    if (!plan || plan.status !== "paying" || plan.paymentRef !== order.id) return;
-    await tx.update(schema.collectivePlans).set({ status: "approved", payingSince: null, paymentRef: null }).where(eq(schema.collectivePlans.id, plan.id));
+    if (!plan || plan.status !== "paying" || plan.paymentRef !== order.id || !matchesAttempt(plan, fence)) return;
+    await tx.update(schema.collectivePlans).set({ captureLeaseUntil: null }).where(eq(schema.collectivePlans.id, plan.id));
+  });
+}
+
+/** A negative result may unlock only the exact, no-longer-in-flight attempt it checked. */
+export async function endCollectiveCapture(order: CollectivePaymentRef, now = new Date(), fence?: CollectiveCaptureFence) {
+  if (!order.collectivePlanId || !fence) return;
+  const ref = await planRef(order.collectivePlanId);
+  if (!ref) return;
+  await withTx(async (tx) => {
+    await lockOrderTree(tx, ref.orderId);
+    const [plan] = await tx.select().from(schema.collectivePlans).where(eq(schema.collectivePlans.id, order.collectivePlanId!));
+    if (!plan || plan.status !== "paying" || plan.paymentRef !== order.id || !matchesAttempt(plan, fence)) return;
+    if (plan.captureLeaseUntil && plan.captureLeaseUntil > now) return;
+    await tx.update(schema.collectivePlans).set({ status: "approved", payingSince: null, paymentRef: null, captureAttemptId: null, captureLeaseUntil: null }).where(eq(schema.collectivePlans.id, plan.id));
     await tx.update(schema.collectiveOrders).set({ status: "approved", updatedAt: now }).where(eq(schema.collectiveOrders.id, ref.orderId));
   });
 }
@@ -207,7 +236,7 @@ export async function markCollectivePaid(order: CollectivePaymentRef, now = new 
       if (!(await partsAllAccepted(tx, terms.parts))) notes.push("Not every maker's acceptance stands for these terms.");
       await tx
         .update(schema.collectivePlans)
-        .set({ status: "paid", paymentRef: order.id, payingSince: null, reserved: (plan.reserved ?? reservationOf(plan)) as unknown as Record<string, unknown>, statusNote: notes.join(" ") || null })
+        .set({ status: "paid", paymentRef: order.id, payingSince: null, captureAttemptId: null, captureLeaseUntil: null, reserved: (plan.reserved ?? reservationOf(plan)) as unknown as Record<string, unknown>, statusNote: notes.join(" ") || null })
         .where(eq(schema.collectivePlans.id, plan.id));
       const cancelled = await tx
         .update(schema.collectivePlans)
@@ -248,11 +277,12 @@ export async function reconcileCollectiveIfStale<T extends PlanRow | undefined>(
   const d = await db();
   const [order] = await d.select().from(schema.orders).where(eq(schema.orders.id, plan.paymentRef));
   if (!order) return plan;
+  const fence = fenceOf(plan);
   try {
     const pp = await (deps.lookup ?? ((id: string) => paypal<PayPalOrderSnapshot>(`/v2/checkout/orders/${encodeURIComponent(id)}`)))(order.paypalOrderId);
     const { finalizePayment, captureOutcome } = await import("@/lib/paypal/finalize");
-    if (captureOutcome(pp).outcome !== "UNKNOWN") await finalizePayment(order.id, pp, now);
-    else if (!pp.purchase_units?.[0]?.payments?.captures?.length && NEVER_CAPTURED.has(pp.status ?? "")) await endCollectiveCapture(order, now);
+    if (captureOutcome(pp).outcome !== "UNKNOWN") await finalizePayment(order.id, pp, now, { collectiveCaptureFence: fence });
+    else if (!pp.purchase_units?.[0]?.payments?.captures?.length && NEVER_CAPTURED.has(pp.status ?? "")) await endCollectiveCapture(order, now, fence);
   } catch (e) {
     console.warn("[collective] reconcile failed:", (e as Error).message);
     return plan;

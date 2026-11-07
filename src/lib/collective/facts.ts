@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { isCalendarDate } from "@/lib/calendar-date";
+import { calendarDate } from "./calendar";
 import { dayDate, dayIndex, type CollectiveFacts, type MakerFacts, type Provenance, type Reservation } from "@/lib/planner/model";
 
 /**
@@ -72,7 +73,7 @@ export type StoredMemberFacts = z.infer<typeof MemberFactsSchema>;
 /** Legacy delays are anchored to their statement, never to a later plan or confirmation. */
 export function materialsReadyOn(f: StoredMemberFacts): string | null {
   if (f.materialsReadyDate !== undefined) return f.materialsReadyDate;
-  return f.materialsDays === null ? null : dayDate(f.prov.at.slice(0, 10), f.materialsDays);
+  return f.materialsDays === null ? null : dayDate(calendarDate(new Date(f.prov.at)), f.materialsDays);
 }
 
 /** Capacity held for another plan, in calendar dates. */

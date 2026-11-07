@@ -71,6 +71,7 @@ export type PayPalRequest = {
   /** Idempotency key. Auto-generated for writes if omitted. */
   requestId?: string;
   headers?: Record<string, string>;
+  signal?: AbortSignal;
 };
 
 export async function paypal<T = unknown>(path: string, req: PayPalRequest = {}): Promise<T> {
@@ -88,6 +89,7 @@ export async function paypal<T = unknown>(path: string, req: PayPalRequest = {})
     method,
     headers,
     body: req.body === undefined ? undefined : JSON.stringify(req.body),
+    signal: req.signal,
   });
   const body = await parseBody(res);
   if (!res.ok) throw new PayPalApiError(res.status, body, path);

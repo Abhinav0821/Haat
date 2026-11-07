@@ -7,6 +7,8 @@ import { checkEvaluation, checkPlan } from "@/lib/planner/check";
 import { dayDate, dayIndex, factsHash, PLANNER_MODEL, type CollectiveFacts, type Evaluation, type OptimalityCert, type OrderRequest, type Plan } from "@/lib/planner/model";
 import { buildFacts, materialsReadyOn, MemberFactsSchema, SettingsSchema, type CollectiveSettings, type DatedReservation, type MemberRow, type StoredMemberFacts } from "./facts";
 import { buyerTerms, hasHindiRequirements, hashOf, partTerms, type PartTerms, type PlanTerms } from "./terms";
+import { calendarDate as today, dayBegins } from "./calendar";
+export { LOCAL_OFFSET_MS, dayBegins } from "./calendar";
 
 /**
  * Collective orders: allocation, per-maker consent and capacity reservations.
@@ -48,11 +50,6 @@ type CollectiveRow = typeof schema.collectives.$inferSelect;
 export type OrderSpec = { quantity: number; deadline: string; budgetUsdCents: number | null; details: string | null; detailsHi?: string | null };
 export type Choice = "primary" | "lowest_price" | "within_budget" | "largest_by_date" | "earliest";
 
-/** The collective works on India's calendar (UTC+5:30, no daylight saving): a plan's dates are IST dates. */
-export const LOCAL_OFFSET_MS = 330 * 60_000;
-const today = (now: Date) => new Date(now.getTime() + LOCAL_OFFSET_MS).toISOString().slice(0, 10);
-/** The instant a collective calendar date begins (midnight IST). */
-export const dayBegins = (date: string) => Date.parse(`${date}T00:00:00Z`) - LOCAL_OFFSET_MS;
 /** Plans start the day after they are made: nobody is asked for work on a day that is already under way. */
 export const planStart = (now: Date) => dayDate(today(now), 1);
 
