@@ -8,6 +8,7 @@ import { EVIDENCE_LIMITATION, getPassportsFor, type EvidenceResults } from "@/li
 import { verifyPayload } from "@/lib/passport/signing";
 import { getLiveProduct } from "@/lib/queries";
 import { MAKER_PROFILES } from "@/lib/store";
+import { PAGE } from "@/components/layout";
 
 export const metadata: Metadata = { title: "Maker Evidence · Haat" };
 
@@ -62,7 +63,7 @@ async function Evidence({ params }: { params: PageProps<"/s/[slug]/p/[productId]
   return (
     <>
       <SiteHeader storeSlug={store.slug} storeName={store.name} />
-      <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-16">
+      <main className={`${PAGE} flex-1 py-16`}>
         <p className="eyebrow">Maker Evidence</p>
         <h1 className="mt-4 font-display text-4xl font-normal leading-tight sm:text-5xl">{product.title}</h1>
         <p className="mt-4 text-muted">
@@ -70,11 +71,11 @@ async function Evidence({ params }: { params: PageProps<"/s/[slug]/p/[productId]
           {place ? `, ${place}` : ""} · checked {when}
         </p>
 
-        <p className="mt-8 border-l-2 border-ink bg-card px-5 py-4 text-sm leading-relaxed">
+        <p className="mt-8 max-w-4xl border-l-2 border-ink bg-card px-5 py-4 text-sm leading-relaxed">
           <span className="font-medium">What this shows — and what it doesn’t.</span> {EVIDENCE_LIMITATION.en}
         </p>
 
-        <div className="mt-12 grid gap-10 sm:grid-cols-[1fr_1.2fr]">
+        <div className="mt-12 grid gap-10 sm:grid-cols-[1fr_1.2fr] lg:gap-16">
           {passport.proofMediaId && (
             <figure>
               <img src={`/api/media/${passport.proofMediaId}`} alt="The maker's proof photo: the piece beside a handwritten code" className="w-full bg-paper-deep object-cover" />

@@ -95,10 +95,12 @@ export function CustomStatus({ requestId, makerName, slug }: { requestId: string
   const { request: r, agreement: a } = view;
   const step = view.status === "paid" ? 3 : a?.status === "approved" ? 2 : view.options.length || a ? 1 : 0;
 
+  const thread = view.status !== "paid" && view.status !== "declined";
   return (
-    <div>
+    <div className={thread ? "grid gap-x-16 gap-y-12 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]" : ""}>
+      <div className="min-w-0">
       <p className="eyebrow">Your request to {makerName}</p>
-      <h1 className="mt-4 font-display text-4xl font-normal leading-tight">
+      <h1 className="mt-4 font-display text-4xl font-normal leading-tight lg:text-5xl">
         {r.quantity} × {r.item}
       </h1>
       <p className="mt-3 text-sm capitalize text-muted">
@@ -159,7 +161,7 @@ export function CustomStatus({ requestId, makerName, slug }: { requestId: string
       {view.options.length > 0 && view.status !== "paid" && (
         <section className="mt-14">
           <h2 className="eyebrow text-ink">{makerName}&apos;s options</h2>
-          <ul className="mt-4 space-y-4">
+          <ul className="mt-4 grid gap-4 xl:grid-cols-2">
             {view.options.map((o) => (
               <li key={o.index} className="border border-line bg-card p-6">
                 <div className="flex flex-wrap items-baseline justify-between gap-3">
@@ -274,12 +276,13 @@ export function CustomStatus({ requestId, makerName, slug }: { requestId: string
       )}
 
       {error && <p className="mt-6 text-sm text-danger">{error}</p>}
+      </div>
 
-      {view.status !== "paid" && view.status !== "declined" && (
-        <div className="mt-16 border-t border-line pt-10">
+      {thread && (
+        <aside className="min-w-0 border-t border-line pt-10 lg:self-start lg:border-l lg:border-t-0 lg:pl-12 lg:pt-0">
           <MessageThread makerName={makerName} customRequestId={requestId} title={`Questions for ${makerName}`} />
           <p className="mt-3 text-xs text-muted">Messages don&apos;t change the terms — any change becomes a new version you both approve.</p>
-        </div>
+        </aside>
       )}
     </div>
   );

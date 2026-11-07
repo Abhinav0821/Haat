@@ -11,6 +11,7 @@ import { availableQuantity } from "@/lib/inventory";
 import { getPassportsFor } from "@/lib/passport/passport";
 import { MAKER_PROFILES } from "@/lib/store";
 import { PayPalCheckout } from "./paypal-checkout";
+import { PAGE } from "@/components/layout";
 
 export async function generateMetadata(props: PageProps<"/s/[slug]/p/[productId]">): Promise<Metadata> {
   const { slug, productId } = await props.params;
@@ -67,7 +68,7 @@ async function Product({ params }: { params: PageProps<"/s/[slug]/p/[productId]"
     <>
       <SiteHeader storeSlug={store.slug} storeName={store.name} />
 
-      <main className="mx-auto w-full max-w-6xl flex-1 px-6 pt-10">
+      <main className={`${PAGE} flex-1 pt-10`}>
         <div className="grid gap-12 lg:grid-cols-[1.15fr_1fr] lg:gap-20">
           {/* Images */}
           <div className="space-y-4 lg:sticky lg:top-10 lg:self-start">

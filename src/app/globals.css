@@ -44,6 +44,12 @@
   --font-mono: var(--font-geist-mono);
 }
 
+/* Everything sized in rem grows gently with the screen: 16px on phones, ~17px on a
+   13" laptop, up to 19px on large monitors. */
+html {
+  font-size: clamp(16px, 12.5px + 0.3vw, 19px);
+}
+
 body {
   background: var(--paper);
   color: var(--ink);

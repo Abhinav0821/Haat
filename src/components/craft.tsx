@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { PAGE } from "./layout";
 
 /** Bilingual wordmark: letterspaced serif HAAT, hairline, हाट. */
 export function Wordmark({ className = "", compactOnPhone = false }: { className?: string; compactOnPhone?: boolean }) {
@@ -19,7 +20,7 @@ export function Wordmark({ className = "", compactOnPhone = false }: { className
 export function SiteHeader({ storeSlug, storeName }: { storeSlug?: string; storeName?: string }) {
   return (
     <header className="border-b border-line">
-      <nav className="mx-auto grid h-16 max-w-6xl grid-cols-[1fr_auto_1fr] items-center gap-3 px-4 sm:px-6">
+      <nav className={`${PAGE} grid h-16 grid-cols-[1fr_auto_1fr] items-center gap-3`}>
         <div className="eyebrow min-w-0 truncate">
           {storeSlug ? (
             <Link href={`/s/${storeSlug}`} className="hover:text-ink">
@@ -61,7 +62,7 @@ export function ProductArt({ className = "" }: { title?: string; seed?: string; 
 export function SiteFooter() {
   return (
     <footer className="mt-28 border-t border-line">
-      <div className="mx-auto grid max-w-6xl gap-6 px-6 py-12 sm:grid-cols-[1fr_auto] sm:items-end">
+      <div className={`${PAGE} grid gap-6 py-12 sm:grid-cols-[1fr_auto] sm:items-end`}>
         <div>
           <Wordmark />
           <p className="mt-3 max-w-sm text-sm leading-relaxed text-muted">

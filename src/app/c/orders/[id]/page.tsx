@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { SiteFooter, SiteHeader } from "@/components/craft";
+import { PAGE } from "@/components/layout";
 import { CollectiveOffer } from "./offer";
 
 export const metadata: Metadata = { title: "Your collective order · Haat" };
@@ -21,7 +22,7 @@ async function Order({ params }: { params: PageProps<"/c/orders/[id]">["params"]
   return (
     <>
       <SiteHeader />
-      <main className="mx-auto w-full max-w-2xl flex-1 px-6 py-20">
+      <main className={`${PAGE} flex-1 py-16 lg:py-20`}>
         <CollectiveOffer orderId={id} />
       </main>
       <SiteFooter />

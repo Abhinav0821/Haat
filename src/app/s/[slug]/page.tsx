@@ -8,6 +8,7 @@ import { formatUsd, getStore, listLiveProducts } from "@/lib/queries";
 import { getPassportsFor } from "@/lib/passport/passport";
 import { availableQuantity } from "@/lib/inventory";
 import { MAKER_PROFILES } from "@/lib/store";
+import { PAGE } from "@/components/layout";
 
 export async function generateMetadata(props: PageProps<"/s/[slug]">): Promise<Metadata> {
   const { slug } = await props.params;
@@ -39,7 +40,7 @@ async function Store({ params }: { params: PageProps<"/s/[slug]">["params"] }) {
     <>
       <SiteHeader storeSlug={store.slug} storeName={store.name} />
 
-      <main className="mx-auto w-full max-w-6xl flex-1 px-6">
+      <main className={`${PAGE} flex-1`}>
         {/* Masthead */}
         <section className="py-20 text-center sm:py-28">
           <p className="eyebrow">The workshop of {store.ownerName}</p>
@@ -73,7 +74,7 @@ async function Store({ params }: { params: PageProps<"/s/[slug]">["params"] }) {
               </Link>
             </p>
           ) : (
-            <ul className="grid grid-cols-2 gap-x-6 gap-y-14 pt-10 lg:grid-cols-3">
+            <ul className="grid grid-cols-2 gap-x-6 gap-y-14 pt-10 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
               {products.map((p) => {
                 const attrs = p.attributes as { materials?: string[] };
                 return (

@@ -4,12 +4,13 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Wordmark } from "@/components/craft";
 import { DEMO_STORE } from "@/lib/store-constants";
+import { PAGE } from "./layout";
 
 /**
  * The seller studio's page frame: one column on phones (she works on her phone);
  * on laptops and wider, a wide canvas that each page splits into columns.
  */
-export const STUDIO = "mx-auto w-full max-w-7xl px-4 pb-24 pt-8 sm:px-6 lg:px-10 xl:px-12";
+export const STUDIO = `${PAGE} pb-24 pt-8`;
 
 /** The same page header on every studio page: Hindi title, English subtitle, optional intro. */
 export function StudioHeader({ hi, en, children }: { hi: string; en: string; children?: React.ReactNode }) {

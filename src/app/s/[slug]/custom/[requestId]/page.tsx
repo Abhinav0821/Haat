@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import { SiteFooter, SiteHeader } from "@/components/craft";
 import { getStore } from "@/lib/queries";
 import { CustomStatus } from "./custom-status";
+import { PAGE } from "@/components/layout";
 
 /** The buyer's view of one custom request: options, counter-offer, agreement, payment. */
 export default function CustomRequestPage(props: PageProps<"/s/[slug]/custom/[requestId]">) {
@@ -20,7 +21,7 @@ async function Request({ params }: { params: PageProps<"/s/[slug]/custom/[reques
   return (
     <>
       <SiteHeader storeSlug={store.slug} storeName={store.name} />
-      <main className="mx-auto w-full max-w-2xl flex-1 px-6 py-20">
+      <main className={`${PAGE} flex-1 py-16 lg:py-20`}>
         <CustomStatus requestId={requestId} makerName={store.ownerName} slug={store.slug} />
       </main>
       <SiteFooter />

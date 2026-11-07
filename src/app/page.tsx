@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import { CheckoutNotice } from "@/components/checkout-notice";
 import { SiteFooter, SiteHeader } from "@/components/craft";
 import { DEMO_STORE } from "@/lib/store";
+import { PAGE } from "@/components/layout";
 
 const STEPS = [
   { hi: "पूछिए", en: "Ask", body: "A buyer — or their AI shopping agent — describes what they want made: how many, colours, by when, a budget." },
@@ -22,7 +23,7 @@ export default function Home() {
   return (
     <>
       <SiteHeader />
-      <main className="mx-auto w-full max-w-6xl flex-1 px-6">
+      <main className={`${PAGE} flex-1`}>
         <Suspense>
           <CheckoutNotice />
         </Suspense>

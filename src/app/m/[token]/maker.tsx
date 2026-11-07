@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Wordmark } from "@/components/craft";
+import { PAGE } from "@/components/layout";
 import { speak } from "@/lib/client/media";
 
 type Facts = {
@@ -108,12 +109,14 @@ export function MakerHome({ token }: { token: string }) {
 
   return (
     <Shell>
-      <header>
-        <p className="eyebrow deva">{view.collective}</p>
-        <h1 className="mt-3 font-display text-4xl font-normal leading-tight" lang="hi">
-          नमस्ते {view.nameHi ?? view.name}
-        </h1>
-        <p className="mt-3 text-sm leading-relaxed text-muted" lang="hi">
+      <header className="grid gap-x-16 gap-y-3 lg:grid-cols-2 lg:items-end">
+        <div>
+          <p className="eyebrow deva">{view.collective}</p>
+          <h1 className="mt-3 font-display text-4xl font-normal leading-tight lg:text-5xl" lang="hi">
+            नमस्ते {view.nameHi ?? view.name}
+          </h1>
+        </div>
+        <p className="text-sm leading-relaxed text-muted lg:max-w-xl lg:justify-self-end" lang="hi">
           यह पेज सिर्फ़ आपका है। इस लिंक से दिया गया जवाब आपका जवाब माना जाएगा, इसलिए इसे किसी और को न दें।
           <span className="mt-1 block text-xs">This page is yours. An answer given on this link counts as yours, so don&apos;t share it.</span>
         </p>
@@ -131,24 +134,17 @@ export function MakerHome({ token }: { token: string }) {
         )}
         <ul className="mt-5 space-y-6">
           {open.map((p) => (
-            <li key={p.id} className="border border-line bg-card p-5 sm:p-6">
+            <li key={p.id} className="grid gap-8 border border-line bg-card p-5 sm:p-6 lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)] lg:gap-12 lg:p-8">
+              <div className="min-w-0">
               <div className="flex items-baseline justify-between gap-3">
                 <p className="eyebrow">Order {p.orderRef} · v{p.version}</p>
                 <button type="button" onClick={() => speak(p.readbackHi, "hindi")} className="shrink-0 text-sm underline underline-offset-4" lang="hi">
                   🔊 सुनें
                 </button>
               </div>
-              <p className="mt-3 text-lg leading-relaxed" lang="hi">
+              <p className="mt-3 text-lg leading-relaxed lg:text-xl lg:leading-relaxed" lang="hi">
                 {p.readbackHi}
               </p>
-              <dl className="mt-5 divide-y divide-line border-t border-line text-xs">
-                {p.lines.map(([k, v]) => (
-                  <div key={k} className="grid grid-cols-[6.5rem_1fr] gap-3 py-2">
-                    <dt className="text-muted">{k}</dt>
-                    <dd className="leading-relaxed">{v}</dd>
-                  </div>
-                ))}
-              </dl>
 
               {p.status === "accepted" ? (
                 <div className="mt-5 text-sm">
@@ -157,7 +153,6 @@ export function MakerHome({ token }: { token: string }) {
                     <span className="ml-1 text-xs text-muted">You accepted this part on this link.</span>
                   </p>
                   <PaymentState part={p} />
-                  {p.share && <ShareLedger share={p.share} busy={busy} onAnswer={(paymentId, answer) => void post({ action: "payment", paymentId, answer })} />}
                   {p.orderStatus !== "paid" && p.orderStatus !== "paying" && (
                     <button type="button" disabled={busy} onClick={() => setDeclining(p.id)} className="mt-3 text-xs text-muted underline underline-offset-4 disabled:opacity-30" lang="hi">
                       अब नहीं कर पाएँगी? · Can no longer do it?
@@ -211,6 +206,18 @@ export function MakerHome({ token }: { token: string }) {
                   </p>
                 </form>
               )}
+              </div>
+              <div className="min-w-0">
+                <dl className="divide-y divide-line border-t border-line text-xs lg:text-sm">
+                  {p.lines.map(([k, v]) => (
+                    <div key={k} className="grid grid-cols-[6.5rem_1fr] gap-3 py-2 lg:grid-cols-[8rem_1fr]">
+                      <dt className="text-muted">{k}</dt>
+                      <dd className="leading-relaxed">{v}</dd>
+                    </div>
+                  ))}
+                </dl>
+                {p.share && <ShareLedger share={p.share} busy={busy} onAnswer={(paymentId, answer) => void post({ action: "payment", paymentId, answer })} />}
+              </div>
             </li>
           ))}
         </ul>
@@ -244,7 +251,7 @@ export function MakerHome({ token }: { token: string }) {
         </p>
 
         <form
-          className="mt-8 space-y-8"
+          className="mt-8 grid gap-x-16 gap-y-8 lg:grid-cols-2"
           onSubmit={(e) => {
             e.preventDefault();
             void post({ action: "facts", facts }).then((ok) => {
@@ -255,6 +262,7 @@ export function MakerHome({ token }: { token: string }) {
             });
           }}
         >
+          <div className="min-w-0 space-y-8">
           <label className="flex items-start gap-3 text-sm" lang="hi">
             <input type="checkbox" checked={facts.makesProduct} onChange={(e) => set({ makesProduct: e.target.checked })} className="mt-1" />
             <span>
@@ -306,7 +314,9 @@ export function MakerHome({ token }: { token: string }) {
               <input inputMode="decimal" value={facts.floorInr} onChange={(e) => set({ floorInr: Number(e.target.value.replace(/[^0-9.]/g, "") || 0) })} className={field} />
             </label>
           </div>
+          </div>
 
+          <div className="min-w-0 space-y-8">
           <fieldset>
             <legend className="text-sm" lang="hi">
               दूसरे वादे <span className="text-xs text-muted">Other work you&apos;ve promised</span>
@@ -334,7 +344,7 @@ export function MakerHome({ token }: { token: string }) {
             </button>
           </fieldset>
 
-          <div className="flex flex-wrap items-center gap-4">
+          <div className="flex flex-wrap items-center gap-4 border-t border-line pt-6">
             <button type="submit" disabled={busy} className="bg-ink px-6 py-3 text-paper hover:bg-ink/85 disabled:opacity-30" lang="hi">
               यह सही है, पक्का करें <span className="text-xs opacity-70">Confirm</span>
             </button>
@@ -343,6 +353,7 @@ export function MakerHome({ token }: { token: string }) {
                 ✓ पक्का हो गया
               </span>
             )}
+          </div>
           </div>
         </form>
       </section>
@@ -449,7 +460,7 @@ function ShareLedger({ share, busy, onAnswer }: { share: Share; busy: boolean; o
 
 function Shell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="mx-auto w-full max-w-2xl px-4 pb-24 pt-8 sm:px-6">
+    <div className={`${PAGE} pb-24 pt-8`}>
       <nav className="mb-10 border-b border-line pb-5">
         <Wordmark />
       </nav>
