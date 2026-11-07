@@ -17,7 +17,8 @@
     "pilot:report": "tsx scripts/pilot-report.ts",
     "db:migrate": "tsx scripts/migrate.ts",
     "vercel-build": "tsx scripts/migrate.ts && next build",
-    "reconcile": "tsx scripts/reconcile-orders.ts"
+    "reconcile": "tsx scripts/reconcile-orders.ts",
+    "eval": "tsx eval/run.ts"
   },
   "dependencies": {
     "@ai-sdk/google": "^4.0.111",
