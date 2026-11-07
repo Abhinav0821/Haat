@@ -225,3 +225,50 @@ Beyond the one-year horizon the planner says "not within the horizon"; it never 
 date. On every in-horizon case tested, its dates and quantities equal the previous
 formulas, after fixing a floating-point rounding in the completion date (29 pieces at
 7 a week took 30 days instead of 29).
+
+## 8. Extension M1-Q1: one unknown materials date (`src/lib/planner/question.ts`)
+
+M1 deliberately refuses to say "no" while a contributing maker's facts are incomplete
+(§2): an unknown materials date makes the answer *unresolved*. M1-Q1 is a documented
+extension, not a change to M1. The M1 answer stays *unresolved*; M1-Q1 adds a checked
+statement about which dates would decide it. Results computed under M1 keep their M1
+label; M1-Q1 results are reported separately.
+
+**Scope.** It applies only when all of these hold. Otherwise Haat keeps the honest list of
+unresolved facts. Several unknowns can interact, and no claim is made about them.
+- The M1 answer is *unresolved*.
+- Exactly one capable maker, *m*, has `materialsReadyDay = null`.
+- Every other capable maker's facts are complete, current and consistent.
+- Her own other facts are complete once the date is filled in.
+- The last finishing day is inside the horizon.
+
+**Hypothetical facts.** `withReadyDay(facts, m, r)` (in `model.ts`, shared by solver and
+checker so both reason about identical facts) sets her date to day `r` with provenance
+`system`, `by: "hypothetical — not a fact"`. Hypothetical values exist only inside the
+calculation. They are never stored, and they never replace a maker-confirmed fact.
+
+**Monotonicity.** Raising `r` removes production arcs (days `t < r`) and adds none. The
+set of feasible plans therefore shrinks, so the maximum quantity cannot rise and the
+certified minimum price cannot fall. "Feasible within the budget" holds for an interval
+`r ∈ [0, r*]`, possibly empty. The solver finds `r*` by binary search over `[0, H]`;
+`r = H` means she contributes nothing within the horizon.
+
+**Answers.**
+- **Threshold.** If her materials are ready by day `r*`, there is a plan: the plan at
+  `r*` is checked with `checkPlan` and is within the budget. From day `r* + 1` the order
+  fails, with the matching refusal at `r* + 1`. That refusal is either a capacity cut
+  (`checkRefusal`) or a certified minimum price above the budget (`checkPlan` +
+  `checkOptimality`).
+- **No even if ready on day 0.** The matching refusal is checked at `r = 0`. By
+  monotonicity it holds for every date.
+- **Not applicable.** Any other case, including when the order works without her (then
+  M1 itself answers).
+
+**Checker.** `checkQuestion` (in `check.ts`, with the checker's own capacity code)
+re-derives the scope from the raw facts and verifies both endpoints. Monotonicity is a
+property of the model, argued above and tested over sampled dates
+(`tests/collective-direction.test.ts`); the checker does not re-prove it for every date.
+
+**Who sees it.** Only the coordinator sees it, with the question to send her ("if your
+materials arrive by D, the order can go ahead"). The buyer is told the collective is
+confirming availability.

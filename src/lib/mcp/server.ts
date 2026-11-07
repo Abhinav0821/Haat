@@ -11,6 +11,9 @@ import { availableQuantity } from "@/lib/inventory";
 import { getPassportsFor } from "@/lib/passport/passport";
 import { CheckoutError, createCheckoutOrder } from "@/lib/paypal/orders";
 import { MAKER_PROFILES } from "@/lib/store";
+import { getDemoCollective } from "@/lib/collective/demo";
+import { CollectiveError, createBuyerRequest } from "@/lib/collective/service";
+import { buyerView as collectiveBuyerView } from "@/lib/collective/views";
 
 /**
  * Haat's MCP server: lets any AI shopping agent (Claude, ChatGPT, …) browse
@@ -106,6 +109,7 @@ export function buildMcpServer({ baseUrl, clientKey }: { baseUrl: string; client
         "Haat sells handmade goods from Indian artisans, paid with PayPal. Search, show products, answer with the maker's own words, " +
         "and when the user wants to buy, call create_checkout and give them the PayPal link to approve. You cannot pay on their behalf. " +
         "For something made to order, check get_maker_capabilities, then request_custom_order; the human approves the final terms and pays on the link it returns. " +
+        "For a bulk order too big for one maker, confirm quantity, date and budget with the user, then call request_collective_order. " +
         UNTRUSTED_NOTE,
     },
   );
@@ -381,6 +385,78 @@ export function buildMcpServer({ baseUrl, clientKey }: { baseUrl: string; client
         return json({ ...v, buyerLink: `${baseUrl}/s/${store.slug}/custom/${requestId}`, note: "Prices in USD cents. The buyer approves and pays on buyerLink." });
       } catch (e) {
         if (e instanceof AgreementError) return fail(e.message);
+        throw e;
+      }
+    },
+  );
+
+  server.registerTool(
+    "request_collective_order",
+    {
+      title: "Request a bulk order from an artisan collective",
+      description:
+        "For orders too big for one maker (e.g. 30–300 hand block-printed cotton scarves). Send the requirements YOUR USER CONFIRMED: quantity, delivery date and optional budget. " +
+        "Do not guess any of them; ask the user first. The collective plans the work across its makers, every plan is checked against the facts recorded for the makers, " +
+        "and each maker agrees to her own part. Returns a link where the HUMAN buyer sees the checked terms, approves them and pays the collective with PayPal. " +
+        "You cannot approve terms or pay on their behalf.",
+      inputSchema: {
+        request: z.string().min(5).max(2000).describe("The user's own words, for the coordinator's record"),
+        quantity: z.number().int().min(1).max(10_000).describe("Pieces, as confirmed by the user"),
+        deliverBy: z.string().refine(isCalendarDate, "Use a real calendar date in YYYY-MM-DD format.").describe("Delivery date the user confirmed, YYYY-MM-DD"),
+        budgetUsd: z.number().positive().max(1_000_000).optional().describe("Total budget in US dollars, only if the user gave one"),
+        details: z.string().max(300).optional().describe("Colour, size and other requirements, in English"),
+        buyerName: z.string().max(80).optional(),
+      },
+      annotations: { readOnlyHint: false, idempotentHint: false },
+    },
+    async ({ request, quantity, deliverBy, budgetUsd, details, buyerName }) => {
+      if (!(await allow(`collective:${clientKey}`, 3))) return fail("Too many requests. Please wait a minute.");
+      try {
+        const c = await getDemoCollective();
+        const o = await createBuyerRequest(c, {
+          text: request,
+          buyerName: buyerName ?? null,
+          channel: "mcp",
+          via: "agent",
+          spec: { quantity, deadline: deliverBy, budgetUsdCents: budgetUsd === undefined ? null : Math.round(budgetUsd * 100), details: details ?? null },
+        });
+        const v = await collectiveBuyerView(o.id);
+        return json({
+          orderId: o.id,
+          collective: v.collective,
+          product: v.product,
+          requested: v.request,
+          firstCheck: v.firstCheck,
+          together: v.together,
+          buyerLink: `${baseUrl}/c/orders/${o.id}`,
+          note:
+            "firstCheck is today's checked answer, not the terms: the makers have not agreed yet. Give the user buyerLink; the terms appear there once every maker has agreed, " +
+            "and only the user can approve and pay. Call get_collective_order to follow it.",
+        });
+      } catch (e) {
+        if (e instanceof CollectiveError) return fail(e.message);
+        console.error("[mcp] request_collective_order failed:", e);
+        return fail("Could not send the request right now.");
+      }
+    },
+  );
+
+  server.registerTool(
+    "get_collective_order",
+    {
+      title: "Status of a collective order",
+      description:
+        "The request, today's checked first answer (before terms exist), and — once every maker has agreed — the exact terms with the total, how many makers confirmed, and whether it is approved or paid. " +
+        "Aggregate only: no maker's name, availability or pay is ever returned.",
+      inputSchema: { orderId: z.string().uuid() },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ orderId }) => {
+      try {
+        const v = await collectiveBuyerView(orderId);
+        return json({ ...v, buyerLink: `${baseUrl}/c/orders/${orderId}`, note: "Amounts in USD cents. Only the human buyer can approve the terms and pay, on buyerLink." });
+      } catch (e) {
+        if (e instanceof CollectiveError) return fail(e.message);
         throw e;
       }
     },

@@ -24,7 +24,7 @@ import { askModel, modelInput, PROMPT_VERSION, SYSTEM, toAnswer, type LlmRecord 
 import { completeAnswerCorrect, score, type Outcome, type Score } from "./score";
 
 import { inputFingerprint, matchingCache, reusableAnswer, saveAnswer } from "./cache";
-const QUOTA: Record<Truth, number> = { yes: 16, no_capacity: 12, no_budget: 6, undecided: 6 };
+export const QUOTA: Record<Truth, number> = { yes: 16, no_capacity: 12, no_budget: 6, undecided: 6 };
 /** The AI subset: every hand-written case + the first generated cases of each answer type. */
 const SUBSET: Record<Truth, number> = { yes: 4, no_capacity: 3, no_budget: 2, undecided: 3 };
 const APPROACHES = ["planner", "rule_based", "old_haat", "llm_direct"] as const;

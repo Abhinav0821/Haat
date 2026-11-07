@@ -36,8 +36,8 @@ export function SiteHeader({ storeSlug, storeName }: { storeSlug?: string; store
           <Wordmark compactOnPhone />
         </Link>
         <div className="eyebrow text-right">
-          <Link href="/seller/list" className="hover:text-ink">
-            Sell<span className="hidden sm:inline"> on Haat</span>
+          <Link href="/c/request" className="hover:text-ink">
+            <span className="hidden sm:inline">Request a </span>bulk order
           </Link>
         </div>
       </nav>
@@ -66,7 +66,7 @@ export function SiteFooter() {
         <div>
           <Wordmark />
           <p className="mt-3 max-w-sm text-sm leading-relaxed text-muted">
-            A marketplace for India’s artisans, run by voice in their own language. Payments by PayPal.
+            Bigger orders for small makers: checked plans, each maker’s own agreement, one PayPal payment.
           </p>
         </div>
         <p className="eyebrow">Sandbox demo · PayPal AI Hackathon 2026</p>

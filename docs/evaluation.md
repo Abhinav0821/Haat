@@ -185,6 +185,39 @@ of the review corrections; only offline stubs were used to verify the runner.
 - **The AI result will hold for that model, that prompt and that date.** Better
   prompting or tool use could change it.
 
+## 1b. Direction measures (§B–§D of [direction.md](direction.md))
+
+[`eval/direction.ts`](../eval/direction.ts) runs on the same 46 cases, with no model calls;
+the results are in [`eval/results/direction-seed-20261108.md`](../eval/results/direction-seed-20261108.md).
+They are reported separately from the M1 results above, because §C is the documented
+extension M1-Q1 and §D's "most parts kept" comes from exhaustive search, not a certificate.
+
+- **Alone vs together.** Of the 18 checked "yes" cases, 3 could not be taken by any single
+  maker but could be by the group. In 12 at least one maker could have taken it alone; in
+  3 a standalone answer was undecided, so no claim is made. The generator was not designed
+  around this question, so these counts describe the cases, not real demand.
+- **One unknown materials date (M1-Q1).** Of the 7 "undecided" cases, 3 get a threshold
+  date and 2 a checked "no, whatever her date". 2 are out of scope (several unknowns or
+  other incomplete facts). All 5 pass `checkQuestion`. M1-Q1 does not reduce the number of
+  facts asked for in these cases, since M1 already lists her date. It adds which dates
+  would work.
+- **Keeping agreed parts.** On every "yes" case with all parts accepted, two changes were
+  tried: a producing maker drops out, or she loses her first three working days. Keep-plans
+  keep more agreed parts than the cheapest fresh plan (3 vs 1, and 10 vs 7). They ask fewer
+  makers again in only 2 cases, because a keep-plan may bring in another maker for the
+  shortfall. The median premium over the cheapest fresh plan is $5.71 (drop-out) and $0.00
+  (lost days).
+
+### AI request intake (§A)
+
+[`eval/intake.ts`](../eval/intake.ts) scores the AI reading of 20 hand-written buyer requests.
+They include ambiguous dates, per-piece and rupee budgets, an off-product request and a
+prompt injection. Each field reading is judged **after** code grounding. The key figure is
+*wrong and shown as the buyer's words*. Wrong values that grounding flagged or left empty are
+caught before anything is planned. Raw readings are cached per model, prompt version and
+text (`npm run eval:intake -- --run`, about 20 requests). Results will be added here once
+run, from a separate quota project where possible.
+
 ## 2. One complete transaction (PayPal sandbox)
 
 Run on 7 November 2026 on the local server (`collective` branch, migrations to `0019`),

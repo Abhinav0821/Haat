@@ -1,0 +1,1 @@
+ALTER TABLE "collective_orders" ADD COLUMN "intake" jsonb;

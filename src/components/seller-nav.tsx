@@ -60,12 +60,11 @@ export function EmptyState({ hi, en, detailHi, detailEn, children }: { hi: strin
 export function SellerNav({ active }: { active: "list" | "inbox" | "products" | "ask" | "rules" | "custom" | "collective" }) {
   const router = useRouter();
   const links = [
+    // The collective's orders lead; the single-maker shop tools follow. Ask and Add stay reachable from their pages.
+    { href: "/seller/collective", hi: "समूह के ऑर्डर", en: "Collective orders", key: "collective" },
     { href: "/seller/inbox", hi: "आज का काम", en: "Inbox", key: "inbox" },
     { href: "/seller/custom", hi: "फ़रमाइश", en: "Custom requests", key: "custom" },
-    { href: "/seller/collective", hi: "समूह", en: "Collective orders", key: "collective" },
-    { href: "/seller/ask", hi: "पूछो", en: "Ask", key: "ask" },
     { href: "/seller/products", hi: "सामान", en: "Pieces", key: "products" },
-    { href: "/seller/list", hi: "नया", en: "Add", key: "list" },
     { href: "/seller/rules", hi: "नियम", en: "Rules", key: "rules" },
   ] as const;
 

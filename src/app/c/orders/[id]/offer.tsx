@@ -10,6 +10,8 @@ type View = {
   request: { quantity: number; deadline: string; budgetUsdCents: number | null; details: string | null };
   status: string;
   revising: boolean;
+  firstCheck: { kind: string; headline: string; reasons: string[] } | null;
+  together: string | null;
   offer: {
     id: string;
     version: number;
@@ -96,13 +98,29 @@ export function CollectiveOffer({ orderId }: { orderId: string }) {
       </p>
 
       {!o && !view.revising && (
-        <section className="mt-12 max-w-3xl bg-card p-8">
-          <p className="font-display text-xl">{view.collective} has your request.</p>
-          <p className="mt-2 text-sm leading-relaxed text-muted">
-            The coordinator plans it across the collective&apos;s makers. Every date, quantity and price is checked against each maker&apos;s own time and asking price before it
-            reaches you. This page updates by itself.
-          </p>
-        </section>
+        <div className="mt-12 grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:gap-12">
+          <section className="bg-card p-8">
+            <p className="font-display text-xl">{view.collective} has your request.</p>
+            <p className="mt-2 text-sm leading-relaxed text-muted">
+              The coordinator plans it across the collective&apos;s makers. Every plan is checked against the days, materials, prices and other promises recorded for the makers
+              before it reaches you. Each maker then agrees to her own part, and you see the exact terms here. This page updates by itself.
+            </p>
+          </section>
+          {view.firstCheck && (
+            <section className="border border-line p-8">
+              <p className="eyebrow">First check on today&apos;s facts · not yet the terms</p>
+              <p className="mt-3 font-display text-xl leading-snug">{view.firstCheck.headline}</p>
+              {view.firstCheck.reasons.length > 0 && (
+                <ul className="mt-3 space-y-1.5 text-sm leading-relaxed text-muted">
+                  {view.firstCheck.reasons.map((r) => (
+                    <li key={r}>{r}</li>
+                  ))}
+                </ul>
+              )}
+              {view.together && <p className="mt-4 border-t border-line pt-4 text-sm text-leaf">✓ {view.together}</p>}
+            </section>
+          )}
+        </div>
       )}
 
       {view.revising && (
@@ -130,6 +148,7 @@ export function CollectiveOffer({ orderId }: { orderId: string }) {
                 </div>
               ))}
             </dl>
+            {view.together && <p className="mt-5 text-sm text-leaf">✓ {view.together}</p>}
             <p className="mt-4 text-xs leading-relaxed text-muted">
               Terms fingerprint{" "}
               <span className="font-mono" title={o.termsHash}>

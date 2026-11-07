@@ -4,6 +4,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { EmptyState, SectionHeading, SellerNav, STUDIO, StudioHeader } from "@/components/seller-nav";
 import { speak } from "@/lib/client/media";
+import { plural } from "@/lib/collective/intake";
 
 type Words = { en: string; hi: string };
 type Member = {
@@ -41,7 +42,35 @@ type Detail = {
     shares: ShareRowData[];
   } | null;
   history: { id: string; version: number; choice: string; status: string; createdAt: string }[];
+  channel: string;
+  intake: { via: "ai" | "form" | "agent"; model: string | null; edited: string[]; proposed: unknown } | null;
+  comparison: { alone: { makerId: string; name: string; kind: string; checked: boolean; words: Words }[]; groupYes: boolean; noneAloneButTogether: boolean };
+  question: { kind: "threshold" | "no_even_if_ready"; name: string; headline: Words; reason: Words; ask: Words; checked: boolean; problems: string[] } | null;
+  keep:
+    | {
+        none?: undefined;
+        kept: { memberId: string; name: string }[];
+        askedAgain: { memberId: string; name: string }[];
+        acceptedCount: number;
+        priceUsdCents: number;
+        fresh: { priceUsdCents: number; keeps: number; askedAgain: number } | null;
+        premiumUsdCents: number | null;
+        search: "exhaustive" | "heuristic";
+        failed: { names: string[]; reason: string }[];
+      }
+    | { none: true; acceptedCount: number; search: string; failed: { names: string[]; reason: string }[] }
+    | null;
 };
+
+const FAIL_EN: Record<string, string> = {
+  capacity: "can't all be finished in time alongside the rest",
+  budget: "would go over the budget",
+  facts: "a maker's facts are no longer complete",
+  terms_changed: "a part's terms would change (e.g. her price or a date moved)",
+  checker: "the checker rejected it",
+  input: "the facts are blocked",
+};
+const names = (xs: { name: string }[]) => (xs.length <= 1 ? xs.map((x) => x.name).join("") : `${xs.slice(0, -1).map((x) => x.name).join(", ")} and ${xs[xs.length - 1].name}`);
 
 type MakerPayment = { id: string; amountPaise: number; method: "upi" | "bank"; reference: string; reportedBy: string; reportedAt: string; status: "reported" | "confirmed" | "disputed" | "withdrawn"; respondedAt: string | null; note: string | null };
 type ShareRowData = { shareId: string; memberId: string; name: string; owedPaise: number; confirmedPaise: number; awaitingPaise: number; disputedPaise: number; leftPaise: number; settled: boolean; payments: MakerPayment[] };
@@ -212,7 +241,7 @@ export function Collective() {
                 </label>
               </div>
               <button type="submit" disabled={busy || !form.quantity || !form.deadline} className="bg-ink px-5 py-2.5 text-sm text-paper hover:bg-ink/85 disabled:opacity-30">
-                Record request{product ? ` for ${product.en}s` : ""}
+                Record request{product ? ` for ${plural(product.en)}` : ""}
               </button>
             </form>
           )}
@@ -454,6 +483,15 @@ function OrderDetail({ detail: d, busy, onAction, onBack }: { detail: Detail; bu
           {d.spec.budgetUsdCents !== null && ` · budget ${usd(d.spec.budgetUsdCents)}`}
         </p>
         {d.buyerText && <p className="mt-3 text-xs italic text-muted">“{d.buyerText}”</p>}
+        {d.intake && (
+          <p className="mt-2 text-xs text-muted">
+            {d.intake.via === "agent"
+              ? "Sent by the buyer's AI agent (MCP) with requirements the buyer confirmed to it."
+              : d.intake.via === "ai"
+                ? `Read by AI${d.intake.model ? ` (${d.intake.model})` : ""}, then confirmed by the buyer${d.intake.edited.length ? `, who changed: ${d.intake.edited.join(", ")}` : " without changes"}.`
+                : "Entered by the buyer on the request form."}
+          </p>
+        )}
         {open !== false && (
           <form className="mt-5 space-y-3 border-t border-line pt-4" onSubmit={(e) => { e.preventDefault(); onAction({ action: "requirements", ...readings }); }}>
             <label className="block text-xs text-muted">Requirements in English
@@ -503,9 +541,91 @@ function OrderDetail({ detail: d, busy, onAction, onBack }: { detail: Detail; bu
             </ul>
           )}
           {ev.problems.length > 0 && <p className="mt-3 text-xs text-danger">Checker: {ev.problems.join("; ")}</p>}
+
+          {d.question?.checked && (
+            <div className="mt-6 border-l-2 border-marigold bg-card px-5 py-4">
+              <p className="eyebrow">{d.question.kind === "threshold" ? "The one fact that decides it" : "Decided without the missing date"}</p>
+              <p className="mt-2 leading-relaxed" lang="hi">
+                {d.question.headline.hi}
+              </p>
+              <p className="mt-1 text-sm leading-relaxed text-muted">{d.question.headline.en}</p>
+              <p className="mt-3 text-xs leading-relaxed text-muted">
+                {d.question.kind === "threshold" ? "From the day after: " : "Why: "}
+                {d.question.reason.en} Both ends are independently checked; the dates are hypothetical and nothing is saved as her fact.
+              </p>
+              {d.question.ask.hi && (
+                <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-line pt-3 text-sm">
+                  <span lang="hi">“{d.question.ask.hi}”</span>
+                  <button type="button" onClick={() => void navigator.clipboard?.writeText(d.question!.ask.hi)} className="text-xs underline underline-offset-4">
+                    Copy question for {d.question.name}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {d.comparison.alone.length > 1 && (
+            <div className="mt-6">
+              <p className="text-sm">
+                <span lang="hi">अकेले या साथ में</span> <span className="text-xs text-muted">· Alone or together (coordinator only)</span>
+              </p>
+              <ul className="mt-2 space-y-1.5 text-sm">
+                {d.comparison.alone.map((a) => (
+                  <li key={a.makerId} className="leading-relaxed">
+                    <span lang="hi">{a.words.hi}</span>
+                    <span className="block text-xs text-muted">
+                      {a.words.en} {a.checked ? "✓ checked" : a.kind === "unresolved" ? "" : "✗ not checked"}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <p className={`mt-2 text-xs ${d.comparison.noneAloneButTogether ? "text-leaf" : "text-muted"}`}>
+                {d.comparison.noneAloneButTogether
+                  ? "✓ The buyer sees: “No individual maker can fulfil this request within its date and budget. The collective can.” No names or figures."
+                  : "The buyer sees no alone-or-together sentence for this request."}
+              </p>
+            </div>
+          )}
           <button type="button" onClick={() => speak([ev.headline.hi, ...ev.reasons.map((r) => r.hi)].join(" "), "hindi")} className="mt-3 text-xs underline underline-offset-4">
             🔊 सुनें
           </button>
+
+          {ev.checked && d.keep && !d.keep.none && d.keep.kept.length > (d.keep.fresh?.keeps ?? 0) && (
+            <div className="mt-6 border border-ink bg-card px-4 py-4 text-sm">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <span className="max-w-2xl leading-relaxed">
+                  <span className="font-medium">
+                    Keep {d.keep.kept.length} of {d.keep.acceptedCount} agreed parts
+                  </span>{" "}
+                  — {names(d.keep.kept)} keep their agreed parts unchanged
+                  {d.keep.askedAgain.length > 0 ? <>; only {names(d.keep.askedAgain)} {d.keep.askedAgain.length === 1 ? "is" : "are"} asked</> : "; nobody is asked again"}. {usd(d.keep.priceUsdCents)}
+                  {d.keep.fresh && d.keep.premiumUsdCents !== null && (
+                    <span className="block text-xs text-muted">
+                      {d.keep.premiumUsdCents > 0 ? `${usd(d.keep.premiumUsdCents)} more than` : "The same price as"} the cheapest fresh plan ({usd(d.keep.fresh.priceUsdCents)}), which keeps {d.keep.fresh.keeps} and
+                      asks {d.keep.fresh.askedAgain} {d.keep.fresh.askedAgain === 1 ? "maker" : "makers"} again.
+                    </span>
+                  )}
+                  <span className="block text-xs text-muted">
+                    {d.keep.search === "exhaustive"
+                      ? d.keep.failed.length
+                        ? `Every larger set was tried (search, not independently certified): ${d.keep.failed.map((f) => `keeping ${f.names.join(" + ")} ${FAIL_EN[f.reason] ?? f.reason}`).join("; ")}.`
+                        : "Keeps every agreed part."
+                      : "Heuristic search (many agreed parts): a plan keeping more may exist."}{" "}
+                    The plan and each kept part&apos;s terms are independently checked.
+                  </span>
+                </span>
+                <button type="button" disabled={busy || readingsChanged || (!!d.spec.details && !d.spec.detailsHi)} onClick={() => onAction({ action: "offer", choice: "keep_agreed" })} className="border border-ink px-4 py-2 text-xs hover:bg-ink hover:text-paper disabled:opacity-30">
+                  Send, keeping agreed parts
+                </button>
+              </div>
+            </div>
+          )}
+          {ev.checked && d.keep?.none && (
+            <p className="mt-6 text-xs leading-relaxed text-muted">
+              No plan for this request can keep any of the {d.keep.acceptedCount} agreed parts unchanged
+              {d.keep.failed.length > 0 && ` (${[...new Set(d.keep.failed.map((f) => FAIL_EN[f.reason] ?? f.reason))].join("; ")})`}. A fresh plan asks the makers again.
+            </p>
+          )}
 
           {ev.checked && ev.alternatives.length > 0 && (
             <div className="mt-6 space-y-3">

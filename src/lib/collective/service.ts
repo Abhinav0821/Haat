@@ -9,6 +9,8 @@ import { buildFacts, materialsReadyOn, MemberFactsSchema, SettingsSchema, type C
 import { buyerTerms, hasHindiRequirements, hashOf, partTerms, type PartTerms, type PlanTerms } from "./terms";
 import { calendarDate as today, dayBegins } from "./calendar";
 import { createSnapshot } from "@/lib/planner/snapshot";
+import { editedFields, type Interpretation } from "./intake";
+import { keepAgreedOption, type AcceptedPart, type TermsCtx } from "./replan";
 export { LOCAL_OFFSET_MS, dayBegins } from "./calendar";
 
 /**
@@ -49,7 +51,7 @@ type OrderRow = typeof schema.collectiveOrders.$inferSelect;
 type CollectiveRow = typeof schema.collectives.$inferSelect;
 
 export type OrderSpec = { quantity: number; deadline: string; budgetUsdCents: number | null; details: string | null; detailsHi?: string | null };
-export type Choice = "primary" | "lowest_price" | "within_budget" | "largest_by_date" | "earliest";
+export type Choice = "primary" | "lowest_price" | "within_budget" | "largest_by_date" | "earliest" | "keep_agreed";
 
 /** Plans start the day after they are made: nobody is asked for work on a day that is already under way. */
 export const planStart = (now: Date) => dayDate(today(now), 1);
@@ -115,7 +117,7 @@ export function requestFor(spec: OrderSpec, startDate: string): OrderRequest {
 
 // ── Orders ──────────────────────────────────────────────────────────────────
 
-export async function createOrder(collectiveId: string, input: { buyerText: string; buyerName?: string | null; buyerEmail?: string | null; channel?: string; spec: OrderSpec }) {
+export async function createOrder(collectiveId: string, input: { buyerText: string; buyerName?: string | null; buyerEmail?: string | null; channel?: string; spec: OrderSpec; intake?: Record<string, unknown> | null }) {
   const s = input.spec;
   if (!Number.isInteger(s.quantity) || s.quantity < 1 || s.quantity > 10_000) throw new CollectiveError("Quantity must be a whole number from 1 to 10,000.", 400);
   if (!isCalendarDate(s.deadline)) throw new CollectiveError("Use a real delivery date (YYYY-MM-DD).", 400);
@@ -131,9 +133,60 @@ export async function createOrder(collectiveId: string, input: { buyerText: stri
       buyerEmail: input.buyerEmail ?? null,
       buyerText: input.buyerText.slice(0, 2000),
       spec: { quantity: s.quantity, deadline: s.deadline, budgetUsdCents: s.budgetUsdCents, ...readings },
+      intake: input.intake ?? null,
     })
     .returning();
   return o;
+}
+
+/** The first delivery date a buyer can ask for: one making day, the rest day, packing and transit after the plan starts. */
+export function earliestDelivery(settings: CollectiveSettings, now: Date): string {
+  return dayDate(planStart(now), settings.lagDays + settings.packDays + settings.transitDays + 1);
+}
+
+const EMAIL = /^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,}$/;
+
+/**
+ * A buyer's own request (public page or the buyer's agent over MCP). Only requirements
+ * the buyer confirmed are stored as the order; the AI's proposal, if any, is kept beside
+ * them for the record with the fields the buyer changed. Hindi requirements are added and
+ * reviewed by the coordinator before anything goes to makers.
+ */
+export async function createBuyerRequest(
+  collective: CollectiveRow,
+  input: {
+    text: string;
+    buyerName?: string | null;
+    buyerEmail?: string | null;
+    channel: "web" | "mcp";
+    via: "ai" | "form" | "agent";
+    model?: string | null;
+    spec: { quantity: number; deadline: string; budgetUsdCents: number | null; details: string | null };
+    proposed?: Interpretation | null;
+  },
+  now = new Date(),
+) {
+  const text = typeof input.text === "string" ? input.text.trim() : "";
+  if (text.length > 2000) throw new CollectiveError("Keep the request within 2,000 characters.", 400);
+  const name = input.buyerName?.trim().slice(0, 80) || null;
+  const email = input.buyerEmail?.trim() || null;
+  if (email && (email.length > 254 || !EMAIL.test(email))) throw new CollectiveError("That email address doesn't look right.", 400);
+  const s = input.spec;
+  if (!isCalendarDate(s.deadline)) throw new CollectiveError("Use a real delivery date (YYYY-MM-DD).", 400);
+  const earliest = earliestDelivery(settingsOf(collective), now);
+  if (s.deadline < earliest) throw new CollectiveError(`The earliest delivery date you can ask for is ${earliest}.`, 400);
+  if (typeof s.details === "string" && /\p{Script=Devanagari}/u.test(s.details)) throw new CollectiveError("Please write the requirements in English; the coordinator adds the Hindi.", 400);
+  const details = typeof s.details === "string" ? s.details.trim().slice(0, 300) || null : null;
+  const spec = { quantity: s.quantity, deadline: s.deadline, budgetUsdCents: s.budgetUsdCents, details, detailsHi: null };
+  const intake = {
+    v: 1,
+    via: input.via,
+    model: input.model ?? null,
+    at: now.toISOString(),
+    proposed: input.proposed ?? null,
+    edited: editedFields(input.proposed ?? null, spec),
+  };
+  return createOrder(collective.id, { buyerText: text || `${s.quantity} pieces by ${s.deadline}`, buyerName: name, buyerEmail: email, channel: input.channel, spec, intake });
 }
 
 async function loadOrder(q: DB | Tx, orderId: string) {
@@ -153,13 +206,14 @@ export function run(facts: CollectiveFacts, request: OrderRequest, now: Date): R
 }
 
 /** Plan the order on today's facts and keep the result on record (model, facts hash, kind, checker verdict). */
-export async function evaluateOrder(orderId: string, now = new Date(), ownPlanId?: string): Promise<Run & { order: OrderRow; collective: CollectiveRow }> {
+export async function evaluateOrder(orderId: string, now = new Date(), ownPlanId?: string, record = true): Promise<Run & { order: OrderRow; collective: CollectiveRow }> {
   const d = await db();
   const { order, c } = await loadOrder(d, orderId);
   const startDate = planStart(now);
   // This order's own hold (if any) is not counted against it: the question is what the collective could do for it.
   const facts = await currentFacts(d, c, order, startDate, now, ownPlanId);
   const r = run(facts, requestFor(specOf(order), startDate), now);
+  if (!record) return { ...r, order, collective: c };
   await d
     .update(schema.collectiveOrders)
     .set({
@@ -251,13 +305,19 @@ export async function offerPlan(orderId: string, choice: Choice, now = new Date(
     await hooks.afterRead?.();
     if (r.evaluation.kind === "unresolved") throw new CollectiveError(`Not decided yet: ${r.evaluation.issues.map((i) => i.en).join(" ")}`);
     if (r.problems.length) throw new CollectiveError(`The independent checker rejected the planner's answer (${r.problems.slice(0, 2).join("; ")}). Nothing was offered.`, 500);
-    const pick = chosen(r.evaluation, r.request, choice);
+    const ctx = termsCtx(c, orderId, spec);
+    let pick: ReturnType<typeof chosen>;
+    if (choice === "keep_agreed") {
+      if (!current) throw new CollectiveError("There is no earlier plan whose agreed parts could be kept.", 400);
+      if (r.evaluation.kind !== "feasible") throw new CollectiveError("Agreed parts can be kept only when the request itself can be met as asked.", 400);
+      const { option } = keepAgreedOption(facts, r.request, now, await acceptedParts(tx, current), ctx, r.evaluation.plan);
+      if (!option) throw new CollectiveError("No plan can keep any of the agreed parts now. Send a fresh plan instead.", 409);
+      pick = { plan: option.plan, optimality: null, certified: false, request: r.request };
+    } else pick = chosen(r.evaluation, r.request, choice);
     if (!pick) throw new CollectiveError("That answer isn't available for this order now.", 400);
     const planProblems = checkPlan(facts, pick.request, pick.plan, now);
     if (planProblems.length) throw new CollectiveError(`The independent checker rejected the plan (${planProblems.slice(0, 2).join("; ")}).`, 500);
 
-    const settings = settingsOf(c);
-    const ctx = { collective: c.name, orderRef: orderId.slice(0, 8), product: settings.product, details: spec.details, detailsHi: spec.detailsHi, transitDays: settings.transitDays };
     const existing = await tx.select().from(schema.memberParts).where(eq(schema.memberParts.orderId, orderId));
     const producing = [...new Set(pick.plan.production.map((p) => p.makerId))].sort();
     const refs: PlanTerms["parts"] = [];
@@ -308,6 +368,25 @@ export async function offerPlan(orderId: string, choice: Choice, now = new Date(
     if (current) await tx.update(schema.collectivePlans).set({ status: "superseded", supersededById: created.id }).where(eq(schema.collectivePlans.id, current.id));
     await tx.update(schema.collectiveOrders).set({ status: "offered", updatedAt: now }).where(eq(schema.collectiveOrders.id, orderId));
     return created;
+  });
+}
+
+/** The words every part of this order is built from (collective, order, product, bilingual requirements, transit). */
+export function termsCtx(c: CollectiveRow, orderId: string, spec: OrderSpec): TermsCtx {
+  const settings = settingsOf(c);
+  return { collective: c.name, orderRef: orderId.slice(0, 8), product: settings.product, details: spec.details, detailsHi: spec.detailsHi, transitDays: settings.transitDays };
+}
+
+/** Parts of `plan` that their maker accepted on exactly the referenced hash, with her schedule. */
+export async function acceptedParts(q: DB | Tx, plan: PlanRow): Promise<AcceptedPart[]> {
+  const refs = (plan.terms as unknown as PlanTerms).parts;
+  if (!refs.length) return [];
+  const rows = await q.select().from(schema.memberParts).where(inArray(schema.memberParts.id, refs.map((r) => r.partId)));
+  const ms = await q.select({ id: schema.members.id, name: schema.members.name }).from(schema.members).where(inArray(schema.members.id, refs.map((r) => r.memberId)));
+  return refs.flatMap((r) => {
+    const p = rows.find((x) => x.id === r.partId);
+    if (!p || p.memberId !== r.memberId || p.status !== "accepted" || p.termsHash !== r.termsHash || p.respondedHash !== r.termsHash) return [];
+    return [{ memberId: r.memberId, name: ms.find((m) => m.id === r.memberId)?.name ?? "?", termsHash: r.termsHash, schedule: (p.terms as unknown as PartTerms).schedule }];
   });
 }
 

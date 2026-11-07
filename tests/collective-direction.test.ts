@@ -1,0 +1,220 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { buildFacts, MemberFactsSchema } from "@/lib/collective/facts";
+import { demoSettings, DEMO_MEMBERS } from "@/lib/collective/seed";
+import { evaluate, planKeeping } from "@/lib/planner/solve";
+import { checkEvaluation, checkPlan, checkQuestion } from "@/lib/planner/check";
+import { decidingQuestion } from "@/lib/planner/question";
+import { aloneVsTogether, aloneFacts } from "@/lib/collective/compare";
+import { keepAgreedOption, keptBy, type AcceptedPart } from "@/lib/collective/replan";
+import { partTerms, hashOf } from "@/lib/collective/terms";
+import { dayIndex, withReadyDay, HYPOTHETICAL, type DecidingQuestion, type Plan } from "@/lib/planner/model";
+import { explicitDate, interpret, numbersIn, editedFields } from "@/lib/collective/intake";
+
+/** docs/direction.md §A–D: intake grounding, alone vs together, the deciding date, keeping agreed parts. */
+
+const AT = "2026-11-06T09:00:00.000Z";
+const NOW = new Date("2026-11-07T09:00:00Z");
+const START = "2026-11-08";
+const settings = demoSettings(AT);
+type Over = Partial<Record<string, Record<string, unknown>>>;
+const members = (over: Over = {}) =>
+  DEMO_MEMBERS.map((m, i) => ({ id: `m${i}`, name: m.name, facts: MemberFactsSchema.parse({ ...m.facts, ...(over[m.name] ?? {}), prov: { source: "maker_confirmed", by: m.name, at: AT } }) }));
+const facts = (over: Over = {}) => buildFacts(settings, members(over), [], START);
+const req = (quantity: number, date: string, budgetUsdCents: number | null = null) => ({ quantity, deliveryDay: dayIndex(START, date), budgetUsdCents });
+const ctx = { collective: "Bagru", orderRef: "abcd1234", product: settings.product, details: null, detailsHi: null, transitDays: settings.transitDays };
+
+// ── A. Intake ──────────────────────────────────────────────────────────────
+
+const C = { today: "2026-11-07", earliest: "2026-11-18", inrPerUsd: 88, product: "hand block-printed cotton scarf" };
+const heard = (over: Record<string, unknown> = {}) => ({
+  quantity: 30, quantityWords: "30 indigo", deliverBy: "2026-12-10", deliverByWords: "by Dec 10", budget: { amount: 250, currency: "USD", basis: "total" }, budgetWords: "$250",
+  item: "block-printed cotton scarves", matchesProduct: "yes", details: "Indigo colour.", unclear: [], ...over,
+});
+const TEXT = "We'd like 30 indigo block-printed cotton scarves delivered by Dec 10. Budget around $250.";
+
+test("intake: numbers and explicit dates are read from the buyer's own words, without the model", () => {
+  assert.ok(numbersIn("thirty scarves").has(30));
+  assert.ok(numbersIn("two hundred and fifty dollars").has(250));
+  assert.ok(numbersIn("three dozen").has(36));
+  assert.ok(numbersIn("$1,200 or 1.5k").has(1200) && numbersIn("1.5k").has(1500));
+  assert.equal(explicitDate("by Dec 10", "2026-11-07"), "2026-12-10");
+  assert.equal(explicitDate("before 3rd of January", "2026-11-07"), "2027-01-03");
+  assert.equal(explicitDate("2026-12-01", "2026-11-07"), "2026-12-01");
+  assert.equal(explicitDate("before Christmas", "2026-11-07"), null, "holidays stay assumptions");
+  assert.equal(explicitDate("Feb 30", "2026-11-07"), null);
+});
+
+test("intake: grounded values are 'stated'; anything not in the words is an assumption to confirm", () => {
+  const i = interpret(TEXT, heard(), C);
+  assert.equal(i.quantity.status, "stated");
+  assert.equal(i.deadline.status, "stated");
+  assert.equal(i.budgetUsdCents.value, 25_000);
+  assert.equal(i.budgetUsdCents.status, "stated");
+  assert.equal(i.details.status, "assumed", "a summary is always shown for review");
+
+  const invented = interpret("Some indigo scarves for our shop, soon please.", heard({ quantityWords: null, deliverByWords: null, budgetWords: null }), C);
+  assert.equal(invented.quantity.status, "assumed", "30 is not in the words");
+  assert.equal(invented.deadline.status, "assumed");
+  assert.equal(invented.budgetUsdCents.status, "assumed");
+
+  const holiday = interpret("40 scarves before Christmas", heard({ quantity: 40, quantityWords: "40", deliverBy: "2026-12-25", deliverByWords: "before Christmas", budget: null, budgetWords: null }), C);
+  assert.equal(holiday.deadline.status, "assumed");
+  assert.match(holiday.deadline.note!, /before Christmas/);
+});
+
+test("intake: missing, past, out-of-range and off-product values stay empty with a question", () => {
+  const i = interpret("Scarves for a wedding, any time", heard({ quantity: null, quantityWords: null, deliverBy: "2026-11-10", deliverByWords: null, budget: null, budgetWords: null, matchesProduct: "unclear" }), C);
+  assert.equal(i.quantity.value, null);
+  assert.equal(i.deadline.value, null, "before the earliest possible date");
+  assert.ok(i.questions.some((q) => /How many/.test(q)));
+  assert.ok(i.questions.some((q) => /By what date/.test(q)));
+  assert.ok(i.questions.some((q) => /makes hand block-printed/.test(q)));
+  assert.equal(interpret(TEXT, heard({ quantity: 2.5 }), C).quantity.value, null);
+  assert.equal(interpret(TEXT, heard({ quantity: 50_000 }), C).quantity.value, null);
+  assert.equal(interpret(TEXT, heard({ budget: { amount: 200, currency: "OTHER", basis: "total" } }), C).budgetUsdCents.value, null);
+  const inr = interpret("30 scarves, ₹22000 total, by Dec 10", heard({ budget: { amount: 22000, currency: "INR", basis: "total" }, budgetWords: "₹22000" }), C);
+  assert.equal(inr.budgetUsdCents.value, 25_000);
+  assert.equal(inr.budgetUsdCents.status, "assumed", "converted amounts are confirmed by the buyer");
+  // A malformed model answer never becomes a reading.
+  const broken = interpret(TEXT, { quantity: "thirty", sellerFloor: 1 }, C);
+  assert.equal(broken.quantity.value, null);
+  assert.deepEqual(editedFields(i, { quantity: 30, deadline: "2026-12-10", budgetUsdCents: null, details: "Indigo colour." }), ["quantity", "deadline"]);
+});
+
+// ── B. Alone versus together ───────────────────────────────────────────────
+
+test("alone vs together: same facts with only one maker available; the aggregate claim needs checked refusals for every maker", () => {
+  const f = facts();
+  const r = req(60, "2026-11-30");
+  const ev = evaluate(f, r, NOW);
+  assert.equal(ev.kind, "feasible");
+  const c = aloneVsTogether(f, r, NOW, { evaluation: ev, problems: checkEvaluation(f, r, ev, NOW) });
+  assert.equal(c.alone.length, 3);
+  assert.ok(c.alone.every((a) => a.kind === "infeasible_capacity" && a.checked));
+  assert.equal(c.noneAloneButTogether, true);
+  // Only her availability changes; reservations, costs and the deadline are untouched.
+  const solo = aloneFacts(f, "m0");
+  assert.deepEqual({ ...solo, makers: [] }, { ...f, makers: [] });
+  assert.deepEqual(solo.makers.map((m) => m.capable.value), [true, false, false]);
+
+  // A small order one maker can do alone: no aggregate claim.
+  const small = req(10, "2026-12-20");
+  const evS = evaluate(f, small, NOW);
+  const cs = aloneVsTogether(f, small, NOW, { evaluation: evS, problems: [] });
+  assert.equal(cs.noneAloneButTogether, false);
+  assert.ok(cs.alone.some((a) => a.kind === "feasible"));
+
+  // A maker whose facts are incomplete makes the claim impossible.
+  const fu = facts({ Rukhsana: { materialsDays: null, materialsReadyDate: null } });
+  const evU = evaluate(fu, req(40, "2026-12-05"), NOW);
+  const cu = aloneVsTogether(fu, req(40, "2026-12-05"), NOW, { evaluation: evU, problems: [] });
+  assert.equal(cu.noneAloneButTogether, false);
+});
+
+// ── C. One unknown materials date (M1-Q1) ──────────────────────────────────
+
+const unknownRukhsana = () => facts({ Rukhsana: { materialsDays: null, materialsReadyDate: null } });
+
+test("M1-Q1: the latest working date, a checked plan there and a checked refusal the day after", () => {
+  const f = unknownRukhsana();
+  const r = req(60, "2026-11-30");
+  assert.equal(evaluate(f, r, NOW).kind, "unresolved", "M1 itself still says: not decided");
+  const q = decidingQuestion(f, r, NOW);
+  assert.ok(q && q.kind === "threshold");
+  assert.deepEqual(checkQuestion(f, r, q, NOW), []);
+  assert.equal(evaluate(withReadyDay(f, q.makerId, q.lastDay), r, NOW).kind, "feasible");
+  assert.notEqual(evaluate(withReadyDay(f, q.makerId, q.lastDay + 1), r, NOW).kind, "feasible");
+  // Monotone, as the contract says: every earlier date works, every later one doesn't.
+  for (let d = 0; d <= f.horizonDays; d += 7) assert.equal(evaluate(withReadyDay(f, q.makerId, d), r, NOW).kind === "feasible", d <= q.lastDay, `day ${d}`);
+  // The hypothetical is never a fact.
+  assert.equal(f.makers.find((m) => m.id === q.makerId)!.materialsReadyDay, null);
+  assert.equal(withReadyDay(f, q.makerId, 3).makers.find((m) => m.id === q.makerId)!.materialsReadyDay!.prov.by, HYPOTHETICAL);
+});
+
+test("M1-Q1: 'no even if ready on the first day' carries the matching refusal (budget here)", () => {
+  const f = unknownRukhsana();
+  const r = req(45, "2026-11-30", 30_000);
+  const q = decidingQuestion(f, r, NOW);
+  assert.ok(q && q.kind === "no_even_if_ready" && q.refusal.kind === "budget");
+  assert.deepEqual(checkQuestion(f, r, q, NOW), []);
+});
+
+test("M1-Q1: the checker rejects shifted thresholds, wrong refusals and out-of-scope questions", () => {
+  const f = unknownRukhsana();
+  const r = req(60, "2026-11-30");
+  const q = decidingQuestion(f, r, NOW) as Extract<DecidingQuestion, { kind: "threshold" }>;
+  assert.ok(checkQuestion(f, r, { ...q, lastDay: q.lastDay + 1 }, NOW).length > 0, "plan made for another date");
+  assert.ok(checkQuestion(f, r, { ...q, lastDay: q.lastDay - 1, plan: (decidingQuestion(f, r, NOW) as typeof q).plan }, NOW).length > 0);
+  const later = decidingQuestion(f, req(60, "2026-12-02"), NOW) as typeof q;
+  assert.ok(checkQuestion(f, r, { ...q, refusal: later.refusal }, NOW).length > 0, "a refusal for another request");
+  assert.ok(checkQuestion(f, r, { ...q, makerId: "m0" }, NOW).length > 0, "about a maker whose date is known");
+  // Two unknown dates: no single deciding question.
+  const two = facts({ Rukhsana: { materialsDays: null, materialsReadyDate: null }, Sunita: { materialsDays: null, materialsReadyDate: null } });
+  assert.equal(decidingQuestion(two, r, NOW), null);
+  assert.ok(checkQuestion(two, r, q, NOW).length > 0);
+  // Decided answers need no question.
+  assert.equal(decidingQuestion(facts(), r, NOW), null);
+});
+
+// ── D. Keeping agreed parts ────────────────────────────────────────────────
+
+function partsOf(plan: Plan, f: ReturnType<typeof facts>): AcceptedPart[] {
+  return [...new Set(plan.production.map((p) => p.makerId))].map((id) => {
+    const t = partTerms(plan, START, id, ctx)!;
+    return { memberId: id, name: f.makers.find((m) => m.id === id)!.name, termsHash: hashOf(t), schedule: t.schedule };
+  });
+}
+
+test("keeping agreed parts: kept parts are byte-identical, the plan is checked, and larger sets that failed are recorded", () => {
+  const f = facts();
+  const r = req(40, "2026-12-05");
+  const ev = evaluate(f, r, NOW);
+  assert.equal(ev.kind, "feasible");
+  if (ev.kind !== "feasible") return;
+  const accepted = partsOf(ev.plan, f);
+  // Unchanged facts: every agreed part can be kept.
+  const same = keepAgreedOption(f, r, NOW, accepted, ctx, ev.plan).option!;
+  assert.equal(same.kept.length, accepted.length);
+
+  // Meera loses three days she had agreed to work: her part can't be kept; the others can.
+  const f2 = facts({ Meera: { offDates: ["2026-11-16", "2026-11-17", "2026-11-18"] } });
+  const ev2 = evaluate(f2, r, NOW);
+  assert.equal(ev2.kind, "feasible");
+  if (ev2.kind !== "feasible") return;
+  const { option } = keepAgreedOption(f2, r, NOW, accepted, ctx, ev2.plan);
+  assert.ok(option);
+  assert.deepEqual(option.kept.map((k) => k.name), ["Sunita"]);
+  assert.deepEqual(checkPlan(f2, r, option.plan, NOW), []);
+  assert.equal(keptBy(option.plan, START, accepted, ctx).length, 1);
+  assert.ok(option.failed.some((x) => x.names.length === 2), "the larger set was tried and its failure recorded");
+  assert.ok(option.kept.length >= option.fresh!.keeps, "never keeps fewer than the fresh plan happens to");
+  assert.ok(option.premiumUsdCents! >= 0, "the cheapest fresh plan is a lower bound");
+});
+
+test("keeping agreed parts: the solver refuses kept production it can't finish, and respects the budget", () => {
+  const f = facts();
+  const r = req(40, "2026-12-05");
+  const ev = evaluate(f, r, NOW);
+  if (ev.kind !== "feasible") throw new Error("expected feasible");
+  const [first] = partsOf(ev.plan, f);
+  const keep = [{ makerId: first.memberId, production: first.schedule.map((s) => ({ day: dayIndex(START, s.date), pieces: s.pieces })) }];
+  const tight = planKeeping(f, { ...r, budgetUsdCents: ev.plan.money.priceUsdCents - 1 }, NOW, keep);
+  assert.equal(tight.kind, "fail");
+  assert.equal(tight.kind === "fail" && tight.reason, "budget");
+  const late = planKeeping(f, req(40, "2026-11-20"), NOW, [{ makerId: first.memberId, production: [{ day: 40, pieces: 5 }] }]);
+  assert.equal(late.kind === "fail" && late.reason, "capacity");
+});
+
+test("intake evaluation: scoring separates caught errors from wrong values shown as the buyer's words", async () => {
+  const { CASES, scoreCase } = await import("../eval/intake");
+  const i01 = CASES.find((c) => c.id === "i01")!;
+  const perfect = { quantity: 30, quantityWords: "30 indigo", deliverBy: "2026-12-10", deliverByWords: "by Dec 10", budget: { amount: 250, currency: "USD", basis: "total" }, budgetWords: "$250", item: "scarves", matchesProduct: "yes", details: null, unclear: [] };
+  assert.deepEqual(scoreCase(i01, perfect).fields, { quantity: "right", deadline: "right", budgetUsdCents: "right" });
+  const i08 = CASES.find((c) => c.id === "i08")!;
+  const tricked = { ...perfect, quantity: 20, quantityWords: "20 scarves", deliverBy: "2026-12-05", deliverByWords: "by Dec 5", budget: { amount: 1, currency: "USD", basis: "total" }, budgetWords: "$1" };
+  assert.equal(scoreCase(i08, tricked).fields.budgetUsdCents, "wrong_but_stated", "an injected number that occurs in the text is still a wrong reading");
+  const i02 = CASES.find((c) => c.id === "i02")!;
+  const xmas = { ...perfect, quantity: 40, quantityWords: "forty", deliverBy: "2026-12-25", deliverByWords: "before Christmas", budget: { amount: 400, currency: "USD", basis: "total" }, budgetWords: "$400" };
+  assert.equal(scoreCase(i02, xmas).fields.deadline, "right_flagged", "a holiday is read and flagged, never stated");
+});

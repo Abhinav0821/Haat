@@ -192,6 +192,53 @@ part's pay. Code: `src/lib/collective/checkout.ts` and `src/lib/collective/payou
      share and her payments.
    - **The buyer:** only that the order is paid, and when.
 
+## Buyer requests (`src/lib/collective/intake.ts`, `createBuyerRequest`)
+
+- Requests come from the public page `/c/request` or from a buyer's agent through the
+  MCP tool `request_collective_order`. The coordinator can also record one in the studio.
+- **AI proposes; the buyer confirms.** The AI reads the buyer's words into a proposal with
+  four fields only: quantity, delivery date, budget and a short description. Code checks
+  each value before the buyer sees it:
+  - a number that doesn't occur in the words is shown as an assumption;
+  - a date counts as stated only when the words parse to it without the model;
+  - a value that is missing, past or out of range stays empty, with a question.
+
+  Only the requirements the buyer then confirms become the order. The proposal and the
+  fields the buyer changed are kept in `collective_orders.intake`.
+- **Agents.** An agent must send the quantity and date its user confirmed. It can neither
+  approve nor pay.
+- **Earliest date.** The earliest delivery date accepted is the plan start, plus the rest
+  day, packing, transit and one making day.
+- **Requirements are English only from buyers.** The coordinator adds and reviews the
+  Hindi before any plan goes to makers.
+
+## Alone or together (`src/lib/collective/compare.ts`)
+
+- The planner and checker answer the request for each maker alone, on the same facts with
+  only the other makers marked unavailable.
+- **The coordinator** sees each maker's standalone answer.
+- **Buyers and agents** see one aggregate sentence, and only when every standalone answer
+  is a checked refusal and the group answer is a checked yes. No names, capacities or
+  prices are shown.
+
+## Keeping agreed parts when a plan changes (`src/lib/collective/replan.ts`)
+
+- **When it's offered.** After a maker says no, or a plan needs re-planning, the
+  coordinator can send a plan that keeps agreed parts (choice `keep_agreed`). This is
+  offered only when the request can be met as asked.
+- **Objective.** First, keep the most accepted parts with identical terms: the same days,
+  pieces, pay, finishing end and dispatch date (the same terms hash). Second, the lowest
+  price among plans that keep that many. The budget and every M1 constraint apply.
+- **Search.** With up to 8 accepted parts, every set is tried, largest first. Beyond that
+  a greedy search is used and the result is labelled heuristic.
+- **Checked:** the plan (`checkPlan`), and that each kept part's new terms hash equals the
+  accepted one. **Searched, not certified:** that no larger set could be kept. The
+  coordinator sees why each larger set failed, and the price difference from the cheapest
+  fresh plan.
+- **Consent.** Kept parts are reused with her earlier acceptance (the same rule as
+  re-planning above). Every other producing maker is asked again, and the buyer approves
+  the new version.
+
 ## Who sees what
 
 | View | Sees |

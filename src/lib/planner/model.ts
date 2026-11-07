@@ -146,3 +146,26 @@ export function weeklyToDaily(piecesPerWeek: number, horizonDays: number, unavai
     off.has(t) ? 0 : Math.floor(((t + 1) * piecesPerWeek) / 7) - Math.floor((t * piecesPerWeek) / 7),
   );
 }
+
+/**
+ * Extension M1-Q1 (docs/planner-model.md §8): the facts with ONE maker's unknown
+ * materials date replaced by a hypothetical day. Shared by the solver and the checker so
+ * both reason about byte-identical facts. The value is marked `system`/hypothetical and
+ * must never be stored as a fact.
+ */
+export const HYPOTHETICAL = "hypothetical — not a fact";
+export function withReadyDay(facts: CollectiveFacts, makerId: string, day: number): CollectiveFacts {
+  return {
+    ...facts,
+    makers: facts.makers.map((m) => (m.id === makerId ? { ...m, materialsReadyDay: { value: day, prov: { source: "system", by: HYPOTHETICAL, at: m.dailyCapacity.prov.at } } } : m)),
+  };
+}
+
+/** A refusal at one hypothetical date: a capacity cut, or a certified minimum price above the budget. */
+export type ThresholdRefusal = { kind: "capacity"; cut: CutCert } | { kind: "budget"; plan: Plan; optimality: OptimalityCert };
+
+export type DecidingQuestion =
+  /** Ready by day `lastDay` → `plan` works; ready on `lastDay + 1` or later → `refusal`. */
+  | { kind: "threshold"; makerId: string; lastDay: number; plan: Plan; refusal: ThresholdRefusal }
+  /** Even ready on day 0, the order does not work. */
+  | { kind: "no_even_if_ready"; makerId: string; refusal: ThresholdRefusal };

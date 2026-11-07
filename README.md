@@ -1,19 +1,110 @@
-# Haat
+# Haat: bigger orders for small makers
 
-**Custom orders on the maker's own terms — stated by voice, enforced in code, paid with PayPal.**
+Haat helps artisan collectives turn bulk requests into checked work plans, get each maker's
+agreement on her part, collect one buyer payment through PayPal, and track each maker's
+share until she confirms receipt.
 
-Haat (Hindi for *village market*) is for artisans who make things to order. A Hindi-speaking maker states her costs, minimum earnings, weekly capacity and conditions **by voice**. When a buyer — or the buyer's AI agent, over MCP — asks for something to be made, she answers by voice, and Haat:
+**AI assists. Code checks. Makers decide. Buyers pay with PayPal.**
 
-1. **Checks every option against her rules** (earnings after PayPal fees and courier cost, work already booked, delivery dates) — an option that breaks them can't be sent; a lowball counter-offer is refused with alternatives that still meet her minimum.
-2. **Turns the chosen option into one fingerprinted agreement** (SHA-256 of the terms, in English and Hindi) that both people approve — any change is a new version.
-3. **Takes payment with PayPal for exactly those terms.** Capacity is re-checked atomically at final approval; the version is locked while PayPal captures; the order then moves through production, shipping and tracking.
+> Built for the [PayPal AI Hackathon 2026](https://paypalaihackathon.devpost.com/). Direction and claim boundaries: [docs/direction.md](docs/direction.md).
 
-Around that: voice listings, a storefront and MCP endpoint, Scam Shield, refunds approved by a spoken code word, and a Hindi daily brief. Nothing moves money without her approval.
+## Who it is for
 
-> Built for the [PayPal AI Hackathon 2026](https://paypalaihackathon.devpost.com/).
+Existing artisan collectives in India that make a standard product for overseas boutiques and
+gifting buyers, with a coordinator who already manages the work. The demo is three block
+printers in Bagru who share one finishing table and make hand block-printed cotton scarves.
 
-**For sellers (voice-first, Hindi):** list a product by photo + voice note · fair-price advice from live market prices (Channel3) · buyer messages translated and read aloud · 🛡️ Scam Shield (incl. fake payment-screenshot detection verified against PayPal) · refunds approved by saying a code word · tracking numbers spoken straight into PayPal · a daily summary in Hindi with exact PayPal fees · ⚖️ her own costs, minimum earnings and capacity, set by voice and enforced in code · 🪡 Maker Evidence (signed record of possession + photo checks — not proof of authorship) · 🎙️ "पूछो हाट" voice assistant that drafts PayPal invoices with QR codes.
-**For buyers and their AI agents:** an editorial storefront with the maker's own voice · PayPal JS SDK v6 checkout · an MCP server so Claude/ChatGPT can shop on the buyer's behalf (the human always approves payment).
+A home-based maker can make a few pieces a week. When a buyer asks for 30 or 300 by a date,
+the coordinator has to reconcile several makers' availability, materials, prices and other
+promises. Haat gives the group a shared, checked plan, and gives each maker a clear record
+of her own work and pay.
+
+## How an order moves
+
+```mermaid
+flowchart LR
+  B["Buyer's words<br/>(or the buyer's AI agent, MCP)"] --> AI["AI proposes a reading<br/>quantity · date · budget"]
+  AI --> C["Buyer edits and confirms"]
+  C --> P["Planner<br/>(min-cost flow over the makers' days)"]
+  P --> K{"Independent checker<br/>(shares no code with the planner)"}
+  K -- "yes: checked plan" --> M["Each maker agrees to her part<br/>on her own link, in Hindi"]
+  K -- "no: reason + checked alternatives" --> CO["Coordinator"]
+  K -- "not yet: focused question" --> CO
+  M --> A["Buyer approves the exact terms<br/>(capacity reserved)"]
+  A --> PP["PayPal Orders v2<br/>buyer pays the collective"]
+  PP --> S["Each maker's share: owed → reported (UPI/bank ref) → confirmed by her"]
+```
+
+1. **The request.** The buyer describes the order on `/c/request`, or the buyer's agent calls
+   the MCP tool `request_collective_order`.
+   - AI proposes values for four fields only: quantity, date, budget and a description.
+   - Code checks each value against the buyer's words. A number not found there, or a date
+     the words don't state explicitly, is marked "please check". A missing value stays
+     empty, with a question.
+   - Only what the buyer confirms becomes the order.
+2. **The plan.** Haat plans the order across the makers' recorded days, materials dates,
+   other promises, caps and asking prices, plus the shared finishing table. Each answer
+   goes through the independent checker before anyone sees it. There are three answers:
+   - **Yes**, with the cheapest plan. "Cheapest" is certified when every maker's facts are
+     complete.
+   - **No**, with the reason (a capacity cut or a certified minimum price) and checked
+     alternatives: the most pieces by the date, the earliest date for all of them, or the
+     most pieces within the budget.
+   - **Not decided yet**, with what's missing. If one unknown materials date is all that
+     blocks the answer, the coordinator gets the date that decides it, checked at both
+     ends.
+3. **Alone or together.** The coordinator sees what each maker could do alone. When no maker
+   could do it alone and the group can, both answers checked, the buyer sees exactly one
+   sentence: "No individual maker can fulfil this request within its date and budget. The
+   collective can." There are no names or figures in it.
+4. **Her part.** Each maker sees only her own part (pieces per day, pay, dispatch date) on
+   her personal link. The terms are read back in Hindi and hashed. If a plan changes, the
+   coordinator can send one that keeps the agreed parts identical; only makers whose part
+   changed are asked again.
+5. **Payment.** The buyer approves the exact terms. Capacity is re-checked and reserved in
+   the same transaction. The buyer then pays the collective, which is the seller, through
+   PayPal. Haat records PayPal's own capture, fee and net.
+6. **Her share.** The coordinator pays each maker outside Haat (UPI or bank) and records the
+   reference. The payment counts as received only when she confirms it on her link.
+
+## What we have shown, and what we haven't
+
+**Comparative evaluation:** 46 synthetic cases (6 hand-written, 40 generated from seed
+`20261108`). Every answer was judged by the same independent checker. Details are in
+[docs/evaluation.md](docs/evaluation.md) and
+[eval/results/seed-20261108.md](eval/results/seed-20261108.md).
+
+| | Planner (M1) | Rule-based split | Old Haat (one maker) |
+|---|---|---|---|
+| Decision correct | 46/46 | 44/46 | 29/38 (8 unsupported) |
+| Complete answer correct (price and maximum included) | 46/46 | 43/46 | 13/38 |
+| Unsafe promises | 0 | 0 | 8 |
+
+- On these cases, the planner and a careful rule-based split both made **no unsafe
+  promises**. The planner found one feasible order the rule missed, and differed once on
+  how to classify incomplete facts.
+- The planner's own column is a consistency check against its checked model, not
+  independent evidence.
+- The old single-maker rule's 8 unsafe promises show why it was replaced. They don't show
+  that coordinators make those mistakes.
+- The AI-deciding-directly baseline runs separately.
+
+**One complete sandbox transaction:**
+- A 30-scarf order for $236.86, made by two makers.
+- PayPal capture `6XH61035R53768108`, COMPLETED. PayPal's actual fee was $11.26 against an
+  estimate of $10.72.
+- One maker's ₹4,200 share was reported with a test UPI reference and confirmed on her link.
+
+This proves the integration works end to end. The payout was not a real bank transfer, and
+the maker was played by the project owner. It does not show an artisan earning income.
+
+**Not yet established:** real use by a collective, extra orders won, or whether makers can
+keep their facts current without help. The [role-play kit](docs/role-play-kit.md) measures
+the last one with people. It is labelled a role-play, not a pilot.
+
+**What "checked" means:** a plan is consistent with the facts recorded for the makers. It
+cannot show those facts are true, that every piece will match, or that a courier will be on
+time. A personal link proves possession of the link, not identity.
 
 ## Quick start
 
@@ -24,135 +115,92 @@ git clone <this repo> haat && cd haat
 npm install
 cp .env.example .env.local   # then fill in the keys (see below)
 npm run smoke                # checks PayPal sandbox + AI + DB connectivity
-npm run dev                  # http://localhost:3000  (seller studio: /seller — enter SELLER_PASSCODE)
+npm run dev                  # http://localhost:3000
 ```
+
+- **Buyer:** `/c/request` makes a bulk request. `/c/orders/{id}` shows the terms, approval
+  and PayPal payment.
+- **Coordinator:** `/seller/collective`, after entering `SELLER_PASSCODE`. It covers
+  makers' facts, plans, the alone-or-together check, sending parts, payouts, and personal
+  links.
+- **Maker:** `/m/{token}`, her personal link, shown once to the coordinator. It covers her
+  facts, her parts, and confirming each payment.
 
 ### Keys you need
 
 | Variable | Where to get it |
 |---|---|
 | `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET` | [developer.paypal.com](https://developer.paypal.com/dashboard/applications/sandbox) → Apps & Credentials → **Sandbox** → Create App (Merchant) |
-| `GOOGLE_API_KEY` | Free at [aistudio.google.com](https://aistudio.google.com/apikey) → Get API key. Alternatively set `AI_PROVIDER=openai` + `OPENAI_API_KEY`. `npm run smoke` lists the models your key can use |
-| `SELLER_PASSCODE` | Any 4–12 digit PIN. Unlocks the seller studio (`/seller`). Without it the seller area stays locked. |
-| `CHANNEL3_API_KEY` *(optional)* | [channel3.ai](https://channel3.ai) — enables the fair-price coach (1 credit per listing). |
+| `GOOGLE_API_KEY` | Free at [aistudio.google.com](https://aistudio.google.com/apikey). Alternatively set `AI_PROVIDER=openai` and `OPENAI_API_KEY`. Without a working key, buyers fill in the request form themselves. |
+| `SELLER_PASSCODE` | Any 4–12 digit PIN. Unlocks the studio (`/seller`). |
+| `CHANNEL3_API_KEY` *(optional)* | Only for the single-maker shop's fair-price coach. |
 
 Everything runs against the **PayPal sandbox**. No real money moves.
 
-### Useful scripts
-
 | Command | What it does |
 |---|---|
-| `npm test` | 139 tests: refund policy, webhooks (including approval/completion overlap), refund bookkeeping under overlap, Scam Shield, code words, pricing, brief, auth, stock races, custom-order rules and agreements. Pass on embedded PGlite and on PostgreSQL 18 (`DATABASE_URL=… npm test`) |
-| `npm run smoke` | Live connectivity check: PayPal Orders/Invoicing/Disputes/Reporting, Gemini, Agent Toolkit |
-| `npm run tunnel` | Public HTTPS URL for PayPal webhooks and for connecting AI agents to `/api/mcp` |
-| `npm run demo:reset` | Clear test orders/messages/custom requests (backs up the local DB and archives pilot events first; stop `npm run dev` before running) |
-| `npm run pilot:report` | Pilot metrics from logged events (`-- --from <archive.json>` for a past session) |
-| `npm run reconcile` | Manual payment recovery: record PayPal’s own outcome for stuck orders (`-- <paypalOrderId…>` or `-- --stale`), through the shared finaliser |
+| `npm test` | The full test suite, on embedded PGlite (or PostgreSQL with `DATABASE_URL=…`) |
+| `npm run eval` | The comparative evaluation (deterministic; the AI baseline uses the Gemini quota and is cached per case) |
+| `npm run smoke` | Live connectivity check: PayPal, Gemini, Agent Toolkit |
+| `npm run demo:reset` | Clear test orders and requests (backs up the local database first; stop `npm run dev` before running) |
 | `npm run db:migrate` | Apply migrations (runs automatically in the Vercel build) |
 
-**Deploying:** free on Vercel + Neon — step by step in [DEPLOY.md](DEPLOY.md).
+**Deploying:** free on Vercel + Neon. See [DEPLOY.md](DEPLOY.md).
 
-## Shop with an AI agent (MCP)
+## Agents (MCP)
 
-Haat exposes a remote MCP server at `/api/mcp` (Streamable HTTP). Add it as a custom connector in Claude or ChatGPT, e.g. `https://<your-host>/api/mcp`.
+`/api/mcp` is a remote MCP server (Streamable HTTP). For collective orders:
 
 | Tool | What it does |
 |---|---|
-| `search_products` | Search the makers' live products by keyword / max price |
-| `get_product` | Details, plus the maker's own words (original language + English) |
-| `create_checkout` | Creates a PayPal order **at the shop's price** and returns a PayPal link the **human must approve**; the agent can never pay |
-| `get_order_status` | CREATED → APPROVED → COMPLETED |
-| `message_maker` / `get_messages` | Ask the maker; she reads it in her language and replies by voice, translated back |
-| `get_maker_capabilities` | Capacity for made-to-order work: earliest ready date for N pieces, most pieces deliverable by a date (from her stated capacity and work already booked) |
-| `request_custom_order` / `get_custom_request` | Send a custom request in plain language; read her checked options and the agreement status. The human approves terms and pays on the returned link |
+| `request_collective_order` | Sends the requirements the user confirmed (quantity, delivery date, optional budget and details). Returns today's checked first answer and the link where the **human** sees the terms, approves and pays |
+| `get_collective_order` | Status and terms, in aggregate only: no maker's name, availability or pay |
 
-Seller-written text is returned under `sellerProvided` and labelled as data, so a crafted product description can't instruct the buyer's agent.
-
-## Scam Shield
-
-Every buyer message is translated into the maker's language and checked for the scams that target new cross-border sellers: fake "I already paid" claims (verified against **PayPal's own order status**), ship-to-another-address requests (which void Seller Protection), off-PayPal payment, overpayment refunds, pressure tactics and attempts to instruct the AI. Warnings come from fixed Hindi/English templates and are read aloud first; buyers never see the verdict.
-
-## Maker economics & stock
-
-The maker states her costs, minimum and capacity **by voice** (“materials ₹350, packing ₹50, shipping costs me ₹1,200, charge the buyer $15, I need at least ₹1,500 per piece, four a week”). Gemini only extracts the numbers; Haat reads them back from a fixed template and nothing applies until she approves. One deterministic calculation is then used everywhere:
-
-```
-buyer pays            = goods + shipping CHARGED
-left for her work (₹) = (buyer pays − est. PayPal fee) × est. ₹/$ − shipping COST − materials − packaging − other
-```
-
-Fee and exchange rate are labelled estimates (the actual fee is recorded from PayPal at capture). “Loss” is only said when the result is negative; otherwise “below your minimum”. Missing costs produce a question, not a number. She hears the result before publishing, and can correct a listing by voice (“दाम 1800 कर दो”, “यह सूती है”).
-
-**One-of-a-kind stock:** each order reserves the piece under a row lock; every capture path (browser, agent return URL, webhook) re-checks the reservation, re-holding an expired one only if the piece is still free and otherwise refusing to capture (the buyer is never charged). Captures are counted once, including duplicate and recovered webhooks. Covered by concurrency tests (2 buyers / 1 piece, 10 agents / 3 pieces).
-
-## Custom orders, on her terms
-
-A buyer (or their AI agent) describes what they want — “12 red cotton scarves by December 10, around $300”. The maker hears a Hindi summary plus facts computed from **her** rules (“with work already booked, at most 7 can arrive by then; 12 pieces need at least $22.80 each”) and answers by voice: “seven by the 29th at $35 each, or all twelve by the 8th”.
-
-- Gemini only turns speech/text into fields. **Code** checks every option against her minimum earnings, weekly capacity and work already booked (her stated backlog + approved and paid agreements). An option that breaks her rules is marked with the reason and **cannot be sent**.
-- Buyers see price, ready-by date and a separately labelled delivery estimate — never her costs or earnings. A counter-offer is answered instantly from her rules; a lowball one is refused with alternatives that still meet her minimum (“10 pieces fit your budget”).
-- The chosen option becomes an **immutable agreement**: terms hashed (SHA-256 of canonical JSON). Each approval records the hash it approved. Any change creates a new version, supersedes the old one and voids its approvals.
-- **Whoever approves last**, the moment terms become fully approved her capacity and earnings are re-checked **atomically** (a shop-level lock), using the payment the terms actually contain — so two buyers can't both book the same week, and a quote made under old shipping rules can't slip through. If they no longer fit, her approval is cleared and she sends revised terms.
-- PayPal checkout (Orders v2) is created only for the **current version approved by both**, for exactly its total. Before PayPal captures, that exact version is locked as **paying**: no revision, decline or re-approval until the outcome is known. Every state change takes the same locks in the same order (request, then agreement), so revision, decline and capture serialise instead of interleaving. Outcomes are decided from PayPal's **capture record** (a pending capture is not paid) and recorded by one idempotent finalisation step shared by the capture call, webhooks and reconciliation, which decides status under the order row lock (concurrent pending/completed notifications can’t move an order backwards); a webhook without a capture record asks PayPal for its own record and otherwise stays unprocessed for redelivery — order status, capture id and time, fees, buyer and shipping details, stock, agreement. The capture always stays with the version it charged. Approval holds her capacity for 48 h; a lapsed hold releases it.
-- The terms carry **every clause in both languages** — the buyer's requirements ("exactly 2 metres"), her conditions ("dry clean only"), handmade variation and refunds — and both readings are generated from the same hashed terms.
-
-- **Before paying**, buyer (or agent) and maker can talk on the request page — translated both ways and checked by Scam Shield, like every message. Messages never change terms; a change becomes a new version.
-- **After paying**, the order shows as *being made*, not *ready to ship*. She taps as pieces are finished; finished pieces free up her booked capacity, the buyer sees progress, and only when every piece is done does the order move to *ready to ship* → spoken tracking → PayPal.
-- **Invoices she dictates** to buyers outside Haat (Ask Haat) are checked against the same rules; a price below her minimum needs an explicit “create anyway”, enforced on the server.
-
-Covered by `tests/custom-quote.test.ts`, `tests/custom-agreement.test.mts` and `tests/custom-integrity.test.mts` (revision during capture, revision/decline paused mid-transaction while a capture starts, reconciliation restoring the full order record, pending captures, approval order vs capacity, simultaneous final approvals, agreed-vs-current shipping, webhook capture retry, stale-payment reconciliation, concurrent stock counting — the last forced on real PostgreSQL), (supersede during checkout, hash mismatch, expiry, booked capacity, production progress, invoice override, no earnings leak). Verified live in the sandbox: request → spoken Hindi answer → agreement → PayPal payment → progress → PayPal tracking.
-
-## Maker Evidence
-
-A record of what was checked — not a guarantee. Each check reports its own result and scope: a photo of the piece beside a one-time handwritten code (passed / failed / uncertain), a Channel3 visual retail search (no match / possible match / not run), and a photo comparison with other Haat listings (no similar photo / similar found). It is “complete” only when all three ran and passed. **It shows the maker had this piece recently and that its photos are original; it does not prove who made it or how.** Records are Ed25519-signed (`/api/passport/{productId}`, key at `/api/passport/public-key`) — the signature proves the record is unchanged, not that its claims are true. MCP returns each check's stored result and the limitation (`withMakerEvidenceOnly` filter).
-
-## पूछो हाट (Ask Haat)
-
-A Hindi voice assistant for the seller. It answers from our records and PayPal's own data (Agent Toolkit `list_transactions`), and **drafts** actions — PayPal invoices (`create_invoice` → `send_invoice` → `generate_invoice_qr_code`, shareable on WhatsApp) and replies to buyers — that run only after the seller taps confirm. Each invoice is checked against her own costs and capacity first. It also answers about custom orders (new requests, agreements to approve, pieces still to make). It cannot move money; refunds stay behind the spoken code word.
+Agents cannot approve terms or pay. The single-maker shop's tools (search, checkout,
+messages, custom orders) are listed in [docs/single-maker.md](docs/single-maker.md).
 
 ## How PayPal and AI are used
 
-| Capability | PayPal technology | AI role |
-|---|---|---|
-| Checkout | Orders v2 (create / capture), JS SDK | none: kept deterministic on purpose |
-| Catalog | Catalog Products API via **PayPal Agent Toolkit** | Vision model turns product photos into listings |
-| Agent shopping | MCP server → Orders v2 approval link | Buyer's own AI assistant |
-| Back office | Agent Toolkit: shipment tracking, refunds, invoices (+QR), transactions; dispute events recorded | Agents draft; a policy engine and the seller's spoken approval decide |
+| Step | PayPal | AI | Code that decides |
+|---|---|---|---|
+| Request | none | Reads the buyer's words into a proposal (Gemini, temperature 0) | Grounding against the words; only buyer-confirmed fields become the order |
+| Plan | none | none | Min-cost flow planner; independent checker; certificates for every refusal and alternative |
+| Payment | Orders v2: the collective is the seller; capture lease; webhooks; PayPal's own fee and net recorded | none | One capture per plan, bound to the approved terms' hash |
+| Maker payouts | none (paid outside PayPal by UPI or bank) | none | Owed → reported with reference → confirmed by her link |
 
-**Seller security:** the studio is behind a PIN. Sessions are signed, httpOnly cookies (HMAC-SHA256, 30 days); passcodes are compared in constant time. Login, checkout, messages, custom requests and MCP tools are rate-limited in the database (so limits hold across serverless instances). A Next.js Proxy redirects unauthenticated visitors, and every seller API re-checks the session itself.
+AI is kept out of anything that sets a quantity, date or price for the makers. The
+evaluation includes an AI model deciding directly, to show why.
 
-**Safety principle:** the model proposes and code decides. Each agent receives an explicit PayPal tool allowlist (`src/lib/paypal/agent-tools.ts`). Money-moving actions pass deterministic policy checks and human approval, and every action is written to an audit log.
+## Contracts
 
-## Project layout
+- [docs/direction.md](docs/direction.md): direction, sections A–D, and the claims we make and don't.
+- [docs/planner-model.md](docs/planner-model.md): model M1, certificates, extension M1-Q1 (one unknown materials date).
+- [docs/collective-consent.md](docs/collective-consent.md): consent, reservations, payment, payouts, requests, keeping agreed parts.
+- [docs/evaluation.md](docs/evaluation.md) and [docs/role-play-kit.md](docs/role-play-kit.md).
 
-```
-src/lib/paypal/client.ts       PayPal REST client (OAuth, idempotency keys, errors)
-src/lib/paypal/agent-tools.ts  PayPal Agent Toolkit → AI SDK bridge with per-agent allowlists
-src/lib/ai/model.ts            LLM provider (one place to swap models)
-src/lib/custom/                Custom orders: quote rules (pure), agreements (hash, approvals, capture checks), service
-src/lib/economics.ts           The one earnings calculation used everywhere
-src/db/                        Drizzle schema + migrations (drizzle/)
-scripts/smoke-test.ts          End-to-end connectivity check
-```
+## Also built
+
+Haat began as a voice-first back office for a single maker: listings from a photo, Scam Shield, custom orders
+held to her stated costs, Maker Evidence and a Hindi assistant. It is still in the app and
+tested. It is described in [docs/single-maker.md](docs/single-maker.md).
+
+## Scope of this version
+
+- **Product.** One product family per order, with interchangeable pieces and one shared
+  finishing stage. Mixed products are out of scope.
+- **Buyers.** Payments are through PayPal, for overseas buyers. Domestic Indian buyers
+  would need another payment route.
+- **Payouts.** Maker payouts happen outside Haat. Haat records them and the maker confirms;
+  it doesn't move the money.
+- **No pilot yet.** The role-play kit measures whether people can keep facts current and
+  understand their part.
+- **No notifications.** No email or SMS. Buyers and makers open their links.
 
 ## AI tools used
 
-- **Google Gemini** (via the Vercel AI SDK; OpenAI-compatible models also supported): catalog generation from photos, the seller autopilot agent, and the in-store concierge.
-- **PayPal Agent Toolkit** (`@paypal/agent-toolkit`): exposes PayPal APIs as agent tools.
-- **Claude Code**: used as a coding assistant during development.
-
-## What Haat does not do (yet)
-
-Being explicit about scope:
-
-- **Finding buyers.** The storefront and MCP endpoint make her work available; they don't create demand. A real deployment needs a channel — an artisan collective, export partner or existing customers.
-- **Export readiness.** PayPal India requires identity verification, PAN, bank details, purpose codes and (for goods) an IEC. Haat doesn't collect or automate these.
-- **Shipping logistics.** No labels, customs forms or courier booking — only the shipping charge, her shipping cost, and tracking.
-- **Dispute resolution.** Dispute events are recorded and surfaced; there is no full evidence-and-response workflow.
-- **Automatic reconciliation for storefront orders.** Custom-order payments with an unknown outcome are reconciled automatically; for a storefront or agent order whose capture response was lost *and* whose webhooks were exhausted (PayPal retries for up to 3 days), recovery is manual: `npm run reconcile -- --stale`.
-- **Notifications and buyer accounts.** Buyers see updates when they open their request or order page; Haat sends no email or SMS. The request link (an unguessable id) is the access control.
-- **Multiple sellers.** The demo runs one maker; tables are keyed by store for later separation.
-- **Languages.** Hindi is tested end to end; other Indian languages are supported by the model but not validated with users.
+- **Google Gemini** (via the Vercel AI SDK): buyer request reading; in the single-maker shop, listings, translation and voice.
+- **PayPal Agent Toolkit** (`@paypal/agent-toolkit`): single-maker back office.
+- **Claude Code**: coding assistant during development.
 
 ## License
 

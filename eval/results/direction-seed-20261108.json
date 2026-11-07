@@ -1,0 +1,60 @@
+{
+ "seed": 20261108,
+ "cases": 46,
+ "B": {
+  "yesCases": 18,
+  "noneAloneButTogether": 3,
+  "someoneAlone": 12,
+  "aloneUndecided": 3
+ },
+ "C": {
+  "undecided": 7,
+  "threshold": 3,
+  "noEvenIfReady": 2,
+  "notApplicable": 2,
+  "checked": 5,
+  "factsListed": 7,
+  "factsListedWhenDecided": 5
+ },
+ "D": [
+  {
+   "label": "a producing maker drops out",
+   "cases": 18,
+   "replanFeasible": 7,
+   "keepFound": 3,
+   "keepBeatsFresh": 0,
+   "freshAsked": 7,
+   "keepAsked": 7,
+   "freshKept": 1,
+   "keepKept": 3,
+   "premiums": [
+    1606,
+    0,
+    571
+   ],
+   "checked": 3
+  },
+  {
+   "label": "a producing maker loses her first three working days in the plan",
+   "cases": 18,
+   "replanFeasible": 17,
+   "keepFound": 8,
+   "keepBeatsFresh": 2,
+   "freshAsked": 23,
+   "keepAsked": 21,
+   "freshKept": 7,
+   "keepKept": 10,
+   "premiums": [
+    0,
+    0,
+    142,
+    0,
+    535,
+    0,
+    0,
+    0
+   ],
+   "checked": 8
+  }
+ ]
+}

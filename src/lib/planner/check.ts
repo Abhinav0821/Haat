@@ -1,4 +1,4 @@
-import { factsHash, type CollectiveFacts, type CutCert, type Evaluation, type OptimalityCert, type OrderRequest, type Plan } from "./model";
+import { factsHash, withReadyDay, type CollectiveFacts, type CutCert, type DecidingQuestion, type Evaluation, type OptimalityCert, type OrderRequest, type Plan, type ThresholdRefusal } from "./model";
 import { checkInputs, planShape, cutShape, optimalityShape, evaluationShape } from "./check-input";
 
 /**
@@ -355,5 +355,49 @@ export function checkEvaluation(facts: CollectiveFacts, request: OrderRequest, e
     plan(next.plan, next.optimality, true, "next quantity", budget.quantity + 1, request.deliveryDay);
     if (request.budgetUsdCents !== null && next.plan.money.priceUsdCents <= request.budgetUsdCents) bad.push("next quantity still fits the budget; alternative is not maximal");
   }
+  return bad;
+}
+
+// ── Extension M1-Q1: one unknown materials date (docs/planner-model.md §8) ─────────
+
+/** A refusal at a hypothetical date: the cut rules the quantity out, or the certified minimum price is above the budget. */
+function checkThresholdRefusal(facts: CollectiveFacts, request: OrderRequest, r: ThresholdRefusal, now: Date, label: string): string[] {
+  if (r.kind === "capacity") return checkRefusal(facts, request, r.cut, now).map((b) => `${label}: ${b}`);
+  const bad = checkPlan(facts, request, r.plan, now).map((b) => `${label}: ${b}`);
+  bad.push(...checkOptimality(facts, r.plan, r.optimality, now).map((b) => `${label}: ${b}`));
+  if (request.budgetUsdCents === null) bad.push(`${label}: a budget refusal needs a budget`);
+  else if (r.plan.money.priceUsdCents <= request.budgetUsdCents) bad.push(`${label}: the minimum price is within the budget`);
+  return bad;
+}
+
+/**
+ * Verifies a deciding question with this file's own capacity code. Scope is re-derived
+ * from the raw facts: exactly one capable maker has no materials date, everyone else who
+ * could contribute has complete facts, and the date lies inside the horizon. Monotonicity
+ * in her date is a property of M1 (docs §8); the checker verifies the two endpoints.
+ */
+export function checkQuestion(facts: CollectiveFacts, request: OrderRequest, q: DecidingQuestion, now: Date): string[] {
+  const invalid = checkInputs(facts, request, now);
+  if (invalid.length) return invalid;
+  const v = view(facts, now);
+  const bad: string[] = [...v.problems];
+  const unknown = facts.makers.filter((m) => m.capable.value && m.materialsReadyDay === null);
+  if (unknown.length !== 1 || unknown[0].id !== q.makerId) bad.push("the question must be about the only unknown materials date");
+  for (const m of v.makers.values()) {
+    if (!m.capable || m.id === q.makerId) continue;
+    if (!m.complete) bad.push(`${m.id}'s facts are incomplete, so one date cannot decide this`);
+  }
+  // Her other facts must be complete once the date is filled in.
+  const filled = view(withReadyDay(facts, q.makerId, 0), now).makers.get(q.makerId);
+  if (!filled || !filled.complete) bad.push(`${q.makerId}'s other facts are incomplete`);
+  if (lastFinishOf(facts, request.deliveryDay) > v.H - 1) bad.push("the date is beyond the known horizon");
+  if (bad.length) return bad;
+
+  if (q.kind === "no_even_if_ready") return checkThresholdRefusal(withReadyDay(facts, q.makerId, 0), request, q.refusal, now, "ready on the first day");
+  if (!Number.isInteger(q.lastDay) || q.lastDay < 0 || q.lastDay > v.H - 1) return ["threshold day outside the horizon"];
+  const yes = withReadyDay(facts, q.makerId, q.lastDay);
+  bad.push(...checkPlan(yes, request, q.plan, now).map((b) => `ready on day ${q.lastDay}: ${b}`));
+  if (request.budgetUsdCents !== null && q.plan.money.priceUsdCents > request.budgetUsdCents) bad.push(`ready on day ${q.lastDay}: plan is over budget`);
+  bad.push(...checkThresholdRefusal(withReadyDay(facts, q.makerId, q.lastDay + 1), request, q.refusal, now, `ready on day ${q.lastDay + 1}`));
   return bad;
 }

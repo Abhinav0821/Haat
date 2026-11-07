@@ -14,8 +14,8 @@ export function PinPad() {
   const [error, setError] = useState<string | null>(null);
 
   const next = (() => {
-    const n = params.get("next") ?? "/seller/inbox";
-    return n.startsWith("/seller") ? n : "/seller/inbox"; // never redirect off-site
+    const n = params.get("next") ?? "/seller/collective";
+    return n.startsWith("/seller") ? n : "/seller/collective"; // never redirect off-site
   })();
 
   const submit = useCallback(

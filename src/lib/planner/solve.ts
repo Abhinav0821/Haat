@@ -185,9 +185,10 @@ export function derive(facts: CollectiveFacts, request: OrderRequest, now: Date)
 
 // ---------- network ----------
 
-type Built = { g: FlowGraph; s: number; Tc: number; To: number; P: number; prod: { id: string; day: number; e: number }[]; finE: { day: number; e: number }[] };
+type Built = { g: FlowGraph; s: number; Tc: number; To: number; P: number; prod: { id: string; day: number; e: number }[]; finE: { day: number; e: number }[]; fixedE: number[] };
 
-function build(inst: Instance, makers: DMaker[], lastFinish: number, gates?: Map<string, number>): Built {
+/** `fixed`: production that must stay exactly as given (kept agreed parts); it enters finishing `lag` days later at no cost. */
+function build(inst: Instance, makers: DMaker[], lastFinish: number, gates?: Map<string, number>, fixed: { day: number; pieces: number }[] = []): Built {
   const L = Math.min(lastFinish, inst.H - 1);
   const H = inst.H;
   let n = 3;
@@ -226,7 +227,11 @@ function build(inst: Instance, makers: DMaker[], lastFinish: number, gates?: Map
     if (t < L) g.addEdge(wBase + t, wBase + t + 1, INF);
     if (inst.fin[t] > 0) finE.push({ day: t, e: g.addEdge(wBase + t, To, inst.fin[t]) });
   }
-  return { g, s, Tc, To, P, prod, finE };
+  // Zero-cost source arcs: successive shortest paths saturate them first, and a path from
+  // s never runs back through s, so once used they stay used. Fewer than all used ⇒ the
+  // kept production can't be finished in time alongside anything else.
+  const fixedE = fixed.map((f) => (f.day + inst.lag <= L && f.day >= 0 ? g.addEdge(s, wBase + f.day + inst.lag, f.pieces) : -1));
+  return { g, s, Tc, To, P, prod, finE, fixedE };
 }
 
 function serveCommitments(b: Built) {
@@ -381,6 +386,53 @@ function makePlan(facts: CollectiveFacts, inst: Instance, request: OrderRequest,
     finishing: e.finishing,
     money: money(facts, inst, e.production, Q),
   };
+}
+
+// ---------- replanning that keeps agreed parts (docs/direction.md §D) ----------
+
+export type Keep = { makerId: string; production: { day: number; pieces: number }[] };
+export type KeepResult = { kind: "plan"; plan: Plan } | { kind: "fail"; reason: "input" | "facts" | "capacity" | "budget"; detail: string };
+
+/**
+ * The cheapest plan for the request in which each kept maker makes EXACTLY her kept
+ * production (and nothing else), everyone else is free, and every M1 constraint holds.
+ * Kept makers' own capacity, materials and other promises are verified by the checker.
+ */
+export function planKeeping(facts: CollectiveFacts, request: OrderRequest, now: Date, keep: Keep[]): KeepResult {
+  if (inputIssues(facts, request, now).length) return { kind: "fail", reason: "input", detail: "facts or request invalid" };
+  const d = derive(facts, request, now);
+  if (d.blocking) return { kind: "fail", reason: "input", detail: "facts are blocked" };
+  const keptIds = new Set(keep.map((k) => k.makerId));
+  for (const id of keptIds) if (!d.inst.makers.some((m) => m.id === id)) return { kind: "fail", reason: "facts", detail: `${id}'s facts are no longer complete or she is unavailable` };
+  const L = d.lastFinish;
+  if (L < 0) return { kind: "fail", reason: "capacity", detail: "no finishing day before dispatch" };
+  const fixed = keep.flatMap((k) => k.production);
+  const fixedTotal = fixed.reduce((s, f) => s + f.pieces, 0);
+  if (fixedTotal > request.quantity) return { kind: "fail", reason: "capacity", detail: "kept parts exceed the quantity" };
+  if (fixed.some((f) => f.day < 0 || f.day + d.inst.lag > Math.min(L, d.inst.H - 1))) return { kind: "fail", reason: "capacity", detail: "a kept day is no longer usable" };
+  const free = d.inst.makers.filter((m) => !keptIds.has(m.id));
+  const b = build(d.inst, free, L, undefined, fixed);
+  serveCommitments(b);
+  const r = b.g.minCostFlow(b.s, b.To, request.quantity);
+  const fixedUsed = b.fixedE.reduce((s, e) => s + (e < 0 ? 0 : b.g.flowOn(e)), 0);
+  if (r.flow < request.quantity || fixedUsed < fixedTotal) return { kind: "fail", reason: "capacity", detail: `with these parts kept, at most ${r.flow} can be finished in time` };
+  const production = [
+    ...keep.flatMap((k) => k.production.map((p) => ({ makerId: k.makerId, day: p.day, pieces: p.pieces }))),
+    ...b.prod.map((p) => ({ makerId: p.id, day: p.day, pieces: b.g.flowOn(p.e) })).filter((p) => p.pieces > 0),
+  ].sort((x, y) => x.makerId.localeCompare(y.makerId) || x.day - y.day);
+  const finishing = b.finE.map((f) => ({ day: f.day, pieces: b.g.flowOn(f.e) })).filter((f) => f.pieces > 0);
+  const plan: Plan = {
+    model: PLANNER_MODEL,
+    factsHash: factsHash(facts, request),
+    quantity: request.quantity,
+    deliveryDay: request.deliveryDay,
+    lastFinishDay: L,
+    production,
+    finishing,
+    money: money(facts, d.inst, production, request.quantity),
+  };
+  if (request.budgetUsdCents !== null && plan.money.priceUsdCents > request.budgetUsdCents) return { kind: "fail", reason: "budget", detail: `lowest price with these parts kept is above the budget` };
+  return { kind: "plan", plan };
 }
 
 // ---------- evaluation ----------

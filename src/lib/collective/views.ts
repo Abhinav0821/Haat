@@ -3,9 +3,14 @@ import { db, schema } from "@/db";
 import { dayDate, type Plan } from "@/lib/planner/model";
 import { reconcileCollectiveIfStale } from "./checkout";
 import { summarise } from "./explain";
+import { aloneVsTogether, BUYER_SENTENCE } from "./compare";
 import { shareSummaries } from "./payouts";
 import { materialsReadyOn, MemberFactsSchema } from "./facts";
-import { CollectiveError, currentPlan, evaluateOrder, memberByLink, partStatuses, settingsOf, type OrderSpec } from "./service";
+import { acceptedParts, CollectiveError, currentPlan, evaluateOrder, memberByLink, partStatuses, settingsOf, termsCtx, type OrderSpec } from "./service";
+import { keepAgreedOption } from "./replan";
+import { decidingQuestion } from "@/lib/planner/question";
+import { checkQuestion } from "@/lib/planner/check";
+import { questionWords } from "./explain";
 import { buyerLinesEn, hasHindiRequirements, partLinesEn, partReadbackHi, type BuyerTerms, type PartTerms, type PlanTerms } from "./terms";
 
 /**
@@ -48,6 +53,27 @@ export async function internalView(orderId: string, now = new Date()) {
     .orderBy(desc(schema.collectivePlans.version));
   const checked = evaluation.kind !== "unresolved" && problems.length === 0;
   const summary = summarise(evaluation, facts, spec, "internal");
+  const comparison = aloneVsTogether(facts, request, now, { evaluation, problems });
+
+  // M1-Q1: when one unknown materials date is all that stands between "unresolved" and an answer.
+  let question = null;
+  const q = decidingQuestion(facts, request, now, evaluation);
+  if (q) {
+    const qProblems = checkQuestion(facts, request, q, now);
+    question = { ...questionWords(q, facts, request), checked: qProblems.length === 0, problems: qProblems.slice(0, 3) };
+  }
+
+  // §D: a plan that keeps the agreed parts, after a maker said no or the facts changed.
+  let keep = null;
+  if (plan && (plan.status === "maker_declined" || plan.status === "needs_replan") && evaluation.kind === "feasible" && problems.length === 0) {
+    const accepted = await acceptedParts(d, plan);
+    if (accepted.length) {
+      const r = keepAgreedOption(facts, request, now, accepted, termsCtx(collective, order.id, spec), evaluation.plan);
+      keep = r.option
+        ? { ...r.option, plan: undefined, makersInr: r.option.plan.money.makersInr }
+        : { none: true as const, acceptedCount: accepted.length, search: r.search, failed: r.failed };
+    }
+  }
 
   let current = null;
   if (plan) {
@@ -103,6 +129,12 @@ export async function internalView(orderId: string, now = new Date()) {
       };
     }),
     evaluation: { kind: evaluation.kind, checked, problems: problems.slice(0, 3), ...summary, startDate: facts.startDate, deliveryDay: request.deliveryDay },
+    /** Coordinator only: each maker's standalone answer. Never sent to buyers or agents. */
+    comparison,
+    question,
+    keep,
+    intake: order.intake ?? null,
+    channel: order.channel,
     plan: current,
     history: history.map((h) => ({ ...h, createdAt: h.createdAt.toISOString() })),
   };
@@ -115,6 +147,19 @@ export async function buyerView(orderId: string, now = new Date()) {
   const [c] = await d.select().from(schema.collectives).where(eq(schema.collectives.id, order.collectiveId));
   const plan = await reconcileCollectiveIfStale(await currentPlan(d, orderId, now), { now });
   const spec = order.spec as OrderSpec;
+  // Today's checked answer for THIS request, in aggregate words only (no maker names, capacities or prices).
+  const open = !plan || plan.status === "needs_replan" || plan.status === "maker_declined" || plan.choice === "primary" || plan.choice === "keep_agreed";
+  let firstCheck: { kind: string; headline: string; reasons: string[] } | null = null;
+  let together: string | null = null;
+  if (open && (!plan || !["paying", "paid"].includes(plan.status))) {
+    const r = await evaluateOrder(orderId, now, plan?.id, false);
+    const checked = r.evaluation.kind === "unresolved" || r.problems.length === 0;
+    if (checked) {
+      const words = summarise(r.evaluation, r.facts, spec, "buyer");
+      firstCheck = { kind: r.evaluation.kind, headline: words.headline.en, reasons: words.reasons.map((x) => x.en) };
+      if (aloneVsTogether(r.facts, r.request, now, r).noneAloneButTogether) together = BUYER_SENTENCE.en;
+    }
+  }
   let offer = null;
   if (plan && plan.status !== "needs_replan" && plan.status !== "maker_declined") {
     const terms = plan.terms as unknown as PlanTerms;
@@ -140,6 +185,10 @@ export async function buyerView(orderId: string, now = new Date()) {
     request: { quantity: spec.quantity, deadline: spec.deadline, budgetUsdCents: spec.budgetUsdCents, details: spec.details },
     status: order.status,
     revising: !!plan && (plan.status === "needs_replan" || plan.status === "maker_declined"),
+    /** Before terms exist: the checked answer on today's facts. Not the terms; makers have not agreed yet. */
+    firstCheck: plan ? null : firstCheck,
+    /** Aggregate only, and only when every maker alone is a checked refusal and the group is a checked yes. */
+    together,
     offer,
   };
 }

@@ -7,7 +7,7 @@ import { reportMakerPayment, withdrawMakerPayment } from "@/lib/collective/payou
 import { db, schema } from "@/db";
 import { eq } from "drizzle-orm";
 
-const CHOICES = new Set<Choice>(["primary", "lowest_price", "within_budget", "largest_by_date", "earliest"]);
+const CHOICES = new Set<Choice>(["primary", "lowest_price", "within_budget", "largest_by_date", "earliest", "keep_agreed"]);
 
 async function own(id: string) {
   const c = await getDemoCollective();

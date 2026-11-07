@@ -1,4 +1,4 @@
-import { dayDate, type CollectiveFacts, type CutCert, type Evaluation, type Issue } from "@/lib/planner/model";
+import { dayDate, withReadyDay, type CollectiveFacts, type CutCert, type DecidingQuestion, type Evaluation, type Issue, type OrderRequest, type ThresholdRefusal } from "@/lib/planner/model";
 
 /**
  * Plain words for a planner answer. Every number is read from the evaluation or
@@ -121,5 +121,50 @@ export function summarise(ev: Evaluation, facts: CollectiveFacts, requested: { q
     reasons,
     alternatives: alts,
     notes,
+  };
+}
+
+/** M1-Q1 in words, for the coordinator, plus the one question to send to the maker. Hypothetical dates are labelled as such. */
+export function questionWords(q: DecidingQuestion, facts: CollectiveFacts, request: OrderRequest): { kind: DecidingQuestion["kind"]; makerId: string; name: string; headline: Words; reason: Words; ask: Words; lastDate: string | null } {
+  const name = facts.makers.find((m) => m.id === q.makerId)?.name ?? "?";
+  const due = dayDate(facts.startDate, request.deliveryDay);
+  const why = (r: ThresholdRefusal, day: number): Words => {
+    if (r.kind === "capacity") return cutWords(withReadyDay(facts, q.makerId, day), r.cut, request.quantity);
+    return {
+      en: `the lowest price would be ${usd(r.plan.money.priceUsdCents)}, above the budget of ${usd(request.budgetUsdCents ?? 0)}.`,
+      hi: `सबसे कम दाम ${usd(r.plan.money.priceUsdCents)} होगा, जो बजट ${usd(request.budgetUsdCents ?? 0)} से ज़्यादा है।`,
+    };
+  };
+  if (q.kind === "no_even_if_ready") {
+    const first = facts.startDate;
+    return {
+      kind: q.kind,
+      makerId: q.makerId,
+      name,
+      headline: {
+        en: `No, whatever ${name}'s materials date: even if her materials were ready on ${enDay(first)}, ${request.quantity} pieces can't be delivered by ${enDay(due)} as asked.`,
+        hi: `नहीं, ${name} का सामान कभी भी आए: ${hiDay(first)} को भी आ जाए, तब भी ${request.quantity} पीस ${hiDay(due)} तक ऐसे नहीं पहुँच सकते।`,
+      },
+      reason: why(q.refusal, 0),
+      ask: { en: "", hi: "" },
+      lastDate: null,
+    };
+  }
+  const last = dayDate(facts.startDate, q.lastDay);
+  const next = dayDate(facts.startDate, q.lastDay + 1);
+  return {
+    kind: q.kind,
+    makerId: q.makerId,
+    name,
+    headline: {
+      en: `One fact decides this: when ${name}'s materials will be ready. Ready by ${enDay(last)}: all ${request.quantity} can be delivered by ${enDay(due)} for ${usd(q.plan.money.priceUsdCents)}. Ready on ${enDay(next)} or later: no.`,
+      hi: `एक ही बात से तय होगा: ${name} का सामान कब आएगा। ${hiDay(last)} तक आ जाए तो सभी ${request.quantity} पीस ${hiDay(due)} तक ${usd(q.plan.money.priceUsdCents)} में पहुँच सकते हैं। ${hiDay(next)} या बाद में आए तो नहीं।`,
+    },
+    reason: why(q.refusal, q.lastDay + 1),
+    ask: {
+      en: `${name}, when will your materials for this order be in hand? If they arrive by ${enDay(last)}, the order can go ahead.`,
+      hi: `${name} जी, इस ऑर्डर का सामान आपके पास कब तक आ जाएगा? ${hiDay(last)} तक आ जाए तो यह ऑर्डर हो सकता है।`,
+    },
+    lastDate: last,
   };
 }

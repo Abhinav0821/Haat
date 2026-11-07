@@ -329,6 +329,8 @@ export const collectiveOrders = pgTable("collective_orders", {
   buyerName: text("buyer_name"),
   buyerEmail: text("buyer_email"),
   buyerText: text("buyer_text").notNull(),
+  /** How the request was taken: the AI's proposed reading, what the buyer confirmed, and which fields they changed. */
+  intake: jsonb("intake").$type<Record<string, unknown>>(),
   /** { quantity, deadline (YYYY-MM-DD), budgetUsdCents | null, item, details } */
   spec: jsonb("spec").$type<Record<string, unknown>>().notNull(),
   /** Makers the coordinator explicitly left out after they declined (never silent). */

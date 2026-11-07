@@ -18,7 +18,9 @@
     "db:migrate": "tsx scripts/migrate.ts",
     "vercel-build": "tsx scripts/migrate.ts && next build",
     "reconcile": "tsx scripts/reconcile-orders.ts",
-    "eval": "tsx eval/run.ts"
+    "eval": "tsx eval/run.ts",
+    "eval:direction": "tsx eval/direction.ts",
+    "eval:intake": "tsx eval/intake.ts"
   },
   "dependencies": {
     "@ai-sdk/google": "^4.0.111",
