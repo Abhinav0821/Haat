@@ -25,7 +25,9 @@ export function demoSettings(at: string): CollectiveSettings {
     fee: { percent: 4.4, fixedUsdCents: 30 },
     inrPerUsd: 88,
     horizonDays: 120,
-    staleAfterDays: 30,
+    // Maker-confirmed availability is re-asked after this many days. 60 keeps facts confirmed
+    // in early November current through the judging window (Dec 1–15); a real collective sets its own.
+    staleAfterDays: 60,
     prov: { source: "coordinator_entered", by: "coordinator", at },
   });
 }

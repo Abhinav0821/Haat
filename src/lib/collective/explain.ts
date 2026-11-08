@@ -40,9 +40,10 @@ export function cutWords(facts: CollectiveFacts, cut: CutCert, requested: number
       hi: `${hiDay(tauDate)} से ${hiDay(lastDate)} तक फ़िनिशिंग में ज़्यादा से ज़्यादा ${Y} पीस हो सकते हैं — ${requested} से कम, चाहे सब कितना भी बनाएँ।`,
     };
   }
+  const span = tauDate === lastDate ? { en: `on ${enDay(tauDate)}`, hi: `${hiDay(tauDate)} को` } : { en: `from ${enDay(tauDate)} to ${enDay(lastDate)}`, hi: `${hiDay(tauDate)} से ${hiDay(lastDate)} तक` };
   return {
-    en: `Before ${enDay(tauDate)} the makers can have at most ${X} pieces ready for finishing, and from ${enDay(tauDate)} to ${enDay(lastDate)} finishing can handle at most ${Y} more: ${X + Y} in all, fewer than the ${requested} asked for.`,
-    hi: `${hiDay(tauDate)} से पहले सब मिलकर ज़्यादा से ज़्यादा ${X} पीस फ़िनिशिंग के लिए दे सकती हैं, और ${hiDay(tauDate)} से ${hiDay(lastDate)} तक फ़िनिशिंग में ज़्यादा से ज़्यादा ${Y} और: कुल ${X + Y}, जो ${requested} से कम है।`,
+    en: `Before ${enDay(tauDate)} the makers can have at most ${X} pieces ready for finishing, and ${span.en} finishing can handle at most ${Y} more: ${X + Y} in all, fewer than the ${requested} asked for.`,
+    hi: `${hiDay(tauDate)} से पहले सब मिलकर ज़्यादा से ज़्यादा ${X} पीस फ़िनिशिंग के लिए दे सकती हैं, और ${span.hi} फ़िनिशिंग में ज़्यादा से ज़्यादा ${Y} और: कुल ${X + Y}, जो ${requested} से कम है।`,
   };
 }
 

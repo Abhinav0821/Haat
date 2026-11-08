@@ -10,8 +10,10 @@ config({ path: ".env.local", quiet: true });
 
 import { cpSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { inArray, ne, notInArray } from "drizzle-orm";
+import { eq, inArray, ne, notInArray } from "drizzle-orm";
 import { db, schema } from "@/db";
+import { DEMO_COLLECTIVE_SLUG } from "@/lib/collective/seed";
+import { SettingsSchema } from "@/lib/collective/facts";
 
 async function main() {
   if (!process.env.DATABASE_URL) {
@@ -46,6 +48,15 @@ async function main() {
   await d.delete(schema.memberParts);
   await d.delete(schema.collectivePlans);
   const collectiveOrders = await d.delete(schema.collectiveOrders).returning({ id: schema.collectiveOrders.id });
+  // The demo collective re-asks makers to confirm after `staleAfterDays`; keep confirmations current through judging.
+  const [demo] = await d.select().from(schema.collectives).where(eq(schema.collectives.slug, DEMO_COLLECTIVE_SLUG));
+  if (demo) {
+    const settings = SettingsSchema.parse(demo.settings);
+    if (settings.staleAfterDays < 60) {
+      await d.update(schema.collectives).set({ settings: { ...settings, staleAfterDays: 60 } as unknown as Record<string, unknown> }).where(eq(schema.collectives.id, demo.id));
+      console.log(`demo collective: makers' confirmations now stay current for 60 days (was ${settings.staleAfterDays})`);
+    }
+  }
   await d.delete(schema.agreements); // references custom requests; orders reference agreements by id only
   const custom = await d.delete(schema.customRequests).returning({ id: schema.customRequests.id });
   const orders = await d.delete(schema.orders).returning({ id: schema.orders.id });

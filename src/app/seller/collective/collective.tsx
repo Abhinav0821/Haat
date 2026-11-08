@@ -67,7 +67,7 @@ const FAIL_EN: Record<string, string> = {
   budget: "would go over the budget",
   facts: "a maker's facts are no longer complete",
   terms_changed: "a part's terms would change (e.g. her price or a date moved)",
-  checker: "the checker rejected it",
+  checker: "no longer fits a maker's current days, materials or other promises",
   input: "the facts are blocked",
 };
 const names = (xs: { name: string }[]) => (xs.length <= 1 ? xs.map((x) => x.name).join("") : `${xs.slice(0, -1).map((x) => x.name).join(", ")} and ${xs[xs.length - 1].name}`);
@@ -597,7 +597,7 @@ function OrderDetail({ detail: d, busy, onAction, onBack }: { detail: Detail; bu
                   <span className="font-medium">
                     Keep {d.keep.kept.length} of {d.keep.acceptedCount} agreed parts
                   </span>{" "}
-                  — {names(d.keep.kept)} keep their agreed parts unchanged
+                  — {names(d.keep.kept)} {d.keep.kept.length === 1 ? "keeps her agreed part" : "keep their agreed parts"} unchanged
                   {d.keep.askedAgain.length > 0 ? <>; only {names(d.keep.askedAgain)} {d.keep.askedAgain.length === 1 ? "is" : "are"} asked</> : "; nobody is asked again"}. {usd(d.keep.priceUsdCents)}
                   {d.keep.fresh && d.keep.premiumUsdCents !== null && (
                     <span className="block text-xs text-muted">
@@ -619,6 +619,12 @@ function OrderDetail({ detail: d, busy, onAction, onBack }: { detail: Detail; bu
                 </button>
               </div>
             </div>
+          )}
+          {ev.checked && d.keep && !d.keep.none && d.keep.kept.length <= (d.keep.fresh?.keeps ?? 0) && (
+            <p className="mt-6 text-xs leading-relaxed text-muted">
+              The cheapest fresh plan already keeps {d.keep.kept.length === 1 ? `${d.keep.kept[0].name}'s agreed part` : `${d.keep.kept.length} agreed parts`} unchanged — as many as any plan
+              can{d.keep.search === "heuristic" ? " (heuristic search)" : ""}. {d.keep.failed.length > 0 && `Keeping more: ${[...new Set(d.keep.failed.map((f) => FAIL_EN[f.reason] ?? f.reason))].join("; ")}.`}
+            </p>
           )}
           {ev.checked && d.keep?.none && (
             <p className="mt-6 text-xs leading-relaxed text-muted">
