@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, or, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { dayDate, type Plan } from "@/lib/planner/model";
 import { reconcileCollectiveIfStale } from "./checkout";
@@ -24,11 +24,26 @@ import { buyerLinesEn, hasHindiRequirements, partLinesEn, partReadbackHi, type B
 const PROV_EN: Record<string, string> = { maker_confirmed: "confirmed by her", coordinator_entered: "entered by the coordinator (estimate)" };
 
 /** The PayPal record behind a paying/paid plan: PayPal's own capture id, fee and net, never estimates. */
-async function paymentOf(d: Awaited<ReturnType<typeof db>>, paymentRef: string | null) {
+export async function paymentOf(d: Awaited<ReturnType<typeof db>>, paymentRef: string | null) {
   if (!paymentRef) return null;
   const [o] = await d.select().from(schema.orders).where(eq(schema.orders.id, paymentRef));
   if (!o) return null;
+  // PayPal's own notifications about this payment, as delivered to our webhook (not the browser return).
+  const ids = [o.paypalOrderId, o.paypalCaptureId].filter((x): x is string => !!x);
+  const hooks = ids.length
+    ? await d
+        .select({ type: schema.webhookEvents.type, receivedAt: schema.webhookEvents.receivedAt, processedAt: schema.webhookEvents.processedAt })
+        .from(schema.webhookEvents)
+        .where(
+          or(
+            inArray(sql<string>`${schema.webhookEvents.payload}->'resource'->>'id'`, ids),
+            eq(sql<string>`${schema.webhookEvents.payload}->'resource'->'supplementary_data'->'related_ids'->>'order_id'`, o.paypalOrderId),
+          ),
+        )
+        .orderBy(asc(schema.webhookEvents.receivedAt))
+    : [];
   return {
+    webhooks: hooks.map((h) => ({ type: h.type, receivedAt: h.receivedAt.toISOString(), processed: !!h.processedAt })),
     paypalOrderId: o.paypalOrderId,
     captureId: o.paypalCaptureId,
     status: o.status,

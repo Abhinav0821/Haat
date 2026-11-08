@@ -38,7 +38,7 @@ type Detail = {
     parts: Part[];
     schedule: { dates: string[]; rows: { name: string; pieces: number[] }[]; finishing: { date: string; pieces: number }[] };
     money: { makersInr: number; finishingInr: number; packagingInr: number; collectionInr: number; chargeInr: number; shippingInr: number; totalCostInr: number; priceUsdCents: number; estFeeUsdCents: number };
-    payment: { paypalOrderId: string; captureId: string | null; status: string; amountCents: number; feeCents: number | null; netCents: number | null; refundedCents: number; capturedAt: string | null } | null;
+    payment: { paypalOrderId: string; captureId: string | null; status: string; amountCents: number; feeCents: number | null; netCents: number | null; refundedCents: number; capturedAt: string | null; webhooks: { type: string; receivedAt: string; processed: boolean }[] } | null;
     shares: ShareRowData[];
   } | null;
   history: { id: string; version: number; choice: string; status: string; createdAt: string }[];
@@ -364,6 +364,11 @@ function PaymentSection({ plan: p, busy, onAction }: { plan: NonNullable<Detail[
               </>
             )}
             {pay.capturedAt && <> · {when(pay.capturedAt)}</>} · {pay.status.toLowerCase().replace(/_/g, " ")}
+          </p>
+          <p className="mt-1 text-xs text-muted">
+            {pay.webhooks.length
+              ? `PayPal notifications received: ${pay.webhooks.map((w) => `${w.type.toLowerCase().replace(/_/g, " ")}${w.processed ? "" : " (not yet processed)"}`).join(" · ")}`
+              : "No PayPal notification received for this payment yet."}
           </p>
           {refunded && (
             <p className="mt-2 text-xs text-marigold">

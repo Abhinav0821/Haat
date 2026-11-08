@@ -154,3 +154,17 @@ test("MCP: a buyer's agent requests with confirmed fields and reads only aggrega
   assert.equal(bad.isError, true);
   await client.close();
 });
+
+test("payment record lists PayPal's webhook notifications for that payment only (order or capture id)", async () => {
+  const { paymentOf } = await import("@/lib/collective/views");
+  const d = await db();
+  const pid = `PP-${process.pid}-${Date.now()}`;
+  const [o] = await d.insert(schema.orders).values({ storeId: null, paypalOrderId: pid, paypalCaptureId: `CAP-${pid}`, status: "COMPLETED", amountCents: 1000, currency: "USD", items: [], channel: "web" }).returning();
+  await d.insert(schema.webhookEvents).values([
+    { id: `WH-1-${pid}`, type: "CHECKOUT.ORDER.APPROVED", payload: { resource: { id: pid } }, processedAt: new Date() },
+    { id: `WH-2-${pid}`, type: "PAYMENT.CAPTURE.COMPLETED", payload: { resource: { id: `CAP-${pid}`, supplementary_data: { related_ids: { order_id: pid } } } } },
+    { id: `WH-3-${pid}`, type: "PAYMENT.CAPTURE.COMPLETED", payload: { resource: { id: "someone-else" } } },
+  ]);
+  const p = await paymentOf(d, o.id);
+  assert.deepEqual(p?.webhooks.map((w) => [w.type, w.processed]), [["CHECKOUT.ORDER.APPROVED", true], ["PAYMENT.CAPTURE.COMPLETED", false]]);
+});
