@@ -625,3 +625,40 @@ test("even its own attempt's negative result cannot unlock a plan while that att
   await co.endCollectiveCapture(row, new Date(later(1).getTime() + co.CAPTURE_LEASE_MS + 1000), fence);
   assert.equal((await planRow(plan.id)).status, "approved", "after the lease, the same attempt's definite refusal unlocks it");
 });
+
+test("PayPal refusing the capture (422 COMPLIANCE_VIOLATION): nothing charged, terms unlocked, the order retired, and the next payment is a NEW PayPal order", async () => {
+  const { o, plan } = await approved();
+  const first = await checkout(o, plan);
+  const refusal = new PayPalApiError(422, { name: "UNPROCESSABLE_ENTITY", details: [{ issue: "COMPLIANCE_VIOLATION" }], debug_id: "dbg1" } as never, `/v2/checkout/orders/${first.paypalOrderId}/capture`);
+  assert.match(refusal.message, /COMPLIANCE_VIOLATION/, "the reason is in the logged message");
+  assert.match(refusal.message, /dbg1/);
+  const refuse = (async () => { throw refusal; }) as never;
+  await assert.rejects(captureCheckoutOrder(first.paypalOrderId, { paypalCall: refuse, now: later(1) }), (e: unknown) => e instanceof CheckoutError && e.status === 422 && /not been charged/.test(e.message));
+  assert.equal((await planRow(plan.id)).status, "approved", "terms unlocked, hold kept");
+  assert.equal((await paymentRow(first.paypalOrderId)).status, "REFUSED");
+
+  // PayPal's webhook redelivering APPROVED for the refused order: recorded once, never re-captured or retried forever.
+  const spy = never();
+  const res = await handleWebhookEvent({ id: `WH-refused-${first.paypalOrderId}`, event_type: "CHECKOUT.ORDER.APPROVED", resource: { id: first.paypalOrderId, status: "APPROVED" } } as never, { capture: spy.fn });
+  assert.equal(spy.called, false);
+  assert.notEqual(res.status, "applied");
+  await assert.rejects(captureCheckoutOrder(first.paypalOrderId, { paypalCall: refuse, now: later(1.1) }), (e: unknown) => e instanceof CheckoutError && e.status === 422);
+
+  // Paying again asks PayPal for a new order (new request id), which can capture.
+  const second = await checkout(o, plan, later(1.2));
+  assert.notEqual(second.paypalOrderId, first.paypalOrderId);
+  assert.match(created[created.length - 1].requestId ?? "", /-r1$/);
+  const again = await checkout(o, plan, later(1.25));
+  assert.equal(again.paypalOrderId, second.paypalOrderId, "double clicks still get one order");
+  const done = await captureCheckoutOrder(second.paypalOrderId, { paypalCall: okCapture, now: later(1.3) });
+  assert.equal(done.status, "COMPLETED");
+  assert.equal((await planRow(plan.id)).status, "paid");
+  assert.equal((await shares(plan.id)).length, (await partsOf(plan.id)).length);
+});
+
+test("the stateless MCP endpoint refuses GET instead of holding a function open", async () => {
+  const { GET } = await import("@/app/api/mcp/route");
+  const res = await GET();
+  assert.equal(res.status, 405);
+  assert.equal(res.headers.get("Allow"), "POST");
+});

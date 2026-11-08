@@ -82,9 +82,12 @@ export async function createCollectiveCheckout(orderId: string, planId: string, 
   const t = (plan.terms as unknown as PlanTerms).buyer;
   const name = `${t.quantity} × ${t.product.en}`;
 
+  // Same request id → the same PayPal order (double clicks are one order). After PayPal refused a
+  // capture, that order can't be paid, so the next attempt asks PayPal for a new one.
+  const refused = await d.select({ id: schema.orders.id }).from(schema.orders).where(and(eq(schema.orders.collectivePlanId, plan.id), eq(schema.orders.termsHash, plan.termsHash), eq(schema.orders.status, "REFUSED")));
   const pp = await paypal<{ id: string; links?: { rel: string; href: string }[] }>("/v2/checkout/orders", {
     method: "POST",
-    requestId: `collective-${plan.id}-${plan.termsHash.slice(0, 16)}`,
+    requestId: `collective-${plan.id}-${plan.termsHash.slice(0, 16)}${refused.length ? `-r${refused.length}` : ""}`,
     body: {
       intent: "CAPTURE",
       purchase_units: [

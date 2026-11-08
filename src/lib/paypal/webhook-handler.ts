@@ -175,7 +175,8 @@ export async function handleWebhookEvent(
         } catch (e) {
           // A refusal (sold out, terms changed) is a final answer: record it. Nothing was charged.
           // Anything else is transient: rethrow so the event stays unprocessed and PayPal redelivers it.
-          if ((e as { status?: number }).status !== 409) throw e;
+          const status = (e as { status?: number }).status;
+          if (status !== 409 && status !== 422) throw e;
           result = { status: "recorded", note: `capture refused: ${(e as Error).message}` };
         }
       }

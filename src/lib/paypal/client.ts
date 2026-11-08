@@ -24,8 +24,9 @@ export class PayPalApiError extends Error {
     readonly body: { name?: string; message?: string; debug_id?: string; details?: unknown } | string,
     readonly path: string,
   ) {
+    const issues = typeof body === "string" || !Array.isArray(body.details) ? [] : (body.details as { issue?: string }[]).map((d) => d?.issue).filter((x): x is string => !!x);
     const summary =
-      typeof body === "string" ? body.slice(0, 300) : `${body.name ?? "ERROR"}: ${body.message ?? ""}`;
+      typeof body === "string" ? body.slice(0, 300) : `${body.name ?? "ERROR"}: ${body.message ?? ""}${issues.length ? ` [${issues.join(", ")}]` : ""}${body.debug_id ? ` (debug_id ${body.debug_id})` : ""}`;
     super(`PayPal ${status} on ${path} — ${summary}`);
     this.name = "PayPalApiError";
   }

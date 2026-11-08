@@ -7,6 +7,8 @@ const STATUS_RANK: Record<string, number> = {
   APPROVED: 1,
   PENDING: 2,
   DENIED: 3,
+  /** Our record: PayPal refused to capture this order (422, e.g. a compliance check). No money moved; a new order is needed. */
+  REFUSED: 3,
   COMPLETED: 3,
   PARTIALLY_REFUNDED: 4,
   REFUNDED: 5,
@@ -17,7 +19,7 @@ export const CAPTURED_STATUSES = new Set(["COMPLETED", "PARTIALLY_REFUNDED", "RE
 
 export function shouldAdvance(from: string, to: string): boolean {
   // A successful retry is final money movement even if an earlier capture failed.
-  if (from === "DENIED" && to === "COMPLETED") return true;
+  if ((from === "DENIED" || from === "REFUSED") && to === "COMPLETED") return true;
   // Partial refunds can repeat (each one is a new fact) and end in a full refund.
   if (from === "PARTIALLY_REFUNDED" && to === "PARTIALLY_REFUNDED") return true;
   if (from === to) return false;

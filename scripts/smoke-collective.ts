@@ -77,9 +77,10 @@ async function main() {
   // 1. The buyer's request.
   const info = await call("/api/c/requests");
   const deadline = new Date(Date.parse(`${info.earliest}T00:00:00Z`) + 20 * 86_400_000).toISOString().slice(0, 10);
-  const req = await call("/api/c/requests", { action: "send", text: `Smoke test: 30 scarves by ${deadline}`, quantity: 30, deadline, buyerName: "Smoke test", via: "form" });
+  const quantity = Number(process.env.SMOKE_QUANTITY ?? 30); // vary it to avoid repeating an identical payment
+  const req = await call("/api/c/requests", { action: "send", text: `Smoke test: ${quantity} scarves by ${deadline}`, quantity, deadline, buyerName: "Smoke test", via: "form" });
   const orderId: string = req.id;
-  check("buyer request accepted", !!orderId, `order ${orderId}, 30 by ${deadline}`);
+  check("buyer request accepted", !!orderId, `order ${orderId}, ${quantity} by ${deadline}`);
 
   // 2. Checked plan, offered to makers.
   let iv = await call(`/api/seller/collective/orders/${orderId}`, undefined, true);

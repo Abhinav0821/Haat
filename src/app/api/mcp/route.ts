@@ -22,4 +22,15 @@ async function handle(request: Request): Promise<Response> {
   return transport.handleRequest(request);
 }
 
-export { handle as GET, handle as POST, handle as DELETE };
+/**
+ * Stateless JSON server: no server-to-client event stream. A GET would otherwise hold a
+ * serverless function open until the platform's timeout, so it is refused per the spec.
+ */
+function noStream(): Response {
+  return new Response(JSON.stringify({ jsonrpc: "2.0", error: { code: -32000, message: "Method not allowed: this server is stateless (POST only)." }, id: null }), {
+    status: 405,
+    headers: { "Content-Type": "application/json", Allow: "POST" },
+  });
+}
+
+export { handle as POST, noStream as GET, noStream as DELETE };

@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { env } from "@/lib/env";
 import { paypal, PayPalApiError } from "@/lib/paypal/client";
@@ -156,6 +156,9 @@ export async function captureCheckoutOrder(paypalOrderId: string, deps: { paypal
   if (CAPTURED_STATUSES.has(order.status)) {
     return { orderId: order.id, status: order.status }; // already captured (e.g. webhook got there first)
   }
+  if (order.status === "REFUSED") {
+    throw new CheckoutError("PayPal couldn't complete this payment, so you have not been charged. Please start the payment again.", 422);
+  }
 
   // Every capture path (browser, return URL, webhook) re-checks the stock hold and,
   // for custom orders and collective plans, atomically locks the exact terms version as
@@ -211,6 +214,16 @@ export async function captureCheckoutOrder(paypalOrderId: string, deps: { paypal
         await endAgreementCapture(order);
         await endCollectiveCapture(order, now, collectiveCaptureFence);
         throw new CheckoutError("Payment not approved yet.", 409);
+      }
+      // Any other 422 is PayPal refusing this capture on a business rule (e.g. COMPLIANCE_VIOLATION,
+      // PAYER_CANNOT_PAY, PAYEE_ACCOUNT_RESTRICTED): definite, no money moved, and this PayPal order
+      // won't capture later. Unlock the terms and retire the order so the buyer can pay with a new one.
+      if (e.status === 422) {
+        console.warn(`[checkout] PayPal refused capture of ${paypalOrderId}: ${e.message}`);
+        await d.update(schema.orders).set({ status: "REFUSED", updatedAt: clock() }).where(and(eq(schema.orders.id, order.id), inArray(schema.orders.status, ["CREATED", "APPROVED"])));
+        await endAgreementCapture(order);
+        await endCollectiveCapture(order, now, collectiveCaptureFence);
+        throw new CheckoutError("PayPal couldn't complete this payment, so you have not been charged. You can try again; PayPal may ask you to use another account or contact PayPal support.", 422);
       }
     }
     // Unknown outcome (network, 5xx): stay "paying" until a retry, the webhook,
