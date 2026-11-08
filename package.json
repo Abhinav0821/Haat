@@ -10,7 +10,7 @@
     "smoke": "tsx scripts/smoke-test.ts",
     "db:generate": "drizzle-kit generate",
     "tunnel": "cloudflared tunnel --url http://localhost:3000",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "next typegen && tsc --noEmit",
     "test": "tsx --test tests/*.test.ts tests/*.test.mts",
     "try:listing": "tsx scripts/try-listing.ts",
     "demo:reset": "tsx scripts/reset-demo.ts",
