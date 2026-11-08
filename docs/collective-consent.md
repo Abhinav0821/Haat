@@ -199,7 +199,11 @@ part's pay. Code: `src/lib/collective/checkout.ts` and `src/lib/collective/payou
 - **AI proposes; the buyer confirms.** The AI reads the buyer's words into a proposal with
   four fields only: quantity, delivery date, budget and a short description. Code checks
   each value before the buyer sees it:
-  - a number that doesn't occur in the words is shown as an assumption;
+  - a value counts as stated only when the model's quote **for that field** is in the words
+    and contains it;
+  - a quantity's quote is not a money phrase, and the quantity isn't one end of a range;
+  - a budget's quote names the same currency;
+  - anything else is shown as an assumption, and a non-dollar, non-rupee budget is left empty;
   - a date counts as stated only when the words parse to it without the model;
   - a value that is missing, past or out of range stays empty, with a question.
 

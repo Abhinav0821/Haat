@@ -218,3 +218,57 @@ test("intake evaluation: scoring separates caught errors from wrong values shown
   const xmas = { ...perfect, quantity: 40, quantityWords: "forty", deliverBy: "2026-12-25", deliverByWords: "before Christmas", budget: { amount: 400, currency: "USD", basis: "total" }, budgetWords: "$400" };
   assert.equal(scoreCase(i02, xmas).fields.deadline, "right_flagged", "a holiday is read and flagged, never stated");
 });
+
+test("keeping agreed parts: kept production is mandatory even when another maker is just as cheap (zero asking prices)", async () => {
+  const { makeFacts, NOW: EVAL_NOW } = await import("../eval/scenarios");
+  // Finishing happens only on Friday (5 pieces). A's kept Monday pieces wait four days for it; B, at the
+  // same zero price, can produce on Thursday and fill Friday by herself — the shorter path for a solver.
+  const base = makeFacts(
+    [
+      { id: "A", week: [0, 2, 2, 2, 2, 2, 0], ready: 0, ask: 40 },
+      { id: "B", week: [0, 5, 5, 5, 5, 5, 0], ready: 0, ask: 40 },
+    ],
+    [0, 0, 0, 0, 0, 5, 0],
+  );
+  const zero = { ...base, makers: base.makers.map((m) => ({ ...m, askInrPerPiece: { ...m.askInrPerPiece, value: 0 }, floorInrPerPiece: { ...m.floorInrPerPiece, value: 0 } })) };
+  const r = { quantity: 5, deliveryDay: 13, budgetUsdCents: null }; // last finishing day: Friday, day 4
+  const keep = [{ makerId: "A", production: [{ day: 0, pieces: 2 }] }];
+  const out = planKeeping(zero, r, EVAL_NOW, keep);
+  assert.equal(out.kind, "plan", out.kind === "fail" ? out.detail : "");
+  if (out.kind !== "plan") return;
+  assert.deepEqual(checkPlan(zero, r, out.plan, EVAL_NOW), []);
+  assert.deepEqual(out.plan.production.filter((p) => p.makerId === "A").map((p) => [p.day, p.pieces]), [[0, 2]]);
+  // And through the option search: A's agreed part is kept, not reported as impossible.
+  const startDate = zero.startDate;
+  const t = partTerms(out.plan, startDate, "A", ctx)!;
+  const option = keepAgreedOption(zero, r, EVAL_NOW, [{ memberId: "A", name: "A", termsHash: hashOf(t), schedule: t.schedule }], ctx, null).option;
+  assert.deepEqual(option?.kept.map((k) => k.name), ["A"]);
+});
+
+test("intake: grounding is field-specific — swapped fields, ranges and foreign currency are never 'from your words'", () => {
+  const base = { deliverBy: "2026-12-10", deliverByWords: "by Dec 10", item: "scarves", matchesProduct: "yes", details: null, unclear: [] };
+  // Model swaps the numbers: 250 pieces and a $30 budget.
+  const text = "30 scarves, budget $250, by Dec 10";
+  for (const [qw, bw] of [["budget $250", "30 scarves"], ["30 scarves", "$250"], [null, null]] as const) {
+    const i = interpret(text, { ...base, quantity: 250, quantityWords: qw, budget: { amount: 30, currency: "USD", basis: "total" }, budgetWords: bw }, C);
+    assert.notEqual(i.quantity.status, "stated", `quantity quoted as ${qw}`);
+    assert.notEqual(i.budgetUsdCents.status, "stated", `budget quoted as ${bw}`);
+  }
+  // A range is flagged, whichever end is chosen.
+  for (const t of ["50–60 scarves by Dec 10", "50-60 scarves by Dec 10", "between 50 and 60 scarves by Dec 10", "50 or 60 scarves by Dec 10"]) {
+    const i = interpret(t, { ...base, quantity: 50, quantityWords: t.split(" scarves")[0], budget: null, budgetWords: null }, C);
+    assert.equal(i.quantity.status, "assumed", t);
+    assert.ok(i.questions.some((q) => /exactly/.test(q)), t);
+  }
+  // Euros are not dollars, quoted or not.
+  for (const bw of ["€250", "Budget €250", null]) {
+    const i = interpret("40 scarves by Dec 10. Budget €250", { ...base, quantity: 40, quantityWords: "40 scarves", budget: { amount: 250, currency: "USD", basis: "total" }, budgetWords: bw }, C);
+    assert.equal(i.budgetUsdCents.value, null, String(bw));
+    assert.equal(i.budgetUsdCents.status, "missing");
+  }
+  // A dollar amount without a currency in its own words is a question, not a statement.
+  assert.equal(interpret("40 scarves by Dec 10, budget 250", { ...base, quantity: 40, quantityWords: "40 scarves", budget: { amount: 250, currency: "USD", basis: "total" }, budgetWords: "budget 250" }, C).budgetUsdCents.status, "assumed");
+  // Dates are not ranges; plain correct readings are still stated.
+  const ok = interpret("12 scarves, delivery 2026-12-20, $300", { ...base, deliverBy: "2026-12-20", deliverByWords: "2026-12-20", quantity: 12, quantityWords: "12 scarves", budget: { amount: 300, currency: "USD", basis: "total" }, budgetWords: "$300" }, C);
+  assert.deepEqual([ok.quantity.status, ok.deadline.status, ok.budgetUsdCents.status], ["stated", "stated", "stated"]);
+});

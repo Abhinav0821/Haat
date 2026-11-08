@@ -185,9 +185,13 @@ export function derive(facts: CollectiveFacts, request: OrderRequest, now: Date)
 
 // ---------- network ----------
 
-type Built = { g: FlowGraph; s: number; Tc: number; To: number; P: number; prod: { id: string; day: number; e: number }[]; finE: { day: number; e: number }[]; fixedE: number[] };
+type Built = { g: FlowGraph; s: number; Tc: number; To: number; F: number; P: number; prod: { id: string; day: number; e: number }[]; finE: { day: number; e: number }[]; fixedE: number[] };
 
-/** `fixed`: production that must stay exactly as given (kept agreed parts); it enters finishing `lag` days later at no cost. */
+/**
+ * `fixed`: production that must stay exactly as given (kept agreed parts). It enters
+ * finishing `lag` days later from its OWN source F, never from s, so it can be pushed
+ * first and enforced explicitly (see planKeeping), whatever the other makers ask.
+ */
 function build(inst: Instance, makers: DMaker[], lastFinish: number, gates?: Map<string, number>, fixed: { day: number; pieces: number }[] = []): Built {
   const L = Math.min(lastFinish, inst.H - 1);
   const H = inst.H;
@@ -201,6 +205,7 @@ function build(inst: Instance, makers: DMaker[], lastFinish: number, gates?: Map
   const kNode = makers.map((m) => m.commits.map(() => n++));
   const wBase = n;
   n += Math.max(0, L + 1);
+  const F = n++;
   const g = new FlowGraph(n);
   const s = 0,
     Tc = 1,
@@ -227,11 +232,8 @@ function build(inst: Instance, makers: DMaker[], lastFinish: number, gates?: Map
     if (t < L) g.addEdge(wBase + t, wBase + t + 1, INF);
     if (inst.fin[t] > 0) finE.push({ day: t, e: g.addEdge(wBase + t, To, inst.fin[t]) });
   }
-  // Zero-cost source arcs: successive shortest paths saturate them first, and a path from
-  // s never runs back through s, so once used they stay used. Fewer than all used ⇒ the
-  // kept production can't be finished in time alongside anything else.
-  const fixedE = fixed.map((f) => (f.day + inst.lag <= L && f.day >= 0 ? g.addEdge(s, wBase + f.day + inst.lag, f.pieces) : -1));
-  return { g, s, Tc, To, P, prod, finE, fixedE };
+  const fixedE = fixed.map((f) => (f.day + inst.lag <= L && f.day >= 0 ? g.addEdge(F, wBase + f.day + inst.lag, f.pieces) : -1));
+  return { g, s, Tc, To, F, P, prod, finE, fixedE };
 }
 
 function serveCommitments(b: Built) {
@@ -413,9 +415,17 @@ export function planKeeping(facts: CollectiveFacts, request: OrderRequest, now: 
   const free = d.inst.makers.filter((m) => !keptIds.has(m.id));
   const b = build(d.inst, free, L, undefined, fixed);
   serveCommitments(b);
-  const r = b.g.minCostFlow(b.s, b.To, request.quantity);
+  // 1. The kept production is mandatory: route all of it to finishing first, from its own
+  //    source. Only zero-cost waiting/finishing arcs are used, so the residual graph has no
+  //    negative cycle.
+  const kept = b.g.maxflow(b.F, b.To);
+  if (kept < fixedTotal) return { kind: "fail", reason: "capacity", detail: `the kept parts alone can't all be finished in time (${kept} of ${fixedTotal})` };
+  // 2. Everyone else fills the rest at minimum cost. An s→To augmenting path never passes
+  //    through F (its arcs out are saturated), so the kept production stays exactly as agreed.
+  const r = b.g.minCostFlow(b.s, b.To, request.quantity - fixedTotal);
   const fixedUsed = b.fixedE.reduce((s, e) => s + (e < 0 ? 0 : b.g.flowOn(e)), 0);
-  if (r.flow < request.quantity || fixedUsed < fixedTotal) return { kind: "fail", reason: "capacity", detail: `with these parts kept, at most ${r.flow} can be finished in time` };
+  if (fixedUsed !== fixedTotal) return { kind: "fail", reason: "input", detail: "kept production was displaced" }; // structurally impossible; never return such a plan
+  if (r.flow < request.quantity - fixedTotal) return { kind: "fail", reason: "capacity", detail: `with these parts kept, at most ${fixedTotal + r.flow} can be finished in time` };
   const production = [
     ...keep.flatMap((k) => k.production.map((p) => ({ makerId: k.makerId, day: p.day, pieces: p.pieces }))),
     ...b.prod.map((p) => ({ makerId: p.id, day: p.day, pieces: b.g.flowOn(p.e) })).filter((p) => p.pieces > 0),

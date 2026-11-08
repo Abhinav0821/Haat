@@ -214,8 +214,11 @@ extension M1-Q1 and §D's "most parts kept" comes from exhaustive search, not a 
 They include ambiguous dates, per-piece and rupee budgets, an off-product request and a
 prompt injection. Each field reading is judged **after** code grounding. The key figure is
 *wrong and shown as the buyer's words*. Wrong values that grounding flagged or left empty are
-caught before anything is planned. Raw readings are cached per model, prompt version and
-text (`npm run eval:intake -- --run`, about 20 requests). Results will be added here once
+caught before anything is planned. It uses one fixed model (`EVAL_MODEL`, else `GOOGLE_MODEL`) with no fallback and no automatic
+retries. Each uncached case is exactly one request, at most 20. Any HTTP 429 stops the run.
+Every record keeps the model requested and the model that answered, and only answers from
+the requested model are scored. Raw readings are cached per model, prompt version and text
+(`npm run eval:intake -- --run`). Results will be added here once
 run, from a separate quota project where possible.
 
 ## 2. One complete transaction (PayPal sandbox)

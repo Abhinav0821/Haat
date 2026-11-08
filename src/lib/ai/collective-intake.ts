@@ -1,5 +1,5 @@
-import { generateText, Output } from "ai";
-import { model, aiModelId } from "@/lib/ai/model";
+import { generateText, Output, type LanguageModel } from "ai";
+import { model as appModel, aiModelId } from "@/lib/ai/model";
 import { HeardSchema, interpret, plural, type Interpretation } from "@/lib/collective/intake";
 
 /**
@@ -11,15 +11,25 @@ import { HeardSchema, interpret, plural, type Interpretation } from "@/lib/colle
 export type IntakeCtx = { today: string; earliest: string; inrPerUsd: number; product: string; collective: string };
 export const INTAKE_PROMPT_VERSION = "intake-v1";
 
+/**
+ * The app's reading. The app model may fall back to another model when the primary is
+ * overloaded; the model recorded is the one that actually answered (the provider's response).
+ */
 export async function readBulkRequest(text: string, ctx: IntakeCtx): Promise<{ interpretation: Interpretation; model: string }> {
-  return { interpretation: interpret(text, await readRaw(text, ctx), ctx), model: aiModelId() };
+  const r = await readRaw(text, ctx);
+  return { interpretation: interpret(text, r.output, ctx), model: r.modelId };
 }
 
-/** The model's raw reading, before any grounding (the evaluation caches this). */
-export async function readRaw(text: string, ctx: IntakeCtx): Promise<unknown> {
-  const { output } = await generateText({
-    model: model(),
+/**
+ * The model's raw reading, before any grounding. `model` defaults to the app's (with
+ * fallback); the evaluation passes one fixed model. No automatic SDK retries: one call is
+ * one request.
+ */
+export async function readRaw(text: string, ctx: IntakeCtx, opts: { model?: LanguageModel } = {}): Promise<{ output: unknown; modelId: string }> {
+  const { output, response } = await generateText({
+    model: opts.model ?? appModel(),
     temperature: 0,
+    maxRetries: 0,
     system: [
       `A buyer is writing to ${ctx.collective}, a collective of artisans that makes ${plural(ctx.product)}. Read the buyer's request into the fields.`,
       `Today is ${ctx.today}. Resolve dates to YYYY-MM-DD; for a date without a year, use its next occurrence.`,
@@ -29,5 +39,5 @@ export async function readRaw(text: string, ctx: IntakeCtx): Promise<unknown> {
     prompt: `<buyer_request>\n${text}\n</buyer_request>`,
     output: Output.object({ schema: HeardSchema, name: "bulk_request" }),
   });
-  return output;
+  return { output, modelId: response?.modelId || aiModelId() };
 }

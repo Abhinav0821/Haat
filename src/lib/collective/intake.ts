@@ -134,6 +134,28 @@ export function explicitDate(words: string, today: string): string | null {
   return null;
 }
 
+/** Currency written in a phrase: "USD", "INR", "OTHER" (€, £, C$, …), or null if none. */
+export function currencyIn(phrase: string): "USD" | "INR" | "OTHER" | null {
+  const p = phrase.toLowerCase();
+  if (/€|£|¥|\b(eur|euros?|gbp|pounds?|yen|cad|aud|chf|sgd)\b|\b(c|a|nz|s|hk)\$/.test(p)) return "OTHER";
+  if (/₹|\brs\.?\s*\d|\binr\b|rupees?/.test(p)) return "INR";
+  if (/\$|\busd\b|dollars?/.test(p)) return "USD";
+  return null;
+}
+
+/** Whether `n` is one end of a range written in the text ("50-60", "50–60", "50 to 60", "50 or 60", "between 50 and 60"). */
+export function inRange(text: string, n: number): boolean {
+  const t = text
+    .toLowerCase()
+    .replace(/,(?=\d{3})/g, "")
+    .replace(/\b\d{4}-\d{1,2}-\d{1,2}\b/g, " ") // ISO dates are not ranges
+    .replace(/\b\d{1,2}\/\d{1,2}(?:\/\d{2,4})?\b/g, " "); // nor 12/15
+  const ranges = [...t.matchAll(/(\d+(?:\.\d+)?)\s*(?:-|–|—|to|or)\s*\$?(\d+(?:\.\d+)?)/g), ...t.matchAll(/between\s+\$?(\d+(?:\.\d+)?)\s+and\s+\$?(\d+(?:\.\d+)?)/g)];
+  return ranges.some((m) => Number(m[1]) === n || Number(m[2]) === n);
+}
+
+const MONEY_WORDS = /\b(budget|price|cost|costs|pay|paying|each|per|apiece|total|max|maximum|around|about)\b/;
+
 const contains = (text: string, words: string | null) => !!words && words.trim().length > 0 && text.toLowerCase().includes(words.trim().toLowerCase());
 const usd = (c: number) => `$${(c / 100).toFixed(2)}`;
 const enDate = (iso: string) => new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" });
@@ -165,8 +187,20 @@ export function interpret(text: string, raw: unknown, ctx: { today: string; earl
     quantity = { value: null, status: "missing", words: null, note: q === null ? null : `Quantity must be a whole number from 1 to ${MAX_QUANTITY.toLocaleString("en-US")}.` };
     questions.push("How many pieces do you need?");
   } else {
-    const grounded = numbers.has(q) && (h.quantityWords === null || contains(text, h.quantityWords));
-    quantity = { value: q, status: grounded ? "stated" : "assumed", words: contains(text, h.quantityWords) ? h.quantityWords : null, note: grounded ? null : "This number isn't in your words. Please check it." };
+    // Field-specific evidence: the model's own quote for the QUANTITY must be in the text and
+    // contain this number, must not be a money phrase, and the number must not be a range end.
+    const words = contains(text, h.quantityWords) ? h.quantityWords!.trim() : null;
+    const quoted = !!words && numbersIn(words).has(q) && currencyIn(words) === null && !MONEY_WORDS.test(words.toLowerCase());
+    const range = inRange(text, q);
+    const note = range
+      ? `You gave a range; we used ${q}. Please choose the number of pieces.`
+      : quoted
+        ? null
+        : numbers.has(q)
+          ? `We read ${q} as the number of pieces. Please check it.`
+          : "This number isn't in your words. Please check it.";
+    quantity = { value: q, status: quoted && !range ? "stated" : "assumed", words, note };
+    if (range) questions.push("How many pieces exactly?");
   }
 
   // Delivery date.
@@ -190,8 +224,13 @@ export function interpret(text: string, raw: unknown, ctx: { today: string; earl
   // Budget (USD cents; INR converted at the collective's recorded rate).
   let budgetUsdCents: Field<number>;
   const b = h.budget;
+  const bWords = contains(text, h.budgetWords) ? h.budgetWords!.trim() : null;
+  const quotedCurrency = bWords ? currencyIn(bWords) : null;
+  // Any non-dollar, non-rupee currency in the budget's own words — or anywhere in the text when the
+  // model gave no quote — means the amount can't be read as dollars or rupees.
+  const foreign = quotedCurrency === "OTHER" || (!bWords && currencyIn(text) === "OTHER") || (b !== null && b.currency !== "OTHER" && quotedCurrency !== null && quotedCurrency !== b.currency && currencyIn(text) === "OTHER");
   if (b === null) budgetUsdCents = { value: null, status: "missing", words: null, note: null };
-  else if (b.currency === "OTHER" || !(b.amount > 0) || !Number.isFinite(b.amount)) {
+  else if (b.currency === "OTHER" || foreign || !(b.amount > 0) || !Number.isFinite(b.amount)) {
     budgetUsdCents = { value: null, status: "missing", words: contains(text, h.budgetWords) ? h.budgetWords : null, note: "Please give the budget in US dollars." };
     questions.push("What is your budget in US dollars? (Optional)");
   } else {
@@ -201,9 +240,15 @@ export function interpret(text: string, raw: unknown, ctx: { today: string; earl
     } else {
       const usdAmount = b.currency === "USD" ? b.amount : b.amount / ctx.inrPerUsd;
       const cents = Math.round(usdAmount * 100 * (perPiece ? quantity.value! : 1));
-      const grounded = numbers.has(b.amount) && (h.budgetWords === null || contains(text, h.budgetWords));
+      // Field-specific evidence: the budget's own quote contains this amount AND names this currency.
+      const hasAmount = !!bWords && numbersIn(bWords).has(b.amount);
+      const currencyMatches = quotedCurrency === b.currency;
+      const range = inRange(text, b.amount);
+      const grounded = hasAmount && currencyMatches && !range;
       const notes = [
-        !grounded ? "This amount isn't in your words. Please check it." : null,
+        !hasAmount ? (numbers.has(b.amount) ? `We read ${b.amount} as the budget. Please check it.` : "This amount isn't in your words. Please check it.") : null,
+        hasAmount && !currencyMatches ? (quotedCurrency === null ? `Is that ${b.currency === "USD" ? "in US dollars" : "in rupees"}? Please check.` : "The currency doesn't match your words. Please check it.") : null,
+        range ? "You gave a range. Please give one budget." : null,
         b.currency === "INR" ? `Converted from ₹${b.amount.toLocaleString("en-IN")} at ₹${ctx.inrPerUsd} to the dollar.` : null,
         perPiece ? `${usd(Math.round(usdAmount * 100))} a piece × ${quantity.value} pieces.` : null,
       ].filter(Boolean);

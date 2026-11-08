@@ -64,22 +64,25 @@ function isCapacityError(e: unknown): boolean {
  * the next model in the chain. On Gemini's free tier each model has its own
  * quota, so a chain also multiplies headroom — important for a live demo.
  */
-function withFallback(primaryId: string, ids: string[], make: (id: string) => ReturnType<typeof googleModel>) {
+export function withFallback(primaryId: string, ids: string[], make: (id: string) => ReturnType<typeof googleModel>) {
   const fallbacks = ids.map((id) => ({ id, m: make(id) }));
   return wrapLanguageModel({
     model: make(primaryId),
     middleware: {
       specificationVersion: "v4",
+      // The answer records the model that actually produced it (never the primary's name for a fallback's answer).
       wrapGenerate: async ({ doGenerate, params }) => {
         try {
-          return await withTimeout(doGenerate());
+          const r = await withTimeout(doGenerate());
+          return { ...r, response: { ...r.response, modelId: r.response?.modelId || primaryId } };
         } catch (e) {
           if (!isCapacityError(e)) throw e;
           let last = e;
           for (const fb of fallbacks) {
             console.warn(`[ai] ${(last as Error).message.slice(0, 50)}… → trying ${fb.id}`);
             try {
-              return await withTimeout(fb.m.doGenerate(params));
+              const r = await withTimeout(fb.m.doGenerate(params));
+              return { ...r, response: { ...r.response, modelId: fb.id } };
             } catch (err) {
               if (!isCapacityError(err)) throw err;
               last = err;
@@ -108,6 +111,11 @@ function withFallback(primaryId: string, ids: string[], make: (id: string) => Re
       },
     },
   });
+}
+
+/** One fixed Gemini model: no fallback chain (for evaluations, where the model must not change silently). */
+export function fixedGoogleModel(id: string, apiKey?: string) {
+  return createGoogleGenerativeAI({ apiKey: apiKey ?? requireKey("GOOGLE_API_KEY") })(id);
 }
 
 function googleModel(id: string) {

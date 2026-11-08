@@ -64,9 +64,15 @@ checked plan.
 - The AI may fill only the buyer's own request fields: quantity, delivery date, budget and
   a short description. It never sets maker availability, material dates, prices, payment
   terms or anything else; code accepts only those fields.
-- **Grounding.** Every number the AI returns is compared with the buyer's words. A value
-  that does not appear there is shown as an assumption to confirm, never as stated.
-  Missing or unclear values stay empty, with a question.
+- **Grounding, field by field.** The AI must quote the buyer's words for each value. A
+  value is shown as "from your words" only when its own quote is in the text and contains
+  it. Further conditions apply:
+  - a quantity's quote is not a money phrase, and the number isn't one end of a range;
+  - a budget's quote names the same currency.
+
+  Swapped fields, ranges ("50–60"), dates the buyer didn't write explicitly, and unquoted
+  or mismatched currencies stay "please check". A non-dollar, non-rupee budget is left
+  empty with a question. Missing values stay empty, with a question.
 - A request outside the collective's product is flagged for the buyer to correct.
 - The public page is `/c/request`. A buyer's agent uses the MCP tool
   `request_collective_order` with the requirements its user confirmed; it can read status

@@ -3,6 +3,7 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { config } from "dotenv";
+import { APICallError } from "ai";
 import { interpret, type Interpretation } from "@/lib/collective/intake";
 
 /**
@@ -15,8 +16,13 @@ import { interpret, type Interpretation } from "@/lib/collective/intake";
  * words". Wrong values that grounding marked "please check" or left empty are caught;
  * the buyer corrects them before anything is planned.
  *
+ * One fixed model (EVAL_MODEL, else GOOGLE_MODEL): no fallback chain and no automatic SDK
+ * retries, so each uncached case is exactly one request, and every record keeps the model
+ * requested and the model that answered. Any HTTP 429 stops the run. Only answers from the
+ * requested model are scored.
+ *
  *   npx tsx eval/intake.ts            # score cached readings
- *   npx tsx eval/intake.ts --run      # ask the model for uncached cases (≈ 20 requests, 13 s apart)
+ *   npx tsx eval/intake.ts --run      # at most one request per uncached case (≤ 20), 13 s apart
  */
 
 const TODAY = "2026-11-09";
@@ -73,36 +79,55 @@ export function scoreCase(c: IntakeCase, raw: unknown) {
 
 const key = (model: string, text: string) => createHash("sha256").update(JSON.stringify(["intake-v1", model, TODAY, text])).digest("hex").slice(0, 24);
 
-export async function main(args: string[]) {
-  config({ path: ".env.local", quiet: true });
-  if (process.env.EVAL_GOOGLE_API_KEY) process.env.GOOGLE_API_KEY = process.env.EVAL_GOOGLE_API_KEY;
-  const { aiModelId } = await import("@/lib/ai/model");
+export type IntakeRecord = { raw: unknown; error: string | null; requested: string; served: string | null; attempts: number; status: number | null; at: string };
+
+/** One request to one fixed model. Never retried, never falls back. */
+export async function askOnce(modelId: string, apiKey: string, text: string): Promise<IntakeRecord> {
+  const { fixedGoogleModel } = await import("@/lib/ai/model");
   const { readRaw } = await import("@/lib/ai/collective-intake");
-  const model = aiModelId();
-  const dir = path.join(process.cwd(), "eval", "results");
+  const at = new Date().toISOString();
+  try {
+    const r = await readRaw(text, CTX, { model: fixedGoogleModel(modelId, apiKey) });
+    return { raw: r.output, error: null, requested: modelId, served: r.modelId, attempts: 1, status: null, at };
+  } catch (e) {
+    const status = APICallError.isInstance(e) ? (e.statusCode ?? null) : null;
+    return { raw: null, error: (e as Error).message.slice(0, 200), requested: modelId, served: null, attempts: 1, status, at };
+  }
+}
+
+/** Answers from the requested model only (a served id may carry a version suffix, e.g. "-001"). */
+export const fromRequestedModel = (r: IntakeRecord | undefined, modelId: string) => !!r?.raw && r.requested === modelId && (r.served === modelId || !!r.served?.startsWith(`${modelId}-`));
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+export async function main(args: string[], ask: typeof askOnce = askOnce, dir = path.join(process.cwd(), "eval", "results"), wait: (ms: number) => Promise<unknown> = sleep) {
+  config({ path: ".env.local", quiet: true });
+  const model = process.env.EVAL_MODEL || process.env.GOOGLE_MODEL || "gemini-3.6-flash";
+  const apiKey = process.env.EVAL_GOOGLE_API_KEY || process.env.GOOGLE_API_KEY || "";
+  fs.mkdirSync(dir, { recursive: true });
   const cachePath = path.join(dir, `intake-cache-${encodeURIComponent(model)}.json`);
-  const cache: Record<string, { raw: unknown; error: string | null; at: string }> = fs.existsSync(cachePath) ? JSON.parse(fs.readFileSync(cachePath, "utf8")) : {};
+  const cache: Record<string, IntakeRecord> = fs.existsSync(cachePath) ? JSON.parse(fs.readFileSync(cachePath, "utf8")) : {};
   let last = 0;
+  let requests = 0;
   for (const c of CASES) {
     const k = key(model, c.text);
-    if (cache[k]?.raw || !args.includes("--run")) continue;
-    const wait = last + 13_000 - Date.now();
-    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+    if (fromRequestedModel(cache[k], model) || !args.includes("--run")) continue;
+    if (!apiKey) throw new Error("No EVAL_GOOGLE_API_KEY or GOOGLE_API_KEY in .env.local");
+    const gap = last + 13_000 - Date.now();
+    if (gap > 0) await wait(gap);
     last = Date.now();
-    try {
-      cache[k] = { raw: await readRaw(c.text, CTX), error: null, at: new Date().toISOString() };
-    } catch (e) {
-      const msg = (e as Error).message.slice(0, 200);
-      cache[k] = { raw: null, error: msg, at: new Date().toISOString() };
-      if (/429|quota|RESOURCE_EXHAUSTED/i.test(msg)) {
-        console.warn("Quota reached; stopping. Re-run later to continue.");
-        break;
-      }
-    }
+    const rec = await ask(model, apiKey, c.text);
+    requests += rec.attempts;
+    cache[k] = rec;
     fs.writeFileSync(cachePath, JSON.stringify(cache, null, 1));
-    process.stdout.write(`${c.id} ${cache[k].raw ? "read" : "error"}\n`);
+    process.stdout.write(`${c.id} ${rec.raw ? `read by ${rec.served}` : `error ${rec.status ?? ""}`}\n`);
+    if (rec.status === 429) {
+      console.warn("HTTP 429 (rate or quota limit): stopping. Re-run later to continue.");
+      break;
+    }
   }
-  const scored = CASES.filter((c) => cache[key(model, c.text)]?.raw).map((c) => scoreCase(c, cache[key(model, c.text)].raw));
+  if (args.includes("--run")) console.log(`requests this run: ${requests}`);
+  const scored = CASES.filter((c) => fromRequestedModel(cache[key(model, c.text)], model)).map((c) => scoreCase(c, cache[key(model, c.text)].raw));
   const count = (o: Outcome) => scored.reduce((n, s) => n + Object.values(s.fields).filter((x) => x === o).length, 0);
   const total = scored.length * 3;
   const lines = [
@@ -127,8 +152,9 @@ export async function main(args: string[]) {
     ...scored.map((s) => `| ${s.id} | ${s.fields.quantity} | ${s.fields.deadline} | ${s.fields.budgetUsdCents} |`),
     "",
   ];
-  fs.writeFileSync(path.join(dir, `intake-${encodeURIComponent(model)}.md`), lines.join("\n"));
+  if (scored.length) fs.writeFileSync(path.join(dir, `intake-${encodeURIComponent(model)}.md`), lines.join("\n"));
   console.log(lines.join("\n"));
+  return { scored: scored.length, requests, cache };
 }
 
 if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url) {
