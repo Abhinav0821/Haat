@@ -4,6 +4,16 @@
  * Only touches OUR database — PayPal sandbox records are unaffected.
  *
  *   npm run demo:reset          (stop `npm run dev` first; PGlite allows one process)
+ *
+ * Safety:
+ *  - Embedded PGlite: the database folder is copied first.
+ *  - DATABASE_URL set (e.g. Neon): nothing is copied for you, so the script REFUSES unless you
+ *    name the target host after taking a backup / recovery point yourself:
+ *      npm run demo:reset -- --confirm-host=<host from DATABASE_URL>
+ *    Never reset the deployed judging database just to prepare a video.
+ *  - Either way, every order, collective plan, maker part, share and payout record is written
+ *    to .data/reset-archive/ as JSON before anything is deleted (session results and payment
+ *    evidence are kept).
  */
 import { config } from "dotenv";
 config({ path: ".env.local", quiet: true });
@@ -16,7 +26,21 @@ import { DEMO_COLLECTIVE_SLUG } from "@/lib/collective/seed";
 import { SettingsSchema } from "@/lib/collective/facts";
 
 async function main() {
-  if (!process.env.DATABASE_URL) {
+  const url = process.env.DATABASE_URL;
+  if (url) {
+    let host = "?";
+    try {
+      host = new URL(url).hostname;
+    } catch {}
+    const confirmed = process.argv.find((a) => a.startsWith("--confirm-host="))?.split("=")[1];
+    if (confirmed !== host) {
+      console.error(`Refusing: DATABASE_URL points at ${host}. No backup is made for a remote database.`);
+      console.error(`Take a backup / recovery point first, then run: npm run demo:reset -- --confirm-host=${host}`);
+      process.exit(1);
+    }
+    console.log(`target: ${host} (remote; you confirmed a backup exists)`);
+  } else console.log("target: embedded PGlite (.data/pglite)");
+  if (!url) {
     const dir = path.join(process.cwd(), ".data", "pglite");
     if (existsSync(dir)) {
       const backup = `${dir}-backup-${new Date().toISOString().replace(/[:.]/g, "-")}`;
@@ -26,6 +50,23 @@ async function main() {
   }
 
   const d = await db();
+  // Evidence first: everything about orders and payments, as it was, before any delete.
+  const evidence = {
+    at: new Date().toISOString(),
+    orders: await d.select().from(schema.orders),
+    customRequests: await d.select().from(schema.customRequests),
+    agreements: await d.select().from(schema.agreements),
+    collectiveOrders: await d.select().from(schema.collectiveOrders),
+    collectivePlans: await d.select().from(schema.collectivePlans),
+    memberParts: await d.select().from(schema.memberParts),
+    makerShares: await d.select().from(schema.makerShares),
+    makerPayments: await d.select().from(schema.makerPayments),
+  };
+  const archiveDir = path.join(process.cwd(), ".data", "reset-archive");
+  mkdirSync(archiveDir, { recursive: true });
+  const archive = path.join(archiveDir, `before-reset-${evidence.at.replace(/[:.]/g, "-")}.json`);
+  writeFileSync(archive, JSON.stringify(evidence, null, 1));
+  console.log(`evidence archived: ${path.relative(process.cwd(), archive)} (${evidence.orders.length} orders, ${evidence.collectiveOrders.length} collective orders, ${evidence.makerPayments.length} payout records)`);
   const actions = await d.delete(schema.agentActions).returning({ id: schema.agentActions.id });
   const messages = await d.delete(schema.messages).returning({ id: schema.messages.id });
   const events = await d.delete(schema.webhookEvents).returning({ id: schema.webhookEvents.id });
