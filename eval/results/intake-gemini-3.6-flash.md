@@ -4,8 +4,8 @@
 
 | Outcome | Fields |
 |---|---|
-| Right, shown as from the buyer's words | 48 |
-| Right or left empty, flagged for the buyer to check | 11 |
+| Right, shown as from the buyer's words | 49 |
+| Right or left empty, flagged for the buyer to check | 10 |
 | Ambiguous phrase read plausibly but NOT flagged | 0 |
 | Wrong, but flagged or left empty (caught before planning) | 1 |
 | **Wrong and shown as from the buyer's words** | **0** |
@@ -18,7 +18,7 @@ Every reading is a proposal: the buyer confirms or edits each field before the o
 |---|---|---|---|
 | i01 | right | right | right |
 | i02 | right | right_flagged | right |
-| i03 | right_flagged | right | right_flagged |
+| i03 | right | right | right_flagged |
 | i04 | right_flagged | right_flagged | right |
 | i05 | right | right | right_flagged |
 | i06 | right | wrong_caught | right |

@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url";
 import { config } from "dotenv";
 import { APICallError } from "ai";
 import { interpret, type Interpretation } from "@/lib/collective/intake";
+import { INTAKE_PROMPT_VERSION } from "@/lib/ai/collective-intake";
 
 /**
  * AI request intake accuracy (docs/direction.md §A). Hand-written buyer requests with
@@ -77,7 +78,8 @@ export function scoreCase(c: IntakeCase, raw: unknown) {
   return { id: c.id, fields, productFlagged: c.offProduct ? i.product.matches !== "yes" : null, interpretation: i };
 }
 
-const key = (model: string, text: string) => createHash("sha256").update(JSON.stringify(["intake-v1", model, TODAY, text])).digest("hex").slice(0, 24);
+// The prompt version is part of the key: a changed prompt is a new reading, never a reused one.
+const key = (model: string, text: string) => createHash("sha256").update(JSON.stringify([INTAKE_PROMPT_VERSION, model, TODAY, text])).digest("hex").slice(0, 24);
 
 export type IntakeRecord = { raw: unknown; error: string | null; requested: string; served: string | null; attempts: number; status: number | null; at: string };
 

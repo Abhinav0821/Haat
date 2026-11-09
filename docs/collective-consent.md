@@ -204,6 +204,24 @@ part's pay. Code: `src/lib/collective/checkout.ts` and `src/lib/collective/payou
   - a quantity's quote is not a money phrase, and the quantity isn't one end of a range;
   - a budget's quote names the same currency;
   - anything else is shown as an assumption, and a non-dollar, non-rupee budget is left empty;
+  - code also reads the words itself and flags any disagreement with the model. It may fill in
+    a missing quantity or date, never a budget, and never marks a budget as stated when the text
+    contains instructions;
+  - relative dates follow fixed rules, always shown to the buyer for confirmation:
+
+    | Phrase | Date |
+    |---|---|
+    | "in/within N days, weeks or months", "N weeks from now" | today plus N |
+    | "next Friday" | that weekday in next week (Monday to Sunday) |
+    | "this/by/on Friday" | the coming Friday |
+    | "end of the month", "end of next month" | the last day of that month |
+    | "early" / "mid" / "late" a month | the 10th / 15th / 25th of it |
+    | "end of" a month | its last day |
+    | "by/before/in" a month | its 1st |
+    | Christmas, New Year, Valentine's Day | the day itself ("before …" means the day before) |
+    | "tomorrow" | tomorrow |
+
+    Anything vaguer, such as "in spring", stays empty, with a question;
   - a date counts as stated only when the words parse to it without the model;
   - a value that is missing, past or out of range stays empty, with a question.
 
@@ -215,6 +233,26 @@ part's pay. Code: `src/lib/collective/checkout.ts` and `src/lib/collective/payou
   day, packing, transit and one making day.
 - **Requirements are English only from buyers.** The coordinator adds and reviews the
   Hindi before any plan goes to makers.
+
+## Each maker's language
+
+- **Her choice.** Each maker reads Haat in Hindi (the default, with English underneath) or in
+  English. It's stored on her record (`members.language`). The coordinator sets it, and she can
+  change it at any time on her own link.
+- **What follows her language:** her page, the read-back of her part, read-aloud, and the terms
+  she agrees to.
+  - An English maker's terms carry `lang: "en"` and her English reading inside the hashed terms.
+  - A Hindi maker's terms are byte-identical to terms made before languages existed.
+- **Parts already sent keep their language.** If she switches, her page asks her to have the
+  coordinator resend. The resent part is a new version she agrees to again; other makers' parts
+  are unchanged.
+- **Hindi requirements:** needed only when a Hindi-reading maker is in the plan. The coordinator
+  can ask AI for a Hindi draft. A second, independent call translates the draft back into
+  English without seeing the original, so the coordinator can compare meaning before saving.
+  Nothing is saved or sent automatically.
+- **Adding a language later:** add it to `src/lib/i18n/languages.ts`, draft it by machine with
+  `scripts/translate-maker-text.mts` (checked in code for placeholders and script), and have a
+  native speaker review it before it's offered.
 
 ## Alone or together (`src/lib/collective/compare.ts`)
 

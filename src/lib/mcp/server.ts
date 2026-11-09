@@ -12,7 +12,7 @@ import { getPassportsFor } from "@/lib/passport/passport";
 import { CheckoutError, createCheckoutOrder } from "@/lib/paypal/orders";
 import { MAKER_PROFILES } from "@/lib/store";
 import { getDemoCollective } from "@/lib/collective/demo";
-import { CollectiveError, createBuyerRequest } from "@/lib/collective/service";
+import { CollectiveError, createBuyerRequest, earliestDelivery, settingsOf } from "@/lib/collective/service";
 import { buyerView as collectiveBuyerView } from "@/lib/collective/views";
 
 /**
@@ -109,7 +109,7 @@ export function buildMcpServer({ baseUrl, clientKey }: { baseUrl: string; client
         "Haat sells handmade goods from Indian artisans, paid with PayPal. Search, show products, answer with the maker's own words, " +
         "and when the user wants to buy, call create_checkout and give them the PayPal link to approve. You cannot pay on their behalf. " +
         "For something made to order, check get_maker_capabilities, then request_custom_order; the human approves the final terms and pays on the link it returns. " +
-        "For a bulk order too big for one maker, confirm quantity, date and budget with the user, then call request_collective_order. " +
+        "For a bulk order too big for one maker, call get_collective_info, confirm quantity, date and budget with the user, then call request_collective_order. " +
         UNTRUSTED_NOTE,
     },
   );
@@ -391,12 +391,39 @@ export function buildMcpServer({ baseUrl, clientKey }: { baseUrl: string; client
   );
 
   server.registerTool(
+    "get_collective_info",
+    {
+      title: "What the artisan collective makes, and the earliest date to ask for",
+      description:
+        "Call this before request_collective_order: the collective's name, the product it makes (one product family), the earliest delivery date that can be requested, " +
+        "the currency (US dollars), and the details you must confirm with your user before sending a request.",
+      inputSchema: {},
+      annotations: { readOnlyHint: true },
+    },
+    async () => {
+      const c = await getDemoCollective();
+      const s = settingsOf(c);
+      return json({
+        collective: c.name,
+        product: s.product.en,
+        earliestDeliverBy: earliestDelivery(s, new Date()),
+        currency: "USD",
+        maxQuantity: 10_000,
+        confirmWithUser: ["quantity (whole pieces)", "deliverBy (YYYY-MM-DD, on or after earliestDeliverBy)", "budgetUsd (optional, total for the order)", "details (optional: colour, size, other requirements, in English)"],
+        note: "Payment is to the collective through PayPal, approved by the human buyer on the link request_collective_order returns.",
+      });
+    },
+  );
+
+  server.registerTool(
     "request_collective_order",
     {
       title: "Request a bulk order from an artisan collective",
       description:
         "For orders too big for one maker (e.g. 30–300 hand block-printed cotton scarves). Send the requirements YOUR USER CONFIRMED: quantity, delivery date and optional budget. " +
-        "Do not guess any of them; ask the user first. The collective plans the work across its makers, every plan is checked against the facts recorded for the makers, " +
+        "Do not guess any of them; ask the user first, and call get_collective_info for the product and the earliest date. " +
+        "Example: {request: \"Our boutique needs 40 indigo scarves for the spring window\", quantity: 40, deliverBy: \"2026-12-15\", budgetUsd: 400, details: \"indigo, 180 cm\"}. " +
+        "The collective plans the work across its makers, every plan is checked against the facts recorded for the makers, " +
         "and each maker agrees to her own part. Returns a link where the HUMAN buyer sees the checked terms, approves them and pays the collective with PayPal. " +
         "You cannot approve terms or pay on their behalf.",
       inputSchema: {

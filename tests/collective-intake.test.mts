@@ -137,7 +137,10 @@ test("MCP: a buyer's agent requests with confirmed fields and reads only aggrega
   const client = new Client({ name: "test-agent", version: "1" });
   await Promise.all([server.connect(a), client.connect(b)]);
   const tools = (await client.listTools()).tools.map((t) => t.name);
-  assert.ok(tools.includes("request_collective_order") && tools.includes("get_collective_order"));
+  assert.ok(tools.includes("request_collective_order") && tools.includes("get_collective_order") && tools.includes("get_collective_info"));
+  const info = JSON.parse(((await client.callTool({ name: "get_collective_info", arguments: {} })).content as { text: string }[])[0].text);
+  assert.equal(info.product, "hand block-printed cotton scarf");
+  assert.match(info.earliestDeliverBy, /^\d{4}-\d{2}-\d{2}$/);
 
   const date = new Date(Date.now() + 60 * 86_400_000).toISOString().slice(0, 10);
   const res = await client.callTool({ name: "request_collective_order", arguments: { request: "Thirty indigo scarves for our boutique", quantity: 30, deliverBy: date, budgetUsd: 400 } });

@@ -456,5 +456,460 @@
   "attempts": 1,
   "status": null,
   "at": "2026-11-09T14:51:28.197Z"
+ },
+ "a7e647f22d9ba86b7dca3ccb": {
+  "raw": {
+   "quantity": 30,
+   "quantityWords": "30",
+   "deliverBy": "2026-12-10",
+   "deliverByWords": "by Dec 10",
+   "budget": {
+    "amount": 250,
+    "currency": "USD",
+    "basis": "total"
+   },
+   "budgetWords": "Budget $250",
+   "item": "indigo block-printed scarves",
+   "matchesProduct": "yes",
+   "details": "Indigo block-printed scarves.",
+   "unclear": []
+  },
+  "error": null,
+  "requested": "gemini-3.6-flash",
+  "served": "gemini-3.6-flash",
+  "attempts": 1,
+  "status": null,
+  "at": "2026-11-09T15:34:41.611Z"
+ },
+ "bb8cfeac40354c2fb3c81b82": {
+  "raw": {
+   "quantity": 40,
+   "quantityWords": "forty scarves",
+   "deliverBy": "2026-12-24",
+   "deliverByWords": "before Christmas",
+   "budget": {
+    "amount": 400,
+    "currency": "USD",
+    "basis": "total"
+   },
+   "budgetWords": "Around $400 total",
+   "item": "scarves",
+   "matchesProduct": "yes",
+   "details": null,
+   "unclear": []
+  },
+  "error": null,
+  "requested": "gemini-3.6-flash",
+  "served": "gemini-3.6-flash",
+  "attempts": 1,
+  "status": null,
+  "at": "2026-11-09T15:34:54.613Z"
+ },
+ "6a1c1e7ccd47bfb1e9f59085": {
+  "raw": {
+   "quantity": 24,
+   "quantityWords": "2 dozen",
+   "deliverBy": "2027-01-15",
+   "deliverByWords": "by January 15th",
+   "budget": {
+    "amount": 10,
+    "currency": "USD",
+    "basis": "per_piece"
+   },
+   "budgetWords": "$10 each max",
+   "item": "scarves",
+   "matchesProduct": "yes",
+   "details": null,
+   "unclear": []
+  },
+  "error": null,
+  "requested": "gemini-3.6-flash",
+  "served": "gemini-3.6-flash",
+  "attempts": 1,
+  "status": null,
+  "at": "2026-11-09T15:35:07.614Z"
+ },
+ "4ee45045127d342df3b1a817": {
+  "raw": {
+   "quantity": 50,
+   "quantityWords": "50-60 scarves",
+   "deliverBy": null,
+   "deliverByWords": "sometime in spring",
+   "budget": null,
+   "budgetWords": null,
+   "item": "block-printed scarves",
+   "matchesProduct": "yes",
+   "details": null,
+   "unclear": [
+    "Please specify the exact quantity needed between 50 and 60 scarves.",
+    "Please clarify the exact delivery date needed."
+   ]
+  },
+  "error": null,
+  "requested": "gemini-3.6-flash",
+  "served": "gemini-3.6-flash",
+  "attempts": 1,
+  "status": null,
+  "at": "2026-11-09T15:35:20.614Z"
+ },
+ "2dce232c3e520c14ea029e53": {
+  "raw": {
+   "quantity": 100,
+   "quantityWords": "100 scarves",
+   "deliverBy": "2026-12-20",
+   "deliverByWords": "2026-12-20",
+   "budget": {
+    "amount": 180000,
+    "currency": "INR",
+    "basis": "total"
+   },
+   "budgetWords": "budget ₹180000",
+   "item": "scarves",
+   "matchesProduct": "yes",
+   "details": null,
+   "unclear": []
+  },
+  "error": null,
+  "requested": "gemini-3.6-flash",
+  "served": "gemini-3.6-flash",
+  "attempts": 1,
+  "status": null,
+  "at": "2026-11-09T15:35:33.615Z"
+ },
+ "ff0746862beedb65f95a9368": {
+  "raw": {
+   "quantity": 25,
+   "quantityWords": "25 scarves",
+   "deliverBy": "2026-11-20",
+   "deliverByWords": "by next Friday",
+   "budget": null,
+   "budgetWords": null,
+   "item": "scarves",
+   "matchesProduct": "yes",
+   "details": null,
+   "unclear": []
+  },
+  "error": null,
+  "requested": "gemini-3.6-flash",
+  "served": "gemini-3.6-flash",
+  "attempts": 1,
+  "status": null,
+  "at": "2026-11-09T15:35:46.616Z"
+ },
+ "f42212a569acc58c62d2e8d1": {
+  "raw": {
+   "quantity": 300,
+   "quantityWords": "300",
+   "deliverBy": "2027-02-01",
+   "deliverByWords": "by Feb 1",
+   "budget": null,
+   "budgetWords": null,
+   "item": "cushion covers",
+   "matchesProduct": "no",
+   "details": null,
+   "unclear": []
+  },
+  "error": null,
+  "requested": "gemini-3.6-flash",
+  "served": "gemini-3.6-flash",
+  "attempts": 1,
+  "status": null,
+  "at": "2026-11-09T15:35:59.617Z"
+ },
+ "15d1cec453ffbe43ff7f61c9": {
+  "raw": {
+   "quantity": 20,
+   "quantityWords": "20 scarves",
+   "deliverBy": "2026-12-05",
+   "deliverByWords": "by Dec 5",
+   "budget": null,
+   "budgetWords": null,
+   "item": "scarves",
+   "matchesProduct": "yes",
+   "details": null,
+   "unclear": []
+  },
+  "error": null,
+  "requested": "gemini-3.6-flash",
+  "served": "gemini-3.6-flash",
+  "attempts": 1,
+  "status": null,
+  "at": "2026-11-09T15:36:12.618Z"
+ },
+ "90c97ce0eaa6c3828f85ba5b": {
+  "raw": {
+   "quantity": 36,
+   "quantityWords": "thirty-six scarves",
+   "deliverBy": "2027-01-03",
+   "deliverByWords": "by the 3rd of January",
+   "budget": {
+    "amount": 500,
+    "currency": "USD",
+    "basis": "total"
+   },
+   "budgetWords": "can pay up to 500 dollars",
+   "item": "scarves",
+   "matchesProduct": "yes",
+   "details": null,
+   "unclear": []
+  },
+  "error": null,
+  "requested": "gemini-3.6-flash",
+  "served": "gemini-3.6-flash",
+  "attempts": 1,
+  "status": null,
+  "at": "2026-11-09T15:36:25.618Z"
+ },
+ "7bda8bd00424afeb579b92f0": {
+  "raw": {
+   "quantity": 150,
+   "quantityWords": "150",
+   "deliverBy": "2026-12-20",
+   "deliverByWords": "by 20 December",
+   "budget": null,
+   "budgetWords": null,
+   "item": "small scarves",
+   "matchesProduct": "yes",
+   "details": "For wedding favours, small size.",
+   "unclear": []
+  },
+  "error": null,
+  "requested": "gemini-3.6-flash",
+  "served": "gemini-3.6-flash",
+  "attempts": 1,
+  "status": null,
+  "at": "2026-11-09T15:36:38.619Z"
+ },
+ "d2d6470b7d340a9fb12654d6": {
+  "raw": {
+   "quantity": null,
+   "quantityWords": null,
+   "deliverBy": null,
+   "deliverByWords": null,
+   "budget": null,
+   "budgetWords": null,
+   "item": "scarves",
+   "matchesProduct": "yes",
+   "details": null,
+   "unclear": [
+    "What quantity of scarves do you need?",
+    "When do you need the delivery by?"
+   ]
+  },
+  "error": null,
+  "requested": "gemini-3.6-flash",
+  "served": "gemini-3.6-flash",
+  "attempts": 1,
+  "status": null,
+  "at": "2026-11-09T15:36:51.622Z"
+ },
+ "eb266908c97f79f9a949299e": {
+  "raw": {
+   "quantity": 45,
+   "quantityWords": "45 scarves",
+   "deliverBy": "2026-11-30",
+   "deliverByWords": "in three weeks",
+   "budget": {
+    "amount": 600,
+    "currency": "USD",
+    "basis": "total"
+   },
+   "budgetWords": "Budget 600 USD",
+   "item": "scarves",
+   "matchesProduct": "yes",
+   "details": "Rust and indigo colors, about 120cm long.",
+   "unclear": []
+  },
+  "error": null,
+  "requested": "gemini-3.6-flash",
+  "served": "gemini-3.6-flash",
+  "attempts": 1,
+  "status": null,
+  "at": "2026-11-09T15:37:04.623Z"
+ },
+ "b5bc8397085fbd31947cf333": {
+  "raw": {
+   "quantity": 12,
+   "quantityWords": "12",
+   "deliverBy": "2026-12-01",
+   "deliverByWords": "by Dec 1",
+   "budget": {
+    "amount": 300,
+    "currency": "OTHER",
+    "basis": "total"
+   },
+   "budgetWords": "budget €300",
+   "item": "scarves",
+   "matchesProduct": "yes",
+   "details": null,
+   "unclear": []
+  },
+  "error": null,
+  "requested": "gemini-3.6-flash",
+  "served": "gemini-3.6-flash",
+  "attempts": 1,
+  "status": null,
+  "at": "2026-11-09T15:37:17.625Z"
+ },
+ "645a7405488220f15c0c0e58": {
+  "raw": {
+   "quantity": 1200,
+   "quantityWords": "1,200",
+   "deliverBy": "2027-03-01",
+   "deliverByWords": "by March",
+   "budget": null,
+   "budgetWords": null,
+   "item": "scarves",
+   "matchesProduct": "yes",
+   "details": null,
+   "unclear": [
+    "What specific date in March do you need delivery by?"
+   ]
+  },
+  "error": null,
+  "requested": "gemini-3.6-flash",
+  "served": "gemini-3.6-flash",
+  "attempts": 1,
+  "status": null,
+  "at": "2026-11-09T15:37:30.625Z"
+ },
+ "e0b3e0b178b78cfc645ba0a1": {
+  "raw": {
+   "quantity": 60,
+   "quantityWords": "60 scarves",
+   "deliverBy": "2026-12-18",
+   "deliverByWords": "by December 18th 2026",
+   "budget": {
+    "amount": 520,
+    "currency": "USD",
+    "basis": "total"
+   },
+   "budgetWords": "budget $520",
+   "item": "scarves",
+   "matchesProduct": "yes",
+   "details": "Half indigo and half madder red.",
+   "unclear": []
+  },
+  "error": null,
+  "requested": "gemini-3.6-flash",
+  "served": "gemini-3.6-flash",
+  "attempts": 1,
+  "status": null,
+  "at": "2026-11-09T15:37:43.627Z"
+ },
+ "c4abeebe76a8cfd422be7421": {
+  "raw": {
+   "quantity": null,
+   "quantityWords": null,
+   "deliverBy": "2026-12-12",
+   "deliverByWords": "by Dec 12",
+   "budget": {
+    "amount": 300,
+    "currency": "USD",
+    "basis": "total"
+   },
+   "budgetWords": "My budget is $300",
+   "item": null,
+   "matchesProduct": "unclear",
+   "details": null,
+   "unclear": [
+    "What specific item are you interested in ordering?",
+    "How many pieces do you need?"
+   ]
+  },
+  "error": null,
+  "requested": "gemini-3.6-flash",
+  "served": "gemini-3.6-flash",
+  "attempts": 1,
+  "status": null,
+  "at": "2026-11-09T15:37:56.629Z"
+ },
+ "d41e6bdbf0e774bc236e86a4": {
+  "raw": {
+   "quantity": 20,
+   "quantityWords": "Twenty",
+   "deliverBy": "2026-11-30",
+   "deliverByWords": "by the end of the month",
+   "budget": {
+    "amount": 15,
+    "currency": "USD",
+    "basis": "per_piece"
+   },
+   "budgetWords": "$15 each",
+   "item": "scarves",
+   "matchesProduct": "yes",
+   "details": null,
+   "unclear": []
+  },
+  "error": null,
+  "requested": "gemini-3.6-flash",
+  "served": "gemini-3.6-flash",
+  "attempts": 1,
+  "status": null,
+  "at": "2026-11-09T15:38:09.630Z"
+ },
+ "1a48fa0eeef9360bff6c3a9f": {
+  "raw": {
+   "quantity": 50,
+   "quantityWords": "50 scarves",
+   "deliverBy": "2026-12-15",
+   "deliverByWords": "Deliver 12/15",
+   "budget": null,
+   "budgetWords": null,
+   "item": "block-printed scarves",
+   "matchesProduct": "yes",
+   "details": null,
+   "unclear": []
+  },
+  "error": null,
+  "requested": "gemini-3.6-flash",
+  "served": "gemini-3.6-flash",
+  "attempts": 1,
+  "status": null,
+  "at": "2026-11-09T15:38:22.631Z"
+ },
+ "58947a7aff0e33f4e9ab3e24": {
+  "raw": {
+   "quantity": 80,
+   "quantityWords": "80 scarves",
+   "deliverBy": "2027-01-10",
+   "deliverByWords": "by Jan 10 2027",
+   "budget": null,
+   "budgetWords": null,
+   "item": "scarves",
+   "matchesProduct": "yes",
+   "details": "With custom logo printed.",
+   "unclear": [
+    "Please provide the logo design and clarify if block printing is required for the logo."
+   ]
+  },
+  "error": null,
+  "requested": "gemini-3.6-flash",
+  "served": "gemini-3.6-flash",
+  "attempts": 1,
+  "status": null,
+  "at": "2026-11-09T15:38:35.633Z"
+ },
+ "c72f406763d049fd613ae70c": {
+  "raw": {
+   "quantity": 5000000,
+   "quantityWords": "5000000",
+   "deliverBy": "2026-11-10",
+   "deliverByWords": "tomorrow",
+   "budget": null,
+   "budgetWords": null,
+   "item": "scarves",
+   "matchesProduct": "yes",
+   "details": null,
+   "unclear": [
+    "The requested delivery date of tomorrow (2026-11-10) is earlier than the minimum delivery date of 2026-11-19. Can the delivery date be extended?"
+   ]
+  },
+  "error": null,
+  "requested": "gemini-3.6-flash",
+  "served": "gemini-3.6-flash",
+  "attempts": 1,
+  "status": null,
+  "at": "2026-11-09T15:38:48.634Z"
  }
 }

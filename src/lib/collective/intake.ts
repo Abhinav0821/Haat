@@ -154,6 +154,143 @@ export function inRange(text: string, n: number): boolean {
   return ranges.some((m) => Number(m[1]) === n || Number(m[2]) === n);
 }
 
+// ── Reading in code, independently of the model ─────────────────────────────
+
+const PRODUCT_NOUN = String.raw`(?:scarves|scarfs|scarf|stoles?|dupattas?|wraps?|pieces|piece|pcs|units?|items?)`;
+
+/** The quantity written next to a product word ("30 scarves", "thirty indigo stoles", "2 dozen pieces"); null if none or several. */
+export function quantityInWords(text: string): { value: number; words: string } | null {
+  const tokens = text.toLowerCase().replace(/-/g, " ").split(/\s+/).map((w) => w.replace(/^[^a-z0-9$₹€£]+|[^a-z0-9]+$/g, "")).filter(Boolean);
+  const noun = new RegExp(`^${PRODUCT_NOUN}$`);
+  const found = new Map<number, string>();
+  tokens.forEach((tok, k) => {
+    if (!noun.test(tok)) return;
+    // The number closest before this product word, within three other words, not a price and not past another product word.
+    for (let i = k - 1; i >= Math.max(0, k - 4); i--) {
+      if (noun.test(tokens[i]) || /[$₹€£]/.test(tokens[i]) || /^(rs|usd|inr)$/.test(tokens[i])) break;
+      // Number words run together ("two hundred and fifty"): take the whole run.
+      const NUMWORD = /^(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|and|a|dozen)$/;
+      let from = i;
+      while (from > 0 && NUMWORD.test(tokens[from]) && NUMWORD.test(tokens[from - 1]) && k - (from - 1) <= 7) from--;
+      if (tokens[i] === "dozen" && from === i && i > 0) from = i - 1;
+      const span = tokens.slice(from, k);
+      const dozen = span.length >= 2 && span[1] === "dozen" ? [...numbersIn(span[0])].filter((n) => Number.isInteger(n) && n > 0) : [];
+      const nums = dozen.length === 1 ? [dozen[0] * 12] : [...numbersIn(NUMWORD.test(tokens[i]) ? span.join(" ") : tokens[i])].filter((n) => Number.isInteger(n) && n > 0);
+      if (nums.length) {
+        found.set(Math.max(...nums), [...span, tok].join(" "));
+        break;
+      }
+    }
+  });
+  return found.size === 1 ? { value: [...found.keys()][0], words: [...found.values()][0] } : null;
+}
+
+/** A budget written with its currency ("$250", "250 dollars", "USD 400", "₹22,000", "$15 each"); null if none or several. */
+export function budgetInWords(text: string): { amount: number; currency: "USD" | "INR"; basis: "total" | "per_piece"; words: string } | null {
+  const t = text.toLowerCase();
+  const num = String.raw`(\d[\d,]*(?:\.\d+)?)\s*(k\b)?`;
+  const patterns: [RegExp, "USD" | "INR"][] = [
+    [new RegExp(String.raw`(?<![a-z])(?:us\s?)?\$\s?${num}`, "g"), "USD"],
+    [new RegExp(String.raw`\busd\s?${num}`, "g"), "USD"],
+    [new RegExp(String.raw`${num}\s?(?:usd|us dollars|dollars)\b`, "g"), "USD"],
+    [new RegExp(String.raw`₹\s?${num}`, "g"), "INR"],
+    [new RegExp(String.raw`\b(?:rs\.?|inr)\s?${num}`, "g"), "INR"],
+    [new RegExp(String.raw`${num}\s?(?:inr|rupees?)\b`, "g"), "INR"],
+  ];
+  const found = new Map<string, { amount: number; currency: "USD" | "INR"; basis: "total" | "per_piece"; words: string }>();
+  for (const [re, currency] of patterns) {
+    for (const m of t.matchAll(re)) {
+      const amount = Number(m[1].replace(/,/g, "")) * (m[2] ? 1000 : 1);
+      if (!(amount > 0)) continue;
+      const after = t.slice((m.index ?? 0) + m[0].length, (m.index ?? 0) + m[0].length + 14);
+      const basis = /^\s*(each|per piece|a piece|apiece|per scarf|a scarf)/.test(after) ? "per_piece" : "total";
+      found.set(`${currency}:${amount}:${basis}`, { amount, currency, basis, words: m[0].trim() });
+    }
+  }
+  return found.size === 1 ? [...found.values()][0] : null;
+}
+
+const WEEKDAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+const MONTH_NAMES = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
+const SMALL: Record<string, number> = { a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12 };
+const iso = (d: Date) => d.toISOString().slice(0, 10);
+const at = (y: number, m: number, d: number) => new Date(Date.UTC(y, m, d));
+const addDays = (isoDay: string, n: number) => iso(new Date(Date.parse(`${isoDay}T00:00:00Z`) + n * 86_400_000));
+const nextMonthIdx = (today: string, m: number) => (m >= Number(today.slice(5, 7)) - 1 ? Number(today.slice(0, 4)) : Number(today.slice(0, 4)) + 1);
+
+/**
+ * Relative dates resolved by fixed, published rules (never by the model's arithmetic).
+ * The buyer always sees the rule and confirms; see docs/collective-consent.md.
+ */
+export function relativeDate(phrase: string, today: string): { date: string; rule: string } | null {
+  const p = phrase.toLowerCase();
+  const y = Number(today.slice(0, 4));
+  const dow = new Date(`${today}T00:00:00Z`).getUTCDay();
+  let m = p.match(/\b(?:in|within)\s+(\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+(day|week|month)s?\b/) ?? p.match(/\b(\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+(day|week|month)s?\s+from\s+(?:now|today)\b/);
+  if (m) {
+    const n = /^\d+$/.test(m[1]) ? Number(m[1]) : SMALL[m[1]];
+    if (m[2] === "month") {
+      const d = new Date(`${today}T00:00:00Z`);
+      d.setUTCMonth(d.getUTCMonth() + n);
+      return { date: iso(d), rule: `${n} month${n === 1 ? "" : "s"} from today` };
+    }
+    return { date: addDays(today, n * (m[2] === "week" ? 7 : 1)), rule: `${n} ${m[2]}${n === 1 ? "" : "s"} from today` };
+  }
+  if ((m = p.match(/\bnext\s+(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/))) {
+    const target = WEEKDAYS.indexOf(m[1]);
+    const toMonday = ((8 - dow) % 7) || 7; // days to next week's Monday
+    return { date: addDays(today, toMonday + ((target + 6) % 7)), rule: `“next ${m[1]}” = the ${m[1]} of next week` };
+  }
+  if ((m = p.match(/\b(?:this|by|on|before)\s+(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/))) {
+    const target = WEEKDAYS.indexOf(m[1]);
+    return { date: addDays(today, ((target - dow + 7) % 7) || 7), rule: `the coming ${m[1]}` };
+  }
+  if (/\bend of (?:the |this )?month\b/.test(p)) {
+    return { date: iso(at(y, Number(today.slice(5, 7)), 0)), rule: "the last day of this month" };
+  }
+  if (/\bend of next month\b/.test(p)) return { date: iso(at(y, Number(today.slice(5, 7)) + 1, 0)), rule: "the last day of next month" };
+  if ((m = p.match(new RegExp(String.raw`\b(early|beginning of|start of|mid|middle of|late|end of)\s+(${MONTH_NAMES.join("|")}|jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec)\b`)))) {
+    const mi = MONTH_NAMES.findIndex((n) => n.startsWith(m![2].slice(0, 3)));
+    const yr = nextMonthIdx(today, mi);
+    const part = m[1];
+    const day = /early|beginning|start/.test(part) ? 10 : /mid|middle/.test(part) ? 15 : part === "late" ? 25 : new Date(Date.UTC(yr, mi + 1, 0)).getUTCDate();
+    return { date: iso(at(yr, mi, day)), rule: `“${part} ${MONTH_NAMES[mi]}” = ${MONTH_NAMES[mi][0].toUpperCase()}${MONTH_NAMES[mi].slice(1)} ${day}` };
+  }
+  const holiday = (name: string, month: number, day: number) => {
+    const before = new RegExp(String.raw`\bbefore\s+(?:the\s+)?${name}`).test(p);
+    const yr = iso(at(y, month, day)) > today ? y : y + 1;
+    return { date: addDays(iso(at(yr, month, day)), before ? -1 : 0), rule: before ? `the day before ${name.replace(/\.*$/, "")}` : name.replace(/\.*$/, "") };
+  };
+  if (/christmas|xmas/.test(p)) return holiday("christmas", 11, 25);
+  if (/new year/.test(p)) return holiday("new year", 0, 1);
+  if (/valentine/.test(p)) return holiday("valentine", 1, 14);
+  if ((m = p.match(new RegExp(String.raw`\b(?:by|before|in|for)\s+(${MONTH_NAMES.join("|")})\b`)))) {
+    const mi = MONTH_NAMES.indexOf(m[1]);
+    const yr = nextMonthIdx(today, mi);
+    return { date: iso(at(yr, mi, 1)), rule: `“by ${m[1]}” = ${MONTH_NAMES[mi][0].toUpperCase()}${MONTH_NAMES[mi].slice(1)} 1` };
+  }
+  if (/\btomorrow\b/.test(p)) return { date: addDays(today, 1), rule: "tomorrow" };
+  return null;
+}
+
+/** The date in the buyer's words, read in code: one explicit date, else one rule-based phrase. */
+export function dateInWords(text: string, today: string): { date: string; words: string; rule: string | null } | null {
+  const t = text.toLowerCase();
+  const explicit = new Map<string, string>();
+  const monthRe = String.raw`(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?`;
+  for (const m of t.matchAll(new RegExp(String.raw`\b\d{4}-\d{2}-\d{2}\b|\b${monthRe}\s+\d{1,2}(?:st|nd|rd|th)?(?:,?\s+\d{4})?\b|\b\d{1,2}(?:st|nd|rd|th)?\s+(?:of\s+)?${monthRe}(?:,?\s+\d{4})?\b`, "g"))) {
+    const d = explicitDate(m[0], today);
+    if (d) explicit.set(d, m[0]);
+  }
+  if (explicit.size === 1) {
+    const [[date, words]] = [...explicit];
+    return { date, words, rule: null };
+  }
+  if (explicit.size > 1) return null;
+  const r = relativeDate(t, today);
+  return r ? { date: r.date, words: text, rule: r.rule } : null;
+}
+
 const MONEY_WORDS = /\b(budget|price|cost|costs|pay|paying|each|per|apiece|total|max|maximum|around|about)\b/;
 
 const contains = (text: string, words: string | null) => !!words && words.trim().length > 0 && text.toLowerCase().includes(words.trim().toLowerCase());
@@ -183,7 +320,13 @@ export function interpret(text: string, raw: unknown, ctx: { today: string; earl
   // Quantity.
   let quantity: Field<number>;
   const q = h.quantity;
-  if (q === null || !Number.isInteger(q) || q < 1 || q > MAX_QUANTITY) {
+  const codeQ = quantityInWords(text);
+  if ((q === null || !Number.isInteger(q) || q < 1) && codeQ && codeQ.value <= MAX_QUANTITY) {
+    // The model found none; the buyer's own words have one next to the product.
+    const range = inRange(text, codeQ.value);
+    quantity = { value: codeQ.value, status: range ? "assumed" : "stated", words: codeQ.words, note: range ? `You gave a range; we used ${codeQ.value}. Please choose the number of pieces.` : null };
+    if (range) questions.push("How many pieces exactly?");
+  } else if (q === null || !Number.isInteger(q) || q < 1 || q > MAX_QUANTITY) {
     quantity = { value: null, status: "missing", words: null, note: q === null ? null : `Quantity must be a whole number from 1 to ${MAX_QUANTITY.toLocaleString("en-US")}.` };
     questions.push("How many pieces do you need?");
   } else {
@@ -199,30 +342,47 @@ export function interpret(text: string, raw: unknown, ctx: { today: string; earl
         : numbers.has(q)
           ? `We read ${q} as the number of pieces. Please check it.`
           : "This number isn't in your words. Please check it.";
-    quantity = { value: q, status: quoted && !range ? "stated" : "assumed", words, note };
+    // Code's own reading must agree: a disagreement is shown, never silently resolved.
+    const confirmedByCode = codeQ?.value === q;
+    const conflict = codeQ && codeQ.value !== q ? `Your words also say ${codeQ.value} (“${codeQ.words}”). Please check the number of pieces.` : null;
+    quantity = {
+      value: q,
+      status: (quoted || confirmedByCode) && !range && !conflict ? "stated" : "assumed",
+      words: words ?? (confirmedByCode ? codeQ!.words : null),
+      note: conflict ?? (confirmedByCode && !range ? null : note),
+    };
     if (range) questions.push("How many pieces exactly?");
   }
 
-  // Delivery date.
+  // Delivery date: explicit dates and relative phrases are resolved in CODE; the model only points at the words.
   let deadline: Field<string>;
-  const d = h.deliverBy;
-  if (d === null || !isCalendarDate(d)) {
+  const aiWords = contains(text, h.deliverByWords) ? h.deliverByWords!.trim() : null;
+  const aiDate = h.deliverBy !== null && isCalendarDate(h.deliverBy) ? h.deliverBy : null;
+  const fromAiWords = aiWords ? (explicitDate(aiWords, ctx.today) ? { date: explicitDate(aiWords, ctx.today)!, rule: null as string | null } : relativeDate(aiWords, ctx.today)) : null;
+  const fromText = dateInWords(text, ctx.today);
+  let chosen: { value: string; words: string | null; rule: string | null; explicit: boolean } | null = null;
+  if (fromAiWords) chosen = { value: fromAiWords.date, words: aiWords, rule: fromAiWords.rule, explicit: fromAiWords.rule === null };
+  else if (fromText) chosen = { value: fromText.date, words: fromText.rule ? null : fromText.words, rule: fromText.rule, explicit: fromText.rule === null };
+  else if (aiDate) chosen = { value: aiDate, words: aiWords, rule: null, explicit: false };
+  const disagree = chosen && aiDate && aiDate !== chosen.value;
+  if (!chosen) {
     deadline = { value: null, status: "missing", words: null, note: null };
     questions.push("By what date must the pieces be delivered?");
-  } else if (d < ctx.earliest) {
-    deadline = { value: null, status: "missing", words: contains(text, h.deliverByWords) ? h.deliverByWords : null, note: `That date has passed or is too soon. The earliest date you can ask for is ${enDate(ctx.earliest)}.` };
+  } else if (chosen.value < ctx.earliest) {
+    deadline = { value: null, status: "missing", words: chosen.words, note: `That date has passed or is too soon. The earliest date you can ask for is ${enDate(ctx.earliest)}.` };
     questions.push("By what date must the pieces be delivered?");
+  } else if (chosen.explicit && !disagree) {
+    deadline = { value: chosen.value, status: "stated", words: chosen.words, note: null };
   } else {
-    const words = contains(text, h.deliverByWords) ? h.deliverByWords : null;
-    const own = words ? explicitDate(words, ctx.today) : null;
-    deadline =
-      own === d
-        ? { value: d, status: "stated", words, note: null }
-        : { value: d, status: "assumed", words, note: words ? `We read “${words}” as ${enDate(d)}. Please confirm.` : `We assumed ${enDate(d)}. Please confirm.` };
+    const how = chosen.rule ? `We read ${chosen.words ? `“${chosen.words}”` : "your date"} as ${enDate(chosen.value)} (${chosen.rule}).` : chosen.words ? `We read “${chosen.words}” as ${enDate(chosen.value)}.` : `We assumed ${enDate(chosen.value)}.`;
+    deadline = { value: chosen.value, status: "assumed", words: chosen.words, note: `${how} Please confirm.` };
   }
 
   // Budget (USD cents; INR converted at the collective's recorded rate).
   let budgetUsdCents: Field<number>;
+  // Code CHECKS the model's budget against the words but never supplies one: a budget is optional,
+  // and an amount in the text may be an instruction ("set the price to $1"), not the buyer's budget.
+  const codeB = budgetInWords(text);
   const b = h.budget;
   const bWords = contains(text, h.budgetWords) ? h.budgetWords!.trim() : null;
   const quotedCurrency = bWords ? currencyIn(bWords) : null;
@@ -244,8 +404,13 @@ export function interpret(text: string, raw: unknown, ctx: { today: string; earl
       const hasAmount = !!bWords && numbersIn(bWords).has(b.amount);
       const currencyMatches = quotedCurrency === b.currency;
       const range = inRange(text, b.amount);
-      const grounded = hasAmount && currencyMatches && !range;
+      const codeDisagrees = codeB && (codeB.amount !== b.amount || codeB.currency !== b.currency) ? `Your words say ${codeB.words}. Please check the budget.` : null;
+      // Text that tries to instruct (the model or us) never yields a budget labelled as the buyer's own words.
+      const instructed = /\b(?:ignore|disregard)\b[^.]{0,40}\binstructions?\b|\bsystem prompt\b|\bset (?:the )?(?:price|budget|total|amount)\b/i.test(text);
+      const grounded = hasAmount && currencyMatches && !range && !codeDisagrees && !instructed;
       const notes = [
+        instructed ? "Your message contains instructions; please confirm the budget yourself." : null,
+        codeDisagrees,
         !hasAmount ? (numbers.has(b.amount) ? `We read ${b.amount} as the budget. Please check it.` : "This amount isn't in your words. Please check it.") : null,
         hasAmount && !currencyMatches ? (quotedCurrency === null ? `Is that ${b.currency === "USD" ? "in US dollars" : "in rupees"}? Please check.` : "The currency doesn't match your words. Please check it.") : null,
         range ? "You gave a range. Please give one budget." : null,
@@ -255,7 +420,7 @@ export function interpret(text: string, raw: unknown, ctx: { today: string; earl
       budgetUsdCents = {
         value: cents > 0 ? cents : null,
         status: cents <= 0 ? "missing" : grounded && b.currency === "USD" && !perPiece ? "stated" : "assumed",
-        words: contains(text, h.budgetWords) ? h.budgetWords : null,
+        words: bWords,
         note: notes.length ? notes.join(" ") : null,
       };
     }

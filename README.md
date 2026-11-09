@@ -58,7 +58,8 @@ flowchart LR
    sentence: "No individual maker can fulfil this request within its date and budget. The
    collective can." There are no names or figures in it.
 4. **Her part.** Each maker sees only her own part (pieces per day, pay, dispatch date) on
-   her personal link. The terms are read back in Hindi and hashed. If a plan changes, the
+   her personal link, in Hindi or English as she chooses. The terms are read back in her
+   language and hashed. If a plan changes, the
    coordinator can send one that keeps the agreed parts identical; only makers whose part
    changed are asked again.
 5. **Payment.** The buyer approves the exact terms. Capacity is re-checked and reserved in
@@ -92,8 +93,10 @@ flowchart LR
   cases, and nothing in its output shows which. That's why Haat's AI only reads the request
   and code decides.
 - **AI reading buyers' requests** (20 hand-written requests, 60 fields): no wrong value was
-  ever shown as "from your words". The only wrong reading (a date too soon to ask for) was
-  flagged for the buyer, and the prompt injection produced no budget.
+  ever shown as "from your words". 49 values were read right and shown as stated, and the rest
+  were flagged or left for the buyer. Code reads quantities, amounts and dates itself, resolves
+  relative dates by published rules, and flags any disagreement with the AI. The prompt
+  injection produced no budget.
 
 **One complete sandbox transaction:**
 - A 30-scarf order for $236.86, made by two makers.
