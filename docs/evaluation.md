@@ -224,7 +224,15 @@ run, from a separate quota project where possible.
 ## 2. One complete transaction (PayPal sandbox)
 
 Run on 7 November 2026 on the local server (`collective` branch, migrations to `0019`),
-with the PayPal sandbox.
+with the PayPal sandbox. The payment was received by the Indian sandbox business account.
+
+On 8 November the hosted smoke test was refused by PayPal for that same account:
+- `COMPLIANCE_VIOLATION` at capture (debug_id `f5191608211e0`);
+- then `COMPLIANCE_KYC_VIOLATION` before checkout opened.
+
+A sandbox account can't complete PayPal India's KYC, so the hosted demo now receives into a US
+sandbox business account (see the README). Haat handled the refusal correctly: nothing was
+charged, the terms were unlocked, and a fresh PayPal order is used for the next attempt.
 
 | Step | Who | Evidence |
 |---|---|---|

@@ -98,6 +98,18 @@ flowchart LR
 This proves the integration works end to end. The payout was not a real bank transfer, and
 the maker was played by the project owner. It does not show an artisan earning income.
 
+**Sandbox account note.** That payment went into an Indian sandbox business account, as a real
+Indian collective's would. Afterwards, PayPal's sandbox refused further international payments
+into that account:
+- `COMPLIANCE_VIOLATION` at capture;
+- then `COMPLIANCE_KYC_VIOLATION` before checkout opened.
+
+A sandbox account can't complete PayPal India's identity checks (KYC). The hosted demo
+therefore receives payments into a **US sandbox business account**. A real Indian collective
+completes PayPal India's KYC, PAN and purpose-code requirements, which Haat doesn't automate.
+When PayPal refuses a capture, Haat shows that nothing was charged, unlocks the terms and
+lets the buyer pay again with a new PayPal order.
+
 **Not yet established:** real use by a collective, extra orders won, or whether makers can
 keep their facts current without help. The [role-play kit](docs/role-play-kit.md) measures
 the last one with people. It is labelled a role-play, not a pilot.
