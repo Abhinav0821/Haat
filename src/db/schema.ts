@@ -314,6 +314,8 @@ export const members = pgTable("members", {
   collectiveId: text("collective_id").notNull().references(() => collectives.id),
   name: text("name").notNull(),
   nameHi: text("name_hi"),
+  /** Her language for her page, read-backs and the terms she agrees to (src/lib/i18n/languages.ts). Set by the coordinator; she can change it. */
+  language: text("language").notNull().default("hi"),
   linkHash: text("link_hash").notNull().unique(),
   /** StoredMemberFacts with provenance (who stated them, when). */
   facts: jsonb("facts").$type<Record<string, unknown>>().notNull(),

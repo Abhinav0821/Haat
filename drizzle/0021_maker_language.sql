@@ -1,0 +1,1 @@
+ALTER TABLE "members" ADD COLUMN "language" text DEFAULT 'hi' NOT NULL;

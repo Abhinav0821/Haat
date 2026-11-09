@@ -3,7 +3,7 @@ import { errorResponse } from "@/lib/custom/http";
 import { getDemoCollective, membersOf } from "@/lib/collective/demo";
 import { materialsReadyOn, MemberFactsSchema } from "@/lib/collective/facts";
 import { newMemberLink } from "@/lib/collective/seed";
-import { CollectiveError, createOrder, settingsOf, updateMemberFacts } from "@/lib/collective/service";
+import { CollectiveError, createOrder, setMemberLanguage, settingsOf, updateMemberFacts } from "@/lib/collective/service";
 import { listOrders } from "@/lib/collective/views";
 import { db } from "@/db";
 
@@ -18,7 +18,7 @@ export async function GET(request: Request) {
       collective: { id: c.id, slug: c.slug, name: c.name, coordinatorName: c.coordinatorName, settings: settingsOf(c) },
       members: members.map((m) => {
         const facts = MemberFactsSchema.parse(m.facts);
-        return { id: m.id, name: m.name, nameHi: m.nameHi, facts: { ...facts, materialsReadyDate: materialsReadyOn(facts) } };
+        return { id: m.id, name: m.name, nameHi: m.nameHi, language: m.language, facts: { ...facts, materialsReadyDate: materialsReadyOn(facts) } };
       }),
       orders: await listOrders(c.id),
     });
@@ -31,6 +31,7 @@ export async function GET(request: Request) {
  * {action: "order", buyerText, buyerName?, quantity, deadline, budgetUsd?, details?} — record a buyer's request
  * {action: "link", memberId} — a new personal link for a maker (shown once; the old one stops working)
  * {action: "facts", memberId, facts} — coordinator-entered facts (an estimate until she confirms them)
+ * {action: "language", memberId, language} — her language (she can change it on her own link too)
  */
 export async function POST(request: Request) {
   const denied = await requireSeller(request);
@@ -56,6 +57,11 @@ export async function POST(request: Request) {
       const m = await own(body.memberId);
       const token = await newMemberLink(await db(), m.id);
       return Response.json({ path: `/m/${token}` });
+    }
+    if (body?.action === "language") {
+      const m = await own(body.memberId);
+      await setMemberLanguage(m.id, body.language);
+      return Response.json({ ok: true });
     }
     if (body?.action === "facts") {
       const m = await own(body.memberId);

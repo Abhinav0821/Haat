@@ -6,6 +6,7 @@ import { internalView } from "@/lib/collective/views";
 import { reportMakerPayment, withdrawMakerPayment } from "@/lib/collective/payouts";
 import { db, schema } from "@/db";
 import { eq } from "drizzle-orm";
+import { draftRequirements } from "@/lib/ai/requirements";
 
 const CHOICES = new Set<Choice>(["primary", "lowest_price", "within_budget", "largest_by_date", "earliest", "keep_agreed"]);
 
@@ -59,6 +60,17 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (body?.action === "offer" && body.choice && CHOICES.has(body.choice)) await offerPlan(id, body.choice);
     else if (body?.action === "exclude" && body.memberId) await excludeMember(id, body.memberId);
     else if (body?.action === "requirements") await updateOrderRequirements(id, body.details ?? null, body.detailsHi ?? null);
+    else if (body?.action === "draft_requirements") {
+      // An AI draft of the Hindi, with an independent back-translation, for the coordinator to review; nothing is saved here.
+      const details = typeof body.details === "string" ? body.details.trim() : "";
+      if (!details || details.length > 300) return Response.json({ error: "Write the English requirements first (up to 300 characters)." }, { status: 400 });
+      try {
+        return Response.json(await draftRequirements(details, ["hi"]));
+      } catch (e) {
+        console.warn("[requirements] AI draft failed:", (e as Error).message.slice(0, 120));
+        return Response.json({ error: "Drafting isn't available right now. Please write the translations yourself." }, { status: 503 });
+      }
+    }
     else if (body?.action === "report_payment") {
       await ownShare(id, body.shareId);
       await reportMakerPayment(String(body.shareId), { amountInr: body.amountInr, method: body.method, reference: body.reference }, { name: (await getDemoCollective()).coordinatorName });

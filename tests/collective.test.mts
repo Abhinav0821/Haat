@@ -221,7 +221,7 @@ test("views: the buyer sees no maker's name, pay, minimum or availability; a mak
   for (const other of ["Meera", "Rukhsana"]) assert.ok(!mvText.includes(other));
   const others = (await parts(v1.id)).filter((p) => p.name !== "Sunita");
   for (const p of others) assert.ok(!mvText.includes(`₹${(p.row.terms as { payInr: number }).payInr.toLocaleString("en-IN")}`) || (p.row.terms as { payInr: number }).payInr === mv.parts[0].payInr);
-  assert.match(mv.parts[0].readbackHi, /आपका हिस्सा \d+ पीस/);
+  assert.match(mv.parts[0].readback, /आपका हिस्सा \d+ पीस/);
 });
 
 test("coordinator-entered facts are planned as estimates, labelled as such", async () => {

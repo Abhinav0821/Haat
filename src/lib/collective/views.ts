@@ -6,12 +6,14 @@ import { summarise } from "./explain";
 import { aloneVsTogether, BUYER_SENTENCE } from "./compare";
 import { shareSummaries } from "./payouts";
 import { materialsReadyOn, MemberFactsSchema } from "./facts";
-import { acceptedParts, CollectiveError, currentPlan, evaluateOrder, memberByLink, partStatuses, settingsOf, termsCtx, type OrderSpec } from "./service";
+import { acceptedParts, CollectiveError, currentPlan, evaluateOrder, memberByLink, memberLangs, partStatuses, settingsOf, termsCtx, type OrderSpec } from "./service";
 import { keepAgreedOption } from "./replan";
 import { decidingQuestion } from "@/lib/planner/question";
 import { checkQuestion } from "@/lib/planner/check";
 import { questionWords } from "./explain";
-import { buyerLinesEn, hasHindiRequirements, partLinesEn, partReadbackHi, type BuyerTerms, type PartTerms, type PlanTerms } from "./terms";
+import { buyerLinesEn, hasRequirementsFor, partLines, partReadback, type BuyerTerms, type PartTerms, type PlanTerms } from "./terms";
+import { isMakerLang, LANG_INFO, type MakerLang } from "@/lib/i18n/languages";
+import { productName } from "@/lib/i18n/maker-text";
 
 /**
  * Who sees what (docs/planner-model.md §4):
@@ -83,7 +85,7 @@ export async function internalView(orderId: string, now = new Date()) {
   if (plan && (plan.status === "maker_declined" || plan.status === "needs_replan") && evaluation.kind === "feasible" && problems.length === 0) {
     const accepted = await acceptedParts(d, plan);
     if (accepted.length) {
-      const r = keepAgreedOption(facts, request, now, accepted, termsCtx(collective, order.id, spec), evaluation.plan);
+      const r = keepAgreedOption(facts, request, now, accepted, termsCtx(collective, order.id, spec, await memberLangs(d, collective.id)), evaluation.plan);
       keep = r.option
         ? { ...r.option, plan: undefined, makersInr: r.option.plan.money.makersInr }
         : { none: true as const, acceptedCount: accepted.length, search: r.search, failed: r.failed };
@@ -141,6 +143,7 @@ export async function internalView(orderId: string, now = new Date()) {
         source: PROV_EN[f.prov.source],
         confirmed: f.prov.source === "maker_confirmed",
         at: f.prov.at,
+        language: isMakerLang(m.language) ? m.language : "hi",
       };
     }),
     evaluation: { kind: evaluation.kind, checked, problems: problems.slice(0, 3), ...summary, startDate: facts.startDate, deliveryDay: request.deliveryDay },
@@ -226,8 +229,10 @@ export async function makerView(token: string, now = new Date()) {
   return {
     name: member.name,
     nameHi: member.nameHi,
+    /** Her language (she can change it on this page). */
+    language: (isMakerLang(member.language) ? member.language : "hi") as MakerLang,
     collective: c.name,
-    product: settingsOf(c).product,
+    product: { ...settingsOf(c).product, mine: productName(settingsOf(c).product, isMakerLang(member.language) ? member.language : "hi") },
     facts: { ...f, materialsReadyDate: materialsReadyOn(f), prov: { source: f.prov.source, at: f.prov.at } },
     parts: latest
       .filter((p) => p.status !== "superseded")
@@ -242,9 +247,12 @@ export async function makerView(token: string, now = new Date()) {
           inCurrentPlan: !!plan?.partIds.has(p.id),
           orderStatus: plan?.status ?? null,
           termsHash: p.termsHash,
-          requirementsReady: hasHindiRequirements(t),
-          lines: partLinesEn(t),
-          readbackHi: partReadbackHi(t),
+          requirementsReady: hasRequirementsFor(t),
+          /** The language this part's terms were made in (her language at the time). */
+          termsLang: (t.lang ?? "hi") as MakerLang,
+          termsLangName: LANG_INFO[t.lang ?? "hi"].name,
+          lines: partLines(t),
+          readback: partReadback(t),
           pieces: t.pieces,
           payInr: t.payInr,
           schedule: t.schedule,

@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 import { canonical } from "@/lib/passport/signing";
 import { dayDate, type Plan } from "@/lib/planner/model";
+import { longDay as dayIn, rupeesText, type MakerLang } from "@/lib/i18n/languages";
+import { mt, productName } from "@/lib/i18n/maker-text";
 
 /**
  * The words people agree to. Each maker's part and the buyer's terms are frozen and
@@ -34,6 +36,10 @@ export type PartTerms = {
   askInrPerPiece: number;
   payInr: number;
   payment: { en: string; hi: string };
+  /** Her language. Absent means Hindi (and every part made before other languages existed). */
+  lang?: MakerLang;
+  /** For an English-reading maker: the words of these terms as she reads them, hashed with the rest. */
+  local?: { product: string; details: string | null; payment: string };
 };
 
 export type BuyerTerms = {
@@ -63,7 +69,16 @@ export function partTerms(
   plan: Plan,
   startDate: string,
   memberId: string,
-  ctx: { collective: string; orderRef: string; product: Product; details: string | null; detailsHi?: string | null; transitDays: number },
+  ctx: {
+    collective: string;
+    orderRef: string;
+    product: Product;
+    details: string | null;
+    detailsHi?: string | null;
+    /** Each maker's language (default Hindi). */
+    langs?: Record<string, MakerLang>;
+    transitDays: number;
+  },
 ): PartTerms | null {
   const mine = plan.production.filter((p) => p.makerId === memberId).sort((a, b) => a.day - b.day);
   const pay = plan.money.perMaker.find((p) => p.makerId === memberId);
@@ -87,11 +102,25 @@ export function partTerms(
     dispatchBy: dayDate(startDate, plan.deliveryDay - ctx.transitDays),
     askInrPerPiece: Math.round((payInr / pieces) * 100) / 100,
     payInr,
+    ...localReading(ctx, memberId, payInr),
     payment: {
       en: `The collective sells this order. When the buyer's payment is received, the collective owes you ₹${payInr.toLocaleString("en-IN")}. Each payment to you is recorded with its UPI or bank reference, and you confirm it. Start only after this page says the buyer has paid.`,
       hi: `यह ऑर्डर संगठन बेचता है। ख़रीदार का पैसा आने पर संगठन पर आपके ₹${payInr.toLocaleString("en-IN")} बकाया होंगे। आपको हर भुगतान UPI या बैंक के नंबर के साथ दर्ज होगा, और आप उसकी पुष्टि करेंगी। काम तभी शुरू करें जब यह पेज बताए कि ख़रीदार ने पैसे दे दिए हैं।`,
     },
   };
+}
+
+/** Her language's words for these terms; nothing for a Hindi maker, so her terms (and their hash) are unchanged. */
+function localReading(ctx: { product: Product; details: string | null; langs?: Record<string, MakerLang> }, memberId: string, payInr: number) {
+  const lang = ctx.langs?.[memberId] ?? "hi";
+  if (lang === "hi") return {};
+  return { lang, local: { product: productName(ctx.product, lang), details: ctx.details, payment: mt("terms.payment", lang, { pay: rupeesText(payInr) }) } };
+}
+
+/** Her requirements are in her own language (or there are none). Required before she can accept. */
+export function hasRequirementsFor(t: PartTerms): boolean {
+  if (!t.details) return true;
+  return (t.lang ?? "hi") === "en" || hasHindiRequirements(t);
 }
 
 export function buyerTerms(
@@ -144,6 +173,42 @@ export function partReadbackHi(t: PartTerms): string {
     `फ़िनिशिंग ${hiDay(t.finishingEnds)} तक पूरी होनी है और ऑर्डर ${hiDay(t.dispatchBy)} को भेजा जाएगा, इसलिए आपके पीस तय दिनों पर चाहिए।`,
     t.payment.hi,
   ].join(" ");
+}
+
+/** Her part, read aloud in the language of her terms. Hindi terms use the original Hindi template unchanged. */
+export function partReadback(t: PartTerms): string {
+  const lang = t.lang ?? "hi";
+  if (lang === "hi") return partReadbackHi(t);
+  const day = (iso: string) => dayIn(iso, lang);
+  const days = runs(t.schedule)
+    .map((r) => (r.from === r.to ? mt("rb.dayOne", lang, { n: r.pieces, date: day(r.from) }) : mt("rb.dayRange", lang, { n: r.pieces, from: day(r.from), to: day(r.to) })))
+    .join(", ");
+  const product = t.local?.product ?? t.product.en;
+  const details = t.local?.details ?? t.details;
+  return [
+    mt("rb.order", lang, { collective: t.collective, product }),
+    ...(t.details ? [hasRequirementsFor(t) ? mt("rb.requirements", lang, { details: String(details).trim().replace(/[।.!?۔]$/u, "") }) : mt("requirementsMissing", lang)] : []),
+    mt("rb.part", lang, { pieces: t.pieces, days }),
+    mt("rb.pay", lang, { ask: rupeesText(t.askInrPerPiece), total: rupeesText(t.payInr) }),
+    mt("rb.depends", lang, { finish: day(t.finishingEnds), dispatch: day(t.dispatchBy) }),
+    t.local?.payment ?? t.payment.en,
+  ].join(" ");
+}
+
+/** The details panel beside her read-back, in the language of her terms. */
+export function partLines(t: PartTerms): [string, string][] {
+  const lang = t.lang ?? "hi";
+  const day = (iso: string) => dayIn(iso, lang);
+  const product = lang === "hi" ? t.product.hi : (t.local?.product ?? t.product.en);
+  const details = lang === "hi" ? t.detailsHi : t.details;
+  return [
+    [mt("line.order", lang), `${product}${details ? ` (${details})` : ""}`],
+    [mt("line.part", lang), mt("line.piecesValue", lang, { n: t.pieces })],
+    [mt("line.when", lang), runs(t.schedule).map((r) => (r.from === r.to ? mt("line.dayOne", lang, { date: day(r.from), n: r.pieces }) : mt("line.dayRange", lang, { from: day(r.from), to: day(r.to), n: r.pieces }))).join(" · ")],
+    [mt("line.pay", lang), mt("line.payValue", lang, { ask: rupeesText(t.askInrPerPiece), total: rupeesText(t.payInr) })],
+    [mt("line.depends", lang), mt("line.dependsValue", lang, { finish: day(t.finishingEnds), dispatch: day(t.dispatchBy) })],
+    [mt("line.payment", lang), lang === "hi" ? t.payment.hi : (t.local?.payment ?? t.payment.en)],
+  ];
 }
 
 export function partLinesEn(t: PartTerms): [string, string][] {

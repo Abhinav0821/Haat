@@ -2,6 +2,7 @@ import { checkPlan } from "@/lib/planner/check";
 import { planKeeping, type Keep } from "@/lib/planner/solve";
 import { dayIndex, type CollectiveFacts, type OrderRequest, type Plan } from "@/lib/planner/model";
 import { hashOf, partTerms, type Product } from "./terms";
+import type { MakerLang } from "@/lib/i18n/languages";
 
 /**
  * Replanning that preserves agreements (docs/direction.md §D).
@@ -20,7 +21,15 @@ import { hashOf, partTerms, type Product } from "./terms";
 export const EXACT_LIMIT = 8;
 
 export type AcceptedPart = { memberId: string; name: string; termsHash: string; schedule: { date: string; pieces: number }[] };
-export type TermsCtx = { collective: string; orderRef: string; product: Product; details: string | null; detailsHi?: string | null; transitDays: number };
+export type TermsCtx = {
+  collective: string;
+  orderRef: string;
+  product: Product;
+  details: string | null;
+  detailsHi?: string | null;
+  langs?: Record<string, MakerLang>;
+  transitDays: number;
+};
 export type Attempt = { names: string[]; reason: "kept" | "capacity" | "budget" | "facts" | "terms_changed" | "checker" | "input" };
 
 export type KeepOption = {

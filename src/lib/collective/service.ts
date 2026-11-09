@@ -6,7 +6,8 @@ import { evaluate } from "@/lib/planner/solve";
 import { checkEvaluation, checkPlan } from "@/lib/planner/check";
 import { dayDate, dayIndex, factsHash, PLANNER_MODEL, type CollectiveFacts, type Evaluation, type OptimalityCert, type OrderRequest, type Plan } from "@/lib/planner/model";
 import { buildFacts, materialsReadyOn, MemberFactsSchema, SettingsSchema, type CollectiveSettings, type DatedReservation, type MemberRow, type StoredMemberFacts } from "./facts";
-import { buyerTerms, hasHindiRequirements, hashOf, partTerms, type PartTerms, type PlanTerms } from "./terms";
+import { buyerTerms, hasHindiRequirements, hasRequirementsFor, hashOf, partTerms, type PartTerms, type PlanTerms } from "./terms";
+import { isMakerLang, MAKER_LANGS, type MakerLang } from "@/lib/i18n/languages";
 import { calendarDate as today, dayBegins } from "./calendar";
 import { createSnapshot } from "@/lib/planner/snapshot";
 import { editedFields, type Interpretation } from "./intake";
@@ -50,7 +51,13 @@ type PartRow = typeof schema.memberParts.$inferSelect;
 type OrderRow = typeof schema.collectiveOrders.$inferSelect;
 type CollectiveRow = typeof schema.collectives.$inferSelect;
 
-export type OrderSpec = { quantity: number; deadline: string; budgetUsdCents: number | null; details: string | null; detailsHi?: string | null };
+export type OrderSpec = {
+  quantity: number;
+  deadline: string;
+  budgetUsdCents: number | null;
+  details: string | null;
+  detailsHi?: string | null;
+};
 export type Choice = "primary" | "lowest_price" | "within_budget" | "largest_by_date" | "earliest" | "keep_agreed";
 
 /** Plans start the day after they are made: nobody is asked for work on a day that is already under way. */
@@ -109,6 +116,20 @@ function requirements(details: string | null, detailsHi?: string | null) {
   if ((en?.length ?? 0) > 300 || (hi?.length ?? 0) > 600) throw new CollectiveError("Keep requirements within 300 English / 600 Hindi characters.", 400);
   if (hi && (!en || !hasHindiRequirements({ details: en, detailsHi: hi }))) throw new CollectiveError("Provide the requirements in English and Hindi (Devanagari).", 400);
   return { details: en, detailsHi: hi };
+}
+
+/** Each maker's language, by member id. */
+export async function memberLangs(q: DB | Tx, collectiveId: string): Promise<Record<string, MakerLang>> {
+  const rows = await q.select({ id: schema.members.id, language: schema.members.language }).from(schema.members).where(eq(schema.members.collectiveId, collectiveId));
+  return Object.fromEntries(rows.map((r) => [r.id, isMakerLang(r.language) ? r.language : "hi"]));
+}
+
+/** A maker's language: set by the coordinator or by her on her own link. Parts already sent keep the language they were made in. */
+export async function setMemberLanguage(memberId: string, language: unknown) {
+  if (!isMakerLang(language)) throw new CollectiveError(`Choose one of: ${MAKER_LANGS.join(", ")}`, 400);
+  const [m] = await (await db()).update(schema.members).set({ language }).where(eq(schema.members.id, memberId)).returning();
+  if (!m) throw new CollectiveError("maker not found", 404);
+  return m;
 }
 
 export function requestFor(spec: OrderSpec, startDate: string): OrderRequest {
@@ -297,7 +318,6 @@ export async function offerPlan(orderId: string, choice: Choice, now = new Date(
     if (plans.some((p) => p.status === "paid")) throw new CollectiveError("This order is already paid.");
     const [fresh] = await tx.select().from(schema.collectiveOrders).where(eq(schema.collectiveOrders.id, orderId));
     const spec = specOf(fresh);
-    if (!hasHindiRequirements(spec)) throw new CollectiveError("Add and review the Hindi requirements before sending a plan to makers.", 400);
     const startDate = planStart(now);
     const current = plans.find((p) => LIVE.includes(p.status));
     const facts = await currentFacts(tx, c, fresh, startDate, now, current?.id);
@@ -305,7 +325,8 @@ export async function offerPlan(orderId: string, choice: Choice, now = new Date(
     await hooks.afterRead?.();
     if (r.evaluation.kind === "unresolved") throw new CollectiveError(`Not decided yet: ${r.evaluation.issues.map((i) => i.en).join(" ")}`);
     if (r.problems.length) throw new CollectiveError(`The independent checker rejected the planner's answer (${r.problems.slice(0, 2).join("; ")}). Nothing was offered.`, 500);
-    const ctx = termsCtx(c, orderId, spec);
+    const langs = await memberLangs(tx, c.id);
+    const ctx = termsCtx(c, orderId, spec, langs);
     let pick: ReturnType<typeof chosen>;
     if (choice === "keep_agreed") {
       if (!current) throw new CollectiveError("There is no earlier plan whose agreed parts could be kept.", 400);
@@ -320,6 +341,11 @@ export async function offerPlan(orderId: string, choice: Choice, now = new Date(
 
     const existing = await tx.select().from(schema.memberParts).where(eq(schema.memberParts.orderId, orderId));
     const producing = [...new Set(pick.plan.production.map((p) => p.makerId))].sort();
+    // Every maker in this plan must be able to read the requirements in her own language before anything is sent.
+    // An English-reading maker reads the buyer's own words; everyone else needs the reviewed Hindi.
+    if (spec.details && producing.some((id) => (langs[id] ?? "hi") === "hi") && !hasHindiRequirements(spec)) {
+      throw new CollectiveError("Add and review the Hindi requirements before sending a plan to makers.", 400);
+    }
     const refs: PlanTerms["parts"] = [];
     for (const memberId of producing) {
       const terms = partTerms(pick.plan, startDate, memberId, ctx)!;
@@ -372,9 +398,9 @@ export async function offerPlan(orderId: string, choice: Choice, now = new Date(
 }
 
 /** The words every part of this order is built from (collective, order, product, bilingual requirements, transit). */
-export function termsCtx(c: CollectiveRow, orderId: string, spec: OrderSpec): TermsCtx {
+export function termsCtx(c: CollectiveRow, orderId: string, spec: OrderSpec, langs: Record<string, MakerLang> = {}): TermsCtx {
   const settings = settingsOf(c);
-  return { collective: c.name, orderRef: orderId.slice(0, 8), product: settings.product, details: spec.details, detailsHi: spec.detailsHi, transitDays: settings.transitDays };
+  return { collective: c.name, orderRef: orderId.slice(0, 8), product: settings.product, details: spec.details, detailsHi: spec.detailsHi, langs, transitDays: settings.transitDays };
 }
 
 /** Parts of `plan` that their maker accepted on exactly the referenced hash, with her schedule. */
@@ -397,7 +423,7 @@ export async function partsAllAccepted(q: DB | Tx, refs: PlanTerms["parts"]): Pr
   return refs.every((r) => {
     const p = rows.find((x) => x.id === r.partId);
     return !!p && p.memberId === r.memberId && p.status === "accepted" && p.termsHash === r.termsHash && p.respondedHash === r.termsHash && p.respondedVia === "personal_link"
-      && hashOf(p.terms) === p.termsHash && hasHindiRequirements(p.terms as unknown as PartTerms);
+      && hashOf(p.terms) === p.termsHash && hasRequirementsFor(p.terms as unknown as PartTerms);
   });
 }
 
@@ -439,7 +465,7 @@ export async function respondToPart(token: string, partId: string, hash: string,
     if (part.status === "superseded") throw new CollectiveError("This part was changed. Please look at the latest version.");
     if (part.status === "declined") throw new CollectiveError("You already said no to this part.");
     if (hash !== part.termsHash) throw new CollectiveError("The terms changed since you saw them. Please look again.");
-    if (answer === "accept" && !hasHindiRequirements(part.terms as unknown as PartTerms)) throw new CollectiveError("The Hindi requirements are missing. Ask the coordinator for a new version.");
+    if (answer === "accept" && !hasRequirementsFor(part.terms as unknown as PartTerms)) throw new CollectiveError("The Hindi requirements are missing. Ask the coordinator for a new version.");
     if (answer === "accept" && part.status === "accepted") return part;
 
     const plan = await currentPlan(tx, ref.orderId, now);

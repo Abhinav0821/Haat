@@ -1,0 +1,125 @@
+/**
+ * Every piece of text a maker sees, in English and Hindi (written and reviewed by us).
+ * The other seven languages are generated from these by scripts/translate-maker-text.ts
+ * into maker-translations.ts, keeping every {placeholder}.
+ *
+ * Keys starting with "rb." and "terms." are part of what she agrees to: the read-back of
+ * her part and its payment clause.
+ */
+export const MAKER_SOURCE = {
+  linkInvalid: { en: "This link isn't valid. Ask the coordinator for a new one.", hi: "यह लिंक काम नहीं कर रहा। संयोजक से नया लिंक माँगें।" },
+  greeting: { en: "Hello {name}", hi: "नमस्ते {name}" },
+  privacy: {
+    en: "This page is yours. An answer given on this link counts as yours, so don't share it.",
+    hi: "यह पेज सिर्फ़ आपका है। इस लिंक से दिया गया जवाब आपका जवाब माना जाएगा, इसलिए इसे किसी और को न दें।",
+  },
+  language: { en: "Language", hi: "भाषा" },
+  machineNote: {
+    en: "This language was translated by machine and has not yet been checked by a native speaker. If anything is unclear, ask the coordinator before you answer.",
+    hi: "इस भाषा का अनुवाद मशीन से हुआ है और अभी किसी जानकार ने जाँचा नहीं है। कुछ भी साफ़ न हो तो जवाब देने से पहले संयोजक से पूछें।",
+  },
+  yourParts: { en: "Your parts", hi: "आपके हिस्से" },
+  nothingNew: { en: "Nothing new. When the collective shares out an order, your part appears here.", hi: "अभी कोई नया काम नहीं। जब संगठन कोई ऑर्डर बाँटेगा, आपका हिस्सा यहाँ आएगा।" },
+  order: { en: "Order", hi: "ऑर्डर" },
+  listen: { en: "Listen", hi: "सुनें" },
+  acceptedOn: { en: "You accepted this part ({date}).", hi: "आपने यह हिस्सा मंज़ूर किया ({date})।" },
+  acceptedSpoken: { en: "Your part is accepted.", hi: "आपका हिस्सा मंज़ूर हो गया।" },
+  cantDo: { en: "Can no longer do it?", hi: "अब नहीं कर पाएँगी?" },
+  accept: { en: "Yes, accept", hi: "हाँ, मंज़ूर" },
+  decline: { en: "No", hi: "नहीं" },
+  why: { en: "Why? (optional)", hi: "क्यों? (चाहें तो)" },
+  confirmDecline: { en: "Yes, decline", hi: "हाँ, मना करें" },
+  cancel: { en: "Cancel", hi: "रहने दें" },
+  declineNote: {
+    en: "The coordinator is told and plans again. Nobody takes your place without a new plan the buyer approves.",
+    hi: "संयोजक को बताया जाएगा और वे फिर से योजना बनाएँगे। ख़रीदार की मंज़ूर की हुई नई योजना के बिना कोई आपकी जगह नहीं लेगा।",
+  },
+  youDeclined: { en: "you declined", hi: "आपने मना किया" },
+  orderChanged: { en: "this order changed", hi: "यह ऑर्डर बदल गया" },
+  noLongerNeeded: { en: "your part is no longer needed", hi: "अब आपके हिस्से की ज़रूरत नहीं" },
+  otherLanguage: {
+    en: "This part was prepared in {lang}. Ask the coordinator to send it again in your language.",
+    hi: "यह हिस्सा {lang} में बना था। संयोजक से कहें कि इसे आपकी भाषा में फिर से भेजें।",
+  },
+  requirementsMissing: {
+    en: "The requirements for this order are not yet in your language. Don't accept this part yet.",
+    hi: "इस ऑर्डर की ख़ास शर्तें अभी आपकी भाषा में नहीं हैं। अभी यह हिस्सा मंज़ूर न करें।",
+  },
+  yourFacts: { en: "Your facts", hi: "आपकी जानकारी" },
+  confirmedOn: { en: "Confirmed by you on {date}", hi: "आपने {date} को पक्का किया" },
+  enteredByCoordinator: { en: "Entered by the coordinator: please check and confirm", hi: "संयोजक ने भरा है — जाँचकर पक्का करें" },
+  factsExplain: {
+    en: "Haat decides how much work, and on which days, only from these. No plan goes beyond them.",
+    hi: "हाट इन्हीं से तय करता है कि आपको कितना काम, किस दिन दिया जा सकता है। कोई भी योजना इनसे बाहर नहीं जाती।",
+  },
+  makesProduct: { en: "I make {product}", hi: "मैं {product} बनाती हूँ" },
+  piecesPerDay: { en: "How many pieces can you make each day?", hi: "हर दिन कितने पीस बना सकती हैं?" },
+  materials: { en: "On what date will your materials be in hand? (leave blank if you don't know)", hi: "सामान किस तारीख़ को हाथ में होगा? (पता न हो तो खाली छोड़ें)" },
+  maxPieces: { en: "Most pieces in one order (optional)", hi: "एक ऑर्डर में ज़्यादा से ज़्यादा पीस (चाहें तो)" },
+  ask: { en: "Your price per piece (₹)", hi: "हर पीस का आपका दाम (₹)" },
+  floor: { en: "Not less than this (₹) — only for you, never shown to buyers", hi: "इससे कम में नहीं (₹) — सिर्फ़ आपके लिए, ख़रीदार को कभी नहीं दिखेगा" },
+  otherPromises: { en: "Other work you've promised", hi: "दूसरे वादे" },
+  forWhom: { en: "for whom", hi: "किसका" },
+  pieces: { en: "pieces", hi: "पीस" },
+  byWhen: { en: "by when", hi: "कब तक" },
+  remove: { en: "Remove", hi: "हटाएँ" },
+  addPromise: { en: "+ Add a promise", hi: "+ वादा जोड़ें" },
+  confirmFacts: { en: "This is right, confirm", hi: "यह सही है, पक्का करें" },
+  confirmedDone: { en: "Confirmed", hi: "पक्का हो गया" },
+  paid: { en: "The buyer has paid. Start making your pieces on your dates.", hi: "ख़रीदार ने पैसे दे दिए हैं। अपने तय दिनों पर पीस बनाना शुरू करें।" },
+  paying: { en: "The buyer's payment is being processed. Don't start until it is confirmed.", hi: "ख़रीदार का पैसा आ रहा है। पक्का होने तक काम शुरू न करें।" },
+  unpaid: { en: "The buyer hasn't paid yet. Don't start; this page will tell you when they have.", hi: "ख़रीदार ने अभी पैसे नहीं दिए। अभी काम शुरू न करें; पैसे आते ही यहाँ बताया जाएगा।" },
+  yourPay: { en: "Your pay", hi: "आपका हिसाब" },
+  owed: { en: "Owed by the collective", hi: "संगठन पर बकाया" },
+  received: { en: "Received", hi: "आपने पाया" },
+  stillDue: { en: "Still due", hi: "बाकी" },
+  allReceived: { en: "All received", hi: "पूरा मिला" },
+  youConfirmedReceipt: { en: "You confirmed you received it", hi: "आपने पुष्टि की कि यह मिला" },
+  disputedNote: { en: "You said it didn't arrive. The coordinator can see that.", hi: "आपने कहा यह नहीं मिला। संयोजक को बताया गया है।" },
+  reportedNote: { en: "The coordinator says this was sent. Check your account, then answer.", hi: "संयोजक ने भेजा बताया है। अपने खाते में देखकर बताइए।" },
+  nowReceived: { en: "Received now", hi: "अब मिल गया" },
+  yesReceived: { en: "Yes, received", hi: "हाँ, मिल गया" },
+  notReceived: { en: "Not received", hi: "नहीं मिला" },
+  onlyYou: {
+    en: "Only you can mark a payment received, and that is final. Haat doesn't see bank or UPI records.",
+    hi: "“मिल गया” सिर्फ़ आप कह सकती हैं, और उसके बाद बदला नहीं जा सकता। हाट बैंक या UPI रिकॉर्ड नहीं देखता।",
+  },
+  bank: { en: "Bank", hi: "बैंक" },
+  day0: { en: "Sun", hi: "रवि" },
+  day1: { en: "Mon", hi: "सोम" },
+  day2: { en: "Tue", hi: "मंगल" },
+  day3: { en: "Wed", hi: "बुध" },
+  day4: { en: "Thu", hi: "गुरु" },
+  day5: { en: "Fri", hi: "शुक्र" },
+  day6: { en: "Sat", hi: "शनि" },
+  "line.order": { en: "Order", hi: "ऑर्डर" },
+  "line.part": { en: "Your part", hi: "आपका हिस्सा" },
+  "line.when": { en: "When", hi: "कब" },
+  "line.pay": { en: "Your pay", hi: "आपका पैसा" },
+  "line.depends": { en: "Depends on", hi: "किस पर निर्भर" },
+  "line.payment": { en: "Payment", hi: "भुगतान" },
+  "line.piecesValue": { en: "{n} pieces", hi: "{n} पीस" },
+  "line.dayOne": { en: "{date}: {n}", hi: "{date}: {n}" },
+  "line.dayRange": { en: "{from}–{to}: {n} a day", hi: "{from}–{to}: रोज़ {n}" },
+  "line.payValue": { en: "{ask} each · {total} in all", hi: "हर पीस {ask} · कुल {total}" },
+  "line.dependsValue": { en: "finishing ends {finish}; dispatch {dispatch}", hi: "फ़िनिशिंग {finish} तक; भेजना {dispatch} को" },
+  "rb.order": { en: "{collective} order, {product}.", hi: "{collective} का ऑर्डर, {product}।" },
+  "rb.requirements": { en: "Special requirements: {details}.", hi: "ख़ास शर्तें: {details}।" },
+  "rb.part": { en: "Your part is {pieces} pieces: {days}.", hi: "आपका हिस्सा {pieces} पीस: {days}।" },
+  "rb.dayOne": { en: "{n} on {date}", hi: "{date} को {n}" },
+  "rb.dayRange": { en: "{n} each day from {from} to {to}", hi: "{from} से {to} तक रोज़ {n}" },
+  "rb.pay": { en: "{ask} per piece, {total} in all.", hi: "हर पीस {ask}, कुल {total}।" },
+  "rb.depends": {
+    en: "Finishing must be done by {finish} and the order ships on {dispatch}, so your pieces are needed on these days.",
+    hi: "फ़िनिशिंग {finish} तक पूरी होनी है और ऑर्डर {dispatch} को भेजा जाएगा, इसलिए आपके पीस तय दिनों पर चाहिए।",
+  },
+  "terms.payment": {
+    en: "The collective sells this order. When the buyer's payment is received, the collective owes you {pay}. Each payment to you is recorded with its UPI or bank reference, and you confirm it. Start only after this page says the buyer has paid.",
+    hi: "यह ऑर्डर संगठन बेचता है। ख़रीदार का पैसा आने पर संगठन पर आपके {pay} बकाया होंगे। आपको हर भुगतान UPI या बैंक के नंबर के साथ दर्ज होगा, और आप उसकी पुष्टि करेंगी। काम तभी शुरू करें जब यह पेज बताए कि ख़रीदार ने पैसे दे दिए हैं।",
+  },
+} as const;
+
+export type MakerKey = keyof typeof MAKER_SOURCE;
+
+/** Product names the demo collective uses (other collectives fall back to English). */
+export const PRODUCT_SOURCE = { "hand block-printed cotton scarf": { en: "hand block-printed cotton scarf", hi: "हाथ से छपा सूती दुपट्टा" } } as const;

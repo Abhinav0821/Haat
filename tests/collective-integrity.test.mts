@@ -108,8 +108,8 @@ test("English-only draft requirements cannot be offered for maker consent", asyn
 test("both readings are frozen in the maker's fingerprinted terms", async () => {
   const { p, who, refs } = await setup(10);
   const view = await makerView(who.token, NOW);
-  assert.match(view.parts[0].readbackHi, /ठीक 2 मीटर लंबा। सिर्फ़ ड्राई क्लीन।/);
-  assert.ok(!view.parts[0].readbackHi.includes(details));
+  assert.match(view.parts[0].readback, /ठीक 2 मीटर लंबा। सिर्फ़ ड्राई क्लीन।/);
+  assert.ok(!view.parts[0].readback.includes(details));
   const [part] = await (await db()).select().from(schema.memberParts).where(eq(schema.memberParts.id, refs[0].partId));
   assert.equal(part.terms.details, details);
   assert.equal(part.terms.detailsHi, detailsHi);
