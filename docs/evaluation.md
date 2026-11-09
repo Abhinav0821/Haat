@@ -240,6 +240,13 @@ budgets) and is covered by a regression test. The table shows the fixed build.
 - **What the 20 cases can't show:** they are hand-written, so this is a check of the
   mechanism, not a measure of accuracy on real buyers' messages.
 
+**Review regression checks (9 November).** Re-scoring the same cached responses after
+the validation fixes leaves the v2 table unchanged; no new provider requests were made.
+Additional deterministic regressions cover dimensions mistaken for quantities, competing
+quantities/dates, event versus delivery dates, exclusive "before" deadlines, and
+per-piece versus total budget disagreements. These adversarial checks are separate from
+the 20 model responses and do not add evidence of accuracy on unseen buyers' messages.
+
 ## 2. One complete transaction (PayPal sandbox)
 
 Run on 7 November 2026 on the local server (`collective` branch, migrations to `0019`),

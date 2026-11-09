@@ -1,9 +1,10 @@
-import { and, eq, inArray, ne } from "drizzle-orm";
+import { and, eq, inArray, ne, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { db, schema, withTx, type DB, type Tx } from "@/db";
 import { logEvent } from "@/lib/events";
 import { paypal } from "@/lib/paypal/client";
 import type { PayPalOrderSnapshot } from "@/lib/paypal/finalize";
+import { CAPTURED_STATUSES, type CaptureRefusalResult } from "@/lib/paypal/order-status";
 import { dayDate, dayIndex, type CollectiveFacts, type Plan } from "@/lib/planner/model";
 import type { DatedReservation } from "./facts";
 import { CollectiveError, currentPlan, LIVE, lockOrderTree, partsAllAccepted, planStart } from "./service";
@@ -144,6 +145,8 @@ export async function beginCollectiveCapture(order: CollectivePaymentRef, clock:
   return withTx(async (tx) => {
     await lockOrderTree(tx, ref.orderId);
     const now = typeof clock === "function" ? clock() : clock;
+    const [payment] = await tx.select({ status: schema.orders.status }).from(schema.orders).where(eq(schema.orders.id, order.id));
+    if (payment?.status === "REFUSED") throw new CollectiveError("This payment was refused. Please start a new payment. You have not been charged.");
     const current = await currentPlan(tx, ref.orderId, now);
     const [plan] = await tx.select().from(schema.collectivePlans).where(eq(schema.collectivePlans.id, order.collectivePlanId!));
     await hooks.afterRead?.();
@@ -195,6 +198,29 @@ export async function endCollectiveCapture(order: CollectivePaymentRef, now = ne
     if (plan.captureLeaseUntil && plan.captureLeaseUntil > now) return;
     await tx.update(schema.collectivePlans).set({ status: "approved", payingSince: null, paymentRef: null, captureAttemptId: null, captureLeaseUntil: null }).where(eq(schema.collectivePlans.id, plan.id));
     await tx.update(schema.collectiveOrders).set({ status: "approved", updatedAt: now }).where(eq(schema.collectiveOrders.id, ref.orderId));
+  });
+}
+
+/** Record THIS call's definite refusal and unlock its plan atomically. A stale call cannot retire a newer attempt. */
+export async function recordCollectiveRefusal(order: CollectivePaymentRef, now: Date, fence: CollectiveCaptureFence | undefined, retire: boolean): Promise<CaptureRefusalResult> {
+  const ref = order.collectivePlanId ? await planRef(order.collectivePlanId) : undefined;
+  if (!ref || !fence) return { applied: false, status: "PENDING" };
+  return withTx(async (tx) => {
+    await lockOrderTree(tx, ref.orderId);
+    await tx.execute(sql`select id from orders where id = ${order.id} for update`);
+    const [payment] = await tx.select().from(schema.orders).where(eq(schema.orders.id, order.id));
+    if (!payment) return { applied: false, status: "PENDING" };
+    if (CAPTURED_STATUSES.has(payment.status)) return { applied: false, status: payment.status };
+    const [plan] = await tx.select().from(schema.collectivePlans).where(eq(schema.collectivePlans.id, order.collectivePlanId!));
+    if (!plan || plan.status !== "paying" || plan.paymentRef !== order.id || !matchesAttempt(plan, fence)) {
+      return { applied: false, status: payment.status === "REFUSED" ? "REFUSED" : "PENDING" };
+    }
+    // A previously recorded pending capture can still settle. An error from a retry is not its outcome.
+    if (!["CREATED", "APPROVED", "DENIED"].includes(payment.status)) return { applied: false, status: "PENDING" };
+    if (retire) await tx.update(schema.orders).set({ status: "REFUSED", updatedAt: now }).where(eq(schema.orders.id, order.id));
+    await tx.update(schema.collectivePlans).set({ status: "approved", payingSince: null, paymentRef: null, captureAttemptId: null, captureLeaseUntil: null }).where(eq(schema.collectivePlans.id, plan.id));
+    await tx.update(schema.collectiveOrders).set({ status: "approved", updatedAt: now }).where(eq(schema.collectiveOrders.id, ref.orderId));
+    return { applied: true, status: retire ? "REFUSED" : payment.status };
   });
 }
 

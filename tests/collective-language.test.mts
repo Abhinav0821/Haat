@@ -132,3 +132,86 @@ test("AI Hindi draft: checked for script, with an independent back-translation; 
   assert.equal(bad.drafts[0].text, null);
   assert.match(bad.drafts[0].problem ?? "", /Hindi/);
 });
+
+test("coordinator UI: English-only offers can be sent without Hindi, while mixed-language offers are gated", async () => {
+  const { internalView } = await import("@/lib/collective/views");
+  const { OrderDetail } = await import("@/app/seller/collective/collective");
+  const { createElement } = await import("react");
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const o = await createOrder(s.collective.id, { buyerText: "60 scarves", spec: { quantity: 60, deadline: "2026-11-30", budgetUsdCents: null, details: "indigo", detailsHi: null } });
+  const render = async () => {
+    const detail = await internalView(o.id, NOW);
+    assert.equal(detail.intake, null, "this coordinator-entered fixture has no AI intake record");
+    const html = renderToStaticMarkup(createElement(OrderDetail, { detail: { ...detail, intake: null }, busy: false, onAction: () => {}, onBack: () => {} }));
+    const button = html.match(/<button\b([^>]*)>Send to makers<\/button>/);
+    assert.ok(button, "the real coordinator component renders the offer control");
+    return { detail, html, attrs: button[1] };
+  };
+  const hindi = await render();
+  assert.equal(hindi.detail.evaluation.alternatives[0].requirementsReady, false);
+  assert.match(hindi.attrs, /\sdisabled(?:=|\s|$)/);
+  for (const member of s.members) await setMemberLanguage(member.id, "en");
+  const english = await render();
+  assert.equal(english.detail.evaluation.alternatives[0].requirementsReady, true);
+  assert.doesNotMatch(english.attrs, /\sdisabled(?:=|\s|$)/);
+  const textareas = english.html.match(/<textarea\b[^>]*lang="hi"[^>]*>/g) ?? [];
+  assert.ok(textareas.length > 0);
+  assert.ok(textareas.every((tag) => !tag.includes("required")), "drafts can be saved before selecting a plan");
+  await offerPlan(o.id, "primary", NOW);
+});
+
+test("Hindi drafts: an oversized translation is rejected before back-translation, never silently truncated", async () => {
+  const { MockLanguageModelV4 } = await import("ai/test");
+  const { draftRequirements } = await import("@/lib/ai/requirements");
+  const text = "नीला रंग। ".repeat(75) + "सिर्फ़ ड्राई क्लीन करें।";
+  let calls = 0;
+  const llm = new MockLanguageModelV4({ doGenerate: async () => {
+    calls++;
+    return { content: [{ type: "text" as const, text: JSON.stringify({ hi: text }) }], finishReason: { unified: "stop" as const, raw: "stop" }, usage: { inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 1, text: 1, reasoning: 0 } }, warnings: [] };
+  } });
+  const out = await draftRequirements("Indigo. Dry clean only.", ["hi"], { model: llm });
+  assert.equal(calls, 1);
+  assert.equal(out.drafts[0].text, null);
+  assert.equal(out.drafts[0].back, null);
+  assert.match(out.drafts[0].problem!, /exceeded 600/);
+});
+
+test("a back-translation is invalidated by an edit to either source or Hindi text", async () => {
+  const { currentBackTranslation } = await import("@/lib/collective/requirements-review");
+  const readings = { details: "Indigo. Dry clean only.", detailsHi: "नीला। सिर्फ़ ड्राई क्लीन।" };
+  const review = { english: readings.details, hindi: readings.detailsHi, back: readings.details };
+  assert.equal(currentBackTranslation(readings, review), readings.details);
+  assert.equal(currentBackTranslation({ ...readings, details: "Red. Washable." }, review), null);
+  assert.equal(currentBackTranslation({ ...readings, detailsHi: "लाल। धो सकते हैं।" }, review), null);
+});
+
+test("editing Hindi or starting a newer draft prevents a late response from overwriting the current reading", async () => {
+  const { RequirementsDraftSession } = await import("@/lib/collective/requirements-review");
+  const session = new RequirementsDraftSession();
+  let hindi = "original";
+  let release!: (text: string) => void;
+  const response = new Promise<string>((r) => { release = r; });
+  const old = session.begin("Indigo");
+  const pending = response.then((text) => { if (session.isCurrent(old)) hindi = text; });
+  hindi = "the coordinator's manual correction";
+  session.invalidate();
+  release("late AI draft");
+  await pending;
+  assert.equal(hindi, "the coordinator's manual correction");
+  const first = session.begin("Indigo"), second = session.begin("Red");
+  assert.equal(session.isCurrent(first), false);
+  assert.equal(session.isCurrent(second), true);
+  session.invalidate(); // English edited back to its old value: the outstanding response is still stale.
+  assert.equal(session.isCurrent(second), false);
+});
+
+test("English-only requirements can be saved; the Hindi reading is enforced only when a plan with a Hindi-reading maker is sent", async () => {
+  const o = await createOrder(s.collective.id, { buyerText: "60 scarves", spec: { quantity: 60, deadline: "2026-11-30", budgetUsdCents: null, details: null } });
+  await svc.updateOrderRequirements(o.id, "indigo, exactly 2 metres", null, NOW);
+  await assert.rejects(offerPlan(o.id, "primary", NOW), (e: unknown) => e instanceof CollectiveError && /Hindi/.test(e.message));
+  for (const m of DEMO_MEMBERS) await setMemberLanguage(idOf(m.name), "en");
+  const plan = await offerPlan(o.id, "primary", NOW);
+  assert.equal(plan.status, "awaiting_makers");
+  // A Hindi reading, when given, must still be Devanagari.
+  await assert.rejects(svc.updateOrderRequirements(o.id, "indigo", "neela", NOW), (e: unknown) => e instanceof CollectiveError && /Hindi/.test(e.message));
+});

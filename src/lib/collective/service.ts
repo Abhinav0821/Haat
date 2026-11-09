@@ -6,7 +6,7 @@ import { evaluate } from "@/lib/planner/solve";
 import { checkEvaluation, checkPlan } from "@/lib/planner/check";
 import { dayDate, dayIndex, factsHash, PLANNER_MODEL, type CollectiveFacts, type Evaluation, type OptimalityCert, type OrderRequest, type Plan } from "@/lib/planner/model";
 import { buildFacts, materialsReadyOn, MemberFactsSchema, SettingsSchema, type CollectiveSettings, type DatedReservation, type MemberRow, type StoredMemberFacts } from "./facts";
-import { buyerTerms, hasHindiRequirements, hasRequirementsFor, hashOf, partTerms, type PartTerms, type PlanTerms } from "./terms";
+import { buyerTerms, hasHindiRequirements, hasRequirementsFor, planRequirementsReady, hashOf, partTerms, type PartTerms, type PlanTerms } from "./terms";
 import { isMakerLang, MAKER_LANGS, type MakerLang } from "@/lib/i18n/languages";
 import { calendarDate as today, dayBegins } from "./calendar";
 import { createSnapshot } from "@/lib/planner/snapshot";
@@ -343,7 +343,7 @@ export async function offerPlan(orderId: string, choice: Choice, now = new Date(
     const producing = [...new Set(pick.plan.production.map((p) => p.makerId))].sort();
     // Every maker in this plan must be able to read the requirements in her own language before anything is sent.
     // An English-reading maker reads the buyer's own words; everyone else needs the reviewed Hindi.
-    if (spec.details && producing.some((id) => (langs[id] ?? "hi") === "hi") && !hasHindiRequirements(spec)) {
+    if (!planRequirementsReady(pick.plan, langs, spec)) {
       throw new CollectiveError("Add and review the Hindi requirements before sending a plan to makers.", 400);
     }
     const refs: PlanTerms["parts"] = [];
@@ -542,7 +542,8 @@ async function invalidatePlan(tx: Tx, p: PlanRow, note: string, now: Date) {
 /** Review both readings before offering. Existing parts stay immutable and are re-versioned. */
 export async function updateOrderRequirements(orderId: string, details: string | null, detailsHi: string | null, now = new Date()) {
   const readings = requirements(details, detailsHi);
-  if (!hasHindiRequirements(readings)) throw new CollectiveError("Add the Hindi requirements before saving.", 400);
+  // The Hindi reading is required when a plan that includes a Hindi-reading maker is SENT (offerPlan), not to save:
+  // a collective whose makers read English needs only the buyer's English.
   return withTx(async (tx) => {
     const { c: ref } = await loadOrder(tx, orderId);
     await lockCollective(tx, ref.id); await lockOrder(tx, orderId); await lockPlans(tx, orderId); await lockParts(tx, orderId);

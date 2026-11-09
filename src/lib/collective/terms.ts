@@ -65,6 +65,11 @@ export function hasHindiRequirements(t: { details: string | null; detailsHi?: st
   return !t.details || (typeof t.detailsHi === "string" && t.detailsHi.trim().length > 0 && /\p{Script=Devanagari}/u.test(t.detailsHi));
 }
 
+/** Only the makers producing THIS option determine which reading is required. */
+export function planRequirementsReady(plan: Plan, langs: Record<string, MakerLang>, spec: { details: string | null; detailsHi?: string | null }): boolean {
+  return !spec.details || !plan.production.some((p) => (langs[p.makerId] ?? "hi") === "hi") || hasHindiRequirements(spec);
+}
+
 export function partTerms(
   plan: Plan,
   startDate: string,

@@ -1,12 +1,12 @@
-import { and, eq, inArray } from "drizzle-orm";
-import { db, schema } from "@/db";
+import { and, eq, sql } from "drizzle-orm";
+import { db, schema, withTx } from "@/db";
 import { env } from "@/lib/env";
 import { paypal, PayPalApiError } from "@/lib/paypal/client";
 import { randomUUID } from "node:crypto";
-import { CAPTURED_STATUSES } from "@/lib/paypal/order-status";
-import { AgreementError, beginAgreementCapture, endAgreementCapture } from "@/lib/custom/agreement";
+import { CAPTURED_STATUSES, type CaptureRefusalResult } from "@/lib/paypal/order-status";
+import { AgreementError, beginAgreementCapture, recordAgreementRefusal } from "@/lib/custom/agreement";
 import { finalizePayment, type PayPalOrderSnapshot } from "@/lib/paypal/finalize";
-import { beginCollectiveCapture, CAPTURE_HTTP_TIMEOUT_MS, endCollectiveCapture, finishCollectiveCaptureAttempt, type CollectiveCaptureFence } from "@/lib/collective/checkout";
+import { beginCollectiveCapture, CAPTURE_HTTP_TIMEOUT_MS, recordCollectiveRefusal, finishCollectiveCaptureAttempt, type CollectiveCaptureFence } from "@/lib/collective/checkout";
 import { CollectiveError } from "@/lib/collective/service";
 import { availableQuantity, ensureReservedForCapture, release, reserve, SoldOutError } from "@/lib/inventory";
 import { readEconomics } from "@/lib/economics";
@@ -145,7 +145,25 @@ export async function createCheckoutOrder({
 
 type CaptureResponse = PayPalOrderSnapshot;
 
-export async function captureCheckoutOrder(paypalOrderId: string, deps: { paypalCall?: typeof paypal; now?: Date } = {}) {
+// Unknown business errors are not proof that an earlier capture never happened.
+const TERMINAL_REFUSALS = new Set(["COMPLIANCE_VIOLATION", "PAYER_CANNOT_PAY", "PAYEE_ACCOUNT_RESTRICTED", "PAYER_ACCOUNT_RESTRICTED", "PAYER_ACCOUNT_LOCKED_OR_CLOSED", "PAYEE_BLOCKED_TRANSACTION", "TRANSACTION_REFUSED", "TRANSACTION_BLOCKED_BY_PAYEE", "MAX_NUMBER_OF_PAYMENT_ATTEMPTS_EXCEEDED"]);
+
+async function recordStorefrontRefusal(orderId: string, now: Date, retire: boolean): Promise<CaptureRefusalResult> {
+  return withTx(async (tx) => {
+    await tx.execute(sql`select id from orders where id = ${orderId} for update`);
+    const [payment] = await tx.select().from(schema.orders).where(eq(schema.orders.id, orderId));
+    if (!payment) return { applied: false, status: "PENDING" };
+    if (CAPTURED_STATUSES.has(payment.status)) return { applied: false, status: payment.status };
+    if (!["CREATED", "APPROVED", "DENIED"].includes(payment.status)) return { applied: false, status: payment.status === "REFUSED" ? "REFUSED" : "PENDING" };
+    if (retire) {
+      await tx.update(schema.orders).set({ status: "REFUSED", updatedAt: now }).where(eq(schema.orders.id, orderId));
+      await release(orderId, tx);
+    }
+    return { applied: true, status: retire ? "REFUSED" : payment.status };
+  });
+}
+
+export async function captureCheckoutOrder(paypalOrderId: string, deps: { paypalCall?: typeof paypal; now?: Date; /** Test-only pause before a negative response is applied. */ beforeRefusal?: () => Promise<void> } = {}) {
   const call = deps.paypalCall ?? paypal;
   const clock = () => deps.now ?? new Date();
   const now = clock();
@@ -197,32 +215,28 @@ export async function captureCheckoutOrder(paypalOrderId: string, deps: { paypal
     }
   } catch (e) {
     if (e instanceof PayPalApiError) {
-      const issue = JSON.stringify(e.body);
-      if (issue.includes("ORDER_ALREADY_CAPTURED")) {
+      const issues = typeof e.body !== "string" && Array.isArray(e.body.details)
+        ? e.body.details.flatMap((d: unknown) => d && typeof d === "object" && "issue" in d && typeof d.issue === "string" ? [d.issue] : []) : [];
+      if (issues.includes("ORDER_ALREADY_CAPTURED")) {
         // Captured earlier (a lost response, or another path got there first): record it from PayPal's own data.
         const pp = await call<PayPalOrderSnapshot>(`/v2/checkout/orders/${paypalOrderId}`);
         const done = await finalizePayment(order.id, pp, now, { collectiveCaptureFence });
         return { orderId: order.id, status: done.status };
       }
-      // Definite refusals: no money moved, so the terms are no longer "paying".
-      if (issue.includes("INSTRUMENT_DECLINED")) {
-        await endAgreementCapture(order);
-        await endCollectiveCapture(order, now, collectiveCaptureFence);
-        throw new CheckoutError("Your payment method was declined. Please choose another in PayPal.", 422);
-      }
-      if (issue.includes("ORDER_NOT_APPROVED")) {
-        await endAgreementCapture(order);
-        await endCollectiveCapture(order, now, collectiveCaptureFence);
-        throw new CheckoutError("Payment not approved yet.", 409);
-      }
-      // Any other 422 is PayPal refusing this capture on a business rule (e.g. COMPLIANCE_VIOLATION,
-      // PAYER_CANNOT_PAY, PAYEE_ACCOUNT_RESTRICTED): definite, no money moved, and this PayPal order
-      // won't capture later. Unlock the terms and retire the order so the buyer can pay with a new one.
-      if (e.status === 422) {
+      const classified = e.status === 422 && issues.length > 0 && issues.every((i) => TERMINAL_REFUSALS.has(i) || i === "INSTRUMENT_DECLINED" || i === "ORDER_NOT_APPROVED");
+      const retire = classified && issues.some((i) => TERMINAL_REFUSALS.has(i));
+      const instrument = classified && !retire && issues.includes("INSTRUMENT_DECLINED");
+      const unapproved = classified && !retire && issues.includes("ORDER_NOT_APPROVED");
+      if (instrument || unapproved || retire) {
+        await deps.beforeRefusal?.();
+        const result = order.collectivePlanId
+          ? await recordCollectiveRefusal(order, clock(), collectiveCaptureFence, retire)
+          : order.agreementId ? await recordAgreementRefusal(order, clock(), retire)
+            : await recordStorefrontRefusal(order.id, clock(), retire);
+        if (!result.applied && result.status !== "REFUSED") return { orderId: order.id, status: result.status };
+        if (instrument) throw new CheckoutError("Your payment method was declined. Please choose another in PayPal.", 422);
+        if (unapproved) throw new CheckoutError("Payment not approved yet.", 409);
         console.warn(`[checkout] PayPal refused capture of ${paypalOrderId}: ${e.message}`);
-        await d.update(schema.orders).set({ status: "REFUSED", updatedAt: clock() }).where(and(eq(schema.orders.id, order.id), inArray(schema.orders.status, ["CREATED", "APPROVED"])));
-        await endAgreementCapture(order);
-        await endCollectiveCapture(order, now, collectiveCaptureFence);
         throw new CheckoutError("PayPal couldn't complete this payment, so you have not been charged. You can try again; PayPal may ask you to use another account or contact PayPal support.", 422);
       }
     }

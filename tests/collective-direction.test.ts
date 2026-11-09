@@ -324,3 +324,54 @@ test("intake: an amount inside an instruction never becomes the budget, even whe
   assert.equal(tricked.budgetUsdCents.value, 100, "if the model is tricked, the value is shown for the buyer to correct");
   assert.equal(tricked.budgetUsdCents.status, "assumed", "never labelled as the buyer's own words");
 });
+
+test("intake regression: measurements never fill a missing quantity, and multiple quantities require confirmation", () => {
+  for (const description of ["180 cm scarves", "180cm scarves", "size 12 scarves", "two metre scarves"]) {
+    const i = interpret(`Please quote ${description} by Dec 10.`, heard({ quantity: null, quantityWords: null, budget: null, budgetWords: null }), C);
+    assert.equal(i.quantity.value, null, description);
+    assert.equal(i.quantity.status, "missing");
+  }
+  const invented = interpret("Please quote 180 cm scarves by Dec 10.", heard({ quantity: 180, quantityWords: "180", budget: null, budgetWords: null }), C);
+  assert.equal(invented.quantity.status, "assumed", "even a model quoting only the measurement's number cannot label it stated");
+  for (const text of ["30 scarves or 40 scarves by Dec 10", "30 red scarves and 30 blue scarves by Dec 10"]) {
+    const i = interpret(text, heard({ quantity: 30, quantityWords: "30", budget: null, budgetWords: null }), C);
+    assert.equal(i.quantity.status, "assumed", text);
+  }
+  const clear = interpret("30 scarves, each 180 cm long, by Dec 10", heard({ quantity: 30, quantityWords: "30 scarves", budget: null, budgetWords: null }), C);
+  assert.equal(clear.quantity.status, "stated");
+});
+
+test("intake regression: events and dispatch dates are not supplied as delivery deadlines; alternative dates stay ambiguous", () => {
+  const none = { deliverBy: null, deliverByWords: null, budget: null, budgetWords: null };
+  for (const text of ["30 scarves for an event on Dec 10. Delivery date not decided.", "30 scarves, dispatch by Dec 10.", "30 scarves for an event on Dec 10.", "30 scarves, not before Dec 10."]) {
+    const i = interpret(text, heard(none), C);
+    assert.equal(i.deadline.value, null, text);
+  }
+  const alternatives = interpret("30 scarves, deliver Dec 10 or Dec 12", heard({ deliverBy: "2026-12-10", deliverByWords: "Dec 10", budget: null, budgetWords: null }), C);
+  assert.equal(alternatives.deadline.status, "assumed");
+  assert.match(alternatives.deadline.note!, /multiple/);
+  const twoRoles = interpret("30 scarves: dispatch Dec 1, delivery Dec 10", heard({ deliverBy: "2026-12-10", deliverByWords: "delivery Dec 10", budget: null, budgetWords: null }), C);
+  assert.equal(twoRoles.deadline.value, "2026-12-10");
+  assert.equal(twoRoles.deadline.status, "stated");
+});
+
+test("intake regression: 'before Dec 10' preserves a correct Dec 9 interpretation and explains the boundary", () => {
+  for (const deliverBy of ["2026-12-09", "2026-12-10"]) {
+    const i = interpret("30 scarves, deliver before Dec 10", heard({ deliverBy, deliverByWords: "before Dec 10", budget: null, budgetWords: null }), C);
+    assert.equal(i.deadline.value, "2026-12-09");
+    assert.equal(i.deadline.status, "assumed");
+    assert.match(i.deadline.note!, /previous day/);
+  }
+});
+
+test("intake regression: budget basis disagreements are flagged; $15 each for 30 pieces is a $450 proposal", () => {
+  const text = "30 scarves by Dec 10, budget $15 each";
+  const total = interpret(text, heard({ budget: { amount: 15, currency: "USD", basis: "total" }, budgetWords: "$15 each" }), C);
+  assert.equal(total.budgetUsdCents.status, "assumed");
+  assert.match(total.budgetUsdCents.note!, /per piece.*total budget/);
+  const each = interpret(text, heard({ budget: { amount: 15, currency: "USD", basis: "per_piece" }, budgetWords: "$15 each" }), C);
+  assert.equal(each.budgetUsdCents.value, 45_000);
+  assert.equal(each.budgetUsdCents.status, "assumed", "the buyer confirms the computed total");
+  const alternatives = interpret("30 scarves by Dec 10: $15 each or $400 total", heard({ budget: { amount: 400, currency: "USD", basis: "total" }, budgetWords: "$400 total" }), C);
+  assert.equal(alternatives.budgetUsdCents.status, "assumed", "an isolated quote cannot hide competing budget amounts");
+});

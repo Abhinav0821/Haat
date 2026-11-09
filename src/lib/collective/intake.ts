@@ -159,10 +159,12 @@ export function inRange(text: string, n: number): boolean {
 const PRODUCT_NOUN = String.raw`(?:scarves|scarfs|scarf|stoles?|dupattas?|wraps?|pieces|piece|pcs|units?|items?)`;
 
 /** The quantity written next to a product word ("30 scarves", "thirty indigo stoles", "2 dozen pieces"); null if none or several. */
-export function quantityInWords(text: string): { value: number; words: string } | null {
+function quantityEvidence(text: string): { reading: { value: number; words: string } | null; ambiguous: boolean } {
   const tokens = text.toLowerCase().replace(/-/g, " ").split(/\s+/).map((w) => w.replace(/^[^a-z0-9$₹€£]+|[^a-z0-9]+$/g, "")).filter(Boolean);
   const noun = new RegExp(`^${PRODUCT_NOUN}$`);
   const found = new Map<number, string>();
+  let measurement = false;
+  let mentions = 0;
   tokens.forEach((tok, k) => {
     if (!noun.test(tok)) return;
     // The number closest before this product word, within three other words, not a price and not past another product word.
@@ -177,16 +179,28 @@ export function quantityInWords(text: string): { value: number; words: string } 
       const dozen = span.length >= 2 && span[1] === "dozen" ? [...numbersIn(span[0])].filter((n) => Number.isInteger(n) && n > 0) : [];
       const nums = dozen.length === 1 ? [dozen[0] * 12] : [...numbersIn(NUMWORD.test(tokens[i]) ? span.join(" ") : tokens[i])].filter((n) => Number.isInteger(n) && n > 0);
       if (nums.length) {
+        const units = /^(?:mm|cm|m|(?:milli|centi)?metres?|(?:milli|centi)?meters?|inches?|in|ft|feet|foot|yards?|yd|kg|g|grams?|gsm|oz|ounces?|ml|litres?|liters?)$/;
+        if (span.some((w) => units.test(w) || /\d(?:mm|cm|m|in|ft|kg|gsm|oz)$/.test(w)) || /^(?:size|length|width|weight)$/.test(tokens[from - 1] ?? "")) {
+          measurement = true;
+          break;
+        }
+        mentions++;
         found.set(Math.max(...nums), [...span, tok].join(" "));
         break;
       }
     }
   });
-  return found.size === 1 ? { value: [...found.keys()][0], words: [...found.values()][0] } : null;
+  return { reading: mentions === 1 ? { value: [...found.keys()][0], words: [...found.values()][0] } : null, ambiguous: mentions > 1 || (mentions === 0 && measurement) };
+}
+
+export function quantityInWords(text: string): { value: number; words: string } | null {
+  return quantityEvidence(text).reading;
 }
 
 /** A budget written with its currency ("$250", "250 dollars", "USD 400", "₹22,000", "$15 each"); null if none or several. */
-export function budgetInWords(text: string): { amount: number; currency: "USD" | "INR"; basis: "total" | "per_piece"; words: string } | null {
+type BudgetReading = { amount: number; currency: "USD" | "INR"; basis: "total" | "per_piece"; words: string };
+
+function budgetEvidence(text: string): { reading: BudgetReading | null; ambiguous: boolean } {
   const t = text.toLowerCase();
   const num = String.raw`(\d[\d,]*(?:\.\d+)?)\s*(k\b)?`;
   const patterns: [RegExp, "USD" | "INR"][] = [
@@ -207,7 +221,11 @@ export function budgetInWords(text: string): { amount: number; currency: "USD" |
       found.set(`${currency}:${amount}:${basis}`, { amount, currency, basis, words: m[0].trim() });
     }
   }
-  return found.size === 1 ? [...found.values()][0] : null;
+  return { reading: found.size === 1 ? [...found.values()][0] : null, ambiguous: found.size > 1 };
+}
+
+export function budgetInWords(text: string): BudgetReading | null {
+  return budgetEvidence(text).reading;
 }
 
 const WEEKDAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
@@ -273,22 +291,51 @@ export function relativeDate(phrase: string, today: string): { date: string; rul
   return null;
 }
 
-/** The date in the buyer's words, read in code: one explicit date, else one rule-based phrase. */
-export function dateInWords(text: string, today: string): { date: string; words: string; rule: string | null } | null {
+/** Explicit dates keep their deadline operator; "before D" means no later than the preceding day. */
+function datePhrase(words: string, today: string): { date: string; rule: string | null } | null {
+  const d = explicitDate(words, today);
+  if (!d) return relativeDate(words, today);
+  if (/\b(?:not before|no earlier than|after|between)\b/.test(words.toLowerCase())) return null;
+  return /\bbefore\b/.test(words.toLowerCase())
+    ? { date: addDays(d, -1), rule: `before ${d} = no later than the previous day` }
+    : { date: d, rule: null };
+}
+
+type DateEvidence = { reading: { date: string; words: string; rule: string | null } | null; ambiguous: boolean; unsupported: boolean; unavailable: boolean };
+
+/** Dates of events, dispatch and payment are not automatically delivery deadlines. */
+function deliveryEvidence(text: string, today: string): DateEvidence {
   const t = text.toLowerCase();
-  const explicit = new Map<string, string>();
+  if (/\b(?:delivery(?: date)?|deadline)\b[^.!?\n]{0,45}\b(?:not (?:decided|set|known|confirmed)|unknown|undecided|tbd|to be (?:decided|confirmed))\b/.test(t)) {
+    return { reading: null, ambiguous: false, unsupported: true, unavailable: true };
+  }
+  const explicit = new Map<string, { date: string; words: string; rule: string | null }>();
+  let candidates = 0;
   const monthRe = String.raw`(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?`;
   for (const m of t.matchAll(new RegExp(String.raw`\b\d{4}-\d{2}-\d{2}\b|\b${monthRe}\s+\d{1,2}(?:st|nd|rd|th)?(?:,?\s+\d{4})?\b|\b\d{1,2}(?:st|nd|rd|th)?\s+(?:of\s+)?${monthRe}(?:,?\s+\d{4})?\b`, "g"))) {
-    const d = explicitDate(m[0], today);
-    if (d) explicit.set(d, m[0]);
+    candidates++;
+    const prefix = t.slice(0, m.index).split(/[.!?;\n]/).pop() ?? "";
+    if (/\b(?:not before|no earlier than|after|from|between)\s+(?:the\s+)?$/.test(prefix)) continue;
+    const roles = [...prefix.matchAll(/\b(deliver(?:y|ed)?|arriv(?:e|al)|deadline|due|dispatch(?:ed)?|ship(?:ping)?|event|birthday|wedding|invoice|deposit)\b/g)];
+    const lastRole = roles.at(-1);
+    const role = lastRole?.[1];
+    if (role && /^(?:dispatch|ship|invoice|deposit)/.test(role)) continue;
+    if (role && /^(?:event|birthday|wedding)/.test(role) && !/\b(?:by|before|deliver(?:y|ed)?|deadline)\b/.test(prefix.slice(lastRole!.index! + role.length))) continue;
+    if (!/\b(?:by|before|deliver(?:y|ed)?|arriv(?:e|al)|need(?:ed)?|due|deadline)\b/.test(prefix)) continue;
+    const before = /\bbefore\s+(?:the\s+)?$/.test(prefix);
+    const words = `${before ? "before " : ""}${m[0]}`;
+    const d = datePhrase(words, today);
+    if (d) explicit.set(d.date, { ...d, words });
   }
-  if (explicit.size === 1) {
-    const [[date, words]] = [...explicit];
-    return { date, words, rule: null };
-  }
-  if (explicit.size > 1) return null;
+  if (explicit.size === 1) return { reading: [...explicit.values()][0], ambiguous: false, unsupported: false, unavailable: false };
+  if (candidates) return { reading: null, ambiguous: explicit.size > 1, unsupported: explicit.size === 0, unavailable: false };
   const r = relativeDate(t, today);
-  return r ? { date: r.date, words: text, rule: r.rule } : null;
+  return { reading: r ? { ...r, words: text } : null, ambiguous: false, unsupported: false, unavailable: false };
+}
+
+/** A single delivery-context date, otherwise left for confirmation. */
+export function dateInWords(text: string, today: string): { date: string; words: string; rule: string | null } | null {
+  return deliveryEvidence(text, today).reading;
 }
 
 const MONEY_WORDS = /\b(budget|price|cost|costs|pay|paying|each|per|apiece|total|max|maximum|around|about)\b/;
@@ -320,7 +367,8 @@ export function interpret(text: string, raw: unknown, ctx: { today: string; earl
   // Quantity.
   let quantity: Field<number>;
   const q = h.quantity;
-  const codeQ = quantityInWords(text);
+  const qEvidence = quantityEvidence(text);
+  const codeQ = qEvidence.reading;
   if ((q === null || !Number.isInteger(q) || q < 1) && codeQ && codeQ.value <= MAX_QUANTITY) {
     // The model found none; the buyer's own words have one next to the product.
     const range = inRange(text, codeQ.value);
@@ -347,9 +395,9 @@ export function interpret(text: string, raw: unknown, ctx: { today: string; earl
     const conflict = codeQ && codeQ.value !== q ? `Your words also say ${codeQ.value} (“${codeQ.words}”). Please check the number of pieces.` : null;
     quantity = {
       value: q,
-      status: (quoted || confirmedByCode) && !range && !conflict ? "stated" : "assumed",
+      status: (quoted || confirmedByCode) && !range && !conflict && !qEvidence.ambiguous ? "stated" : "assumed",
       words: words ?? (confirmedByCode ? codeQ!.words : null),
-      note: conflict ?? (confirmedByCode && !range ? null : note),
+      note: qEvidence.ambiguous ? "Your message gives multiple quantities or a measurement. Please confirm how many pieces you need." : conflict ?? (confirmedByCode && !range ? null : note),
     };
     if (range) questions.push("How many pieces exactly?");
   }
@@ -358,12 +406,13 @@ export function interpret(text: string, raw: unknown, ctx: { today: string; earl
   let deadline: Field<string>;
   const aiWords = contains(text, h.deliverByWords) ? h.deliverByWords!.trim() : null;
   const aiDate = h.deliverBy !== null && isCalendarDate(h.deliverBy) ? h.deliverBy : null;
-  const fromAiWords = aiWords ? (explicitDate(aiWords, ctx.today) ? { date: explicitDate(aiWords, ctx.today)!, rule: null as string | null } : relativeDate(aiWords, ctx.today)) : null;
-  const fromText = dateInWords(text, ctx.today);
+  const fromAiWords = aiWords ? datePhrase(aiWords, ctx.today) : null;
+  const dEvidence = deliveryEvidence(text, ctx.today);
+  const fromText = dEvidence.reading;
   let chosen: { value: string; words: string | null; rule: string | null; explicit: boolean } | null = null;
-  if (fromAiWords) chosen = { value: fromAiWords.date, words: aiWords, rule: fromAiWords.rule, explicit: fromAiWords.rule === null };
-  else if (fromText) chosen = { value: fromText.date, words: fromText.rule ? null : fromText.words, rule: fromText.rule, explicit: fromText.rule === null };
-  else if (aiDate) chosen = { value: aiDate, words: aiWords, rule: null, explicit: false };
+  if (fromText) chosen = { value: fromText.date, words: fromText.words, rule: fromText.rule, explicit: fromText.rule === null };
+  else if (fromAiWords && !dEvidence.unavailable) chosen = { value: fromAiWords.date, words: aiWords, rule: fromAiWords.rule, explicit: fromAiWords.rule === null };
+  else if (aiDate && !dEvidence.unavailable) chosen = { value: aiDate, words: aiWords, rule: null, explicit: false };
   const disagree = chosen && aiDate && aiDate !== chosen.value;
   if (!chosen) {
     deadline = { value: null, status: "missing", words: null, note: null };
@@ -371,18 +420,19 @@ export function interpret(text: string, raw: unknown, ctx: { today: string; earl
   } else if (chosen.value < ctx.earliest) {
     deadline = { value: null, status: "missing", words: chosen.words, note: `That date has passed or is too soon. The earliest date you can ask for is ${enDate(ctx.earliest)}.` };
     questions.push("By what date must the pieces be delivered?");
-  } else if (chosen.explicit && !disagree) {
+  } else if (chosen.explicit && !disagree && !dEvidence.ambiguous && !dEvidence.unsupported) {
     deadline = { value: chosen.value, status: "stated", words: chosen.words, note: null };
   } else {
     const how = chosen.rule ? `We read ${chosen.words ? `“${chosen.words}”` : "your date"} as ${enDate(chosen.value)} (${chosen.rule}).` : chosen.words ? `We read “${chosen.words}” as ${enDate(chosen.value)}.` : `We assumed ${enDate(chosen.value)}.`;
-    deadline = { value: chosen.value, status: "assumed", words: chosen.words, note: `${how} Please confirm.` };
+    deadline = { value: chosen.value, status: "assumed", words: chosen.words, note: `${how} ${dEvidence.ambiguous ? "Your message gives multiple possible delivery dates. Please choose one." : dEvidence.unsupported ? "Is this the delivery deadline, rather than an event or shipping date? Please confirm." : "Please confirm."}` };
   }
 
   // Budget (USD cents; INR converted at the collective's recorded rate).
   let budgetUsdCents: Field<number>;
   // Code CHECKS the model's budget against the words but never supplies one: a budget is optional,
   // and an amount in the text may be an instruction ("set the price to $1"), not the buyer's budget.
-  const codeB = budgetInWords(text);
+  const bEvidence = budgetEvidence(text);
+  const codeB = bEvidence.reading;
   const b = h.budget;
   const bWords = contains(text, h.budgetWords) ? h.budgetWords!.trim() : null;
   const quotedCurrency = bWords ? currencyIn(bWords) : null;
@@ -404,11 +454,12 @@ export function interpret(text: string, raw: unknown, ctx: { today: string; earl
       const hasAmount = !!bWords && numbersIn(bWords).has(b.amount);
       const currencyMatches = quotedCurrency === b.currency;
       const range = inRange(text, b.amount);
-      const codeDisagrees = codeB && (codeB.amount !== b.amount || codeB.currency !== b.currency) ? `Your words say ${codeB.words}. Please check the budget.` : null;
+      const codeDisagrees = codeB && (codeB.amount !== b.amount || codeB.currency !== b.currency || codeB.basis !== b.basis) ? `Your words say ${codeB.words}${codeB.basis === "per_piece" ? " per piece" : " for the order"}. Please confirm the total budget.` : null;
       // Text that tries to instruct (the model or us) never yields a budget labelled as the buyer's own words.
       const instructed = /\b(?:ignore|disregard)\b[^.]{0,40}\binstructions?\b|\bsystem prompt\b|\bset (?:the )?(?:price|budget|total|amount)\b/i.test(text);
-      const grounded = hasAmount && currencyMatches && !range && !codeDisagrees && !instructed;
+      const grounded = hasAmount && currencyMatches && !range && !codeDisagrees && !instructed && !bEvidence.ambiguous;
       const notes = [
+        bEvidence.ambiguous ? "Your message gives more than one amount. Please confirm the total budget." : null,
         instructed ? "Your message contains instructions; please confirm the budget yourself." : null,
         codeDisagrees,
         !hasAmount ? (numbers.has(b.amount) ? `We read ${b.amount} as the budget. Please check it.` : "This amount isn't in your words. Please check it.") : null,

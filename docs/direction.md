@@ -68,7 +68,10 @@ checked plan.
   value is shown as "from your words" only when its own quote is in the text and contains
   it. Further conditions apply:
   - a quantity's quote is not a money phrase, and the number isn't one end of a range;
-  - a budget's quote names the same currency.
+  - measurements cannot supply a missing quantity, and competing quantities stay flagged;
+  - a budget's quote names the same currency and agrees on per-piece versus total basis;
+  - delivery dates retain their context: an event or dispatch date is not a delivery
+    deadline, alternatives remain flagged, and "before D" means the preceding day.
 
   Swapped fields, ranges ("50–60"), dates the buyer didn't write explicitly, and unquoted
   or mismatched currencies stay "please check". A non-dollar, non-rupee budget is left

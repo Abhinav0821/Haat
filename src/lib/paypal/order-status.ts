@@ -17,6 +17,9 @@ const STATUS_RANK: Record<string, number> = {
 
 export const CAPTURED_STATUSES = new Set(["COMPLETED", "PARTIALLY_REFUNDED", "REFUNDED", "REVERSED"]);
 
+/** A negative response may lose to another capture attempt or an authoritative notification. */
+export type CaptureRefusalResult = { applied: boolean; status: string };
+
 export function shouldAdvance(from: string, to: string): boolean {
   // A successful retry is final money movement even if an earlier capture failed.
   if ((from === "DENIED" || from === "REFUSED") && to === "COMPLETED") return true;

@@ -7,6 +7,7 @@ import { logEvent } from "@/lib/events";
 import { canonical } from "@/lib/passport/signing";
 import { paypal } from "@/lib/paypal/client";
 import type { PayPalOrderSnapshot } from "@/lib/paypal/finalize";
+import { CAPTURED_STATUSES, type CaptureRefusalResult } from "@/lib/paypal/order-status";
 import type { CustomSpec, OptionVerdict } from "./quote";
 
 /**
@@ -317,9 +318,11 @@ export async function createAgreementCheckout(agreementId: string, ctx: { appUrl
   const t = a!.terms as Terms;
   const money = (c: number) => (c / 100).toFixed(2);
 
+  const refused = await d.select({ id: schema.orders.id }).from(schema.orders).where(and(eq(schema.orders.agreementId, a!.id), eq(schema.orders.termsHash, a!.termsHash), eq(schema.orders.status, "REFUSED")));
+
   const order = await paypal<{ id: string; links?: { rel: string; href: string }[] }>("/v2/checkout/orders", {
     method: "POST",
-    requestId: `agreement-${a!.id}-${a!.termsHash.slice(0, 16)}`, // same terms → same PayPal order on retry
+    requestId: `agreement-${a!.id}-${a!.termsHash.slice(0, 16)}${refused.length ? `-r${refused.length}` : ""}`, // replace terminal refusals; double clicks still share one order
     body: {
       intent: "CAPTURE",
       purchase_units: [
@@ -353,26 +356,25 @@ export async function createAgreementCheckout(agreementId: string, ctx: { appUrl
     },
   });
 
-  const existing = await d.select().from(schema.orders).where(eq(schema.orders.paypalOrderId, order.id));
-  const saved =
-    existing[0] ??
-    (
-      await d
-        .insert(schema.orders)
-        .values({
-          storeId: a!.storeId,
-          paypalOrderId: order.id,
-          status: "CREATED",
-          amountCents: t.totalUsdCents,
-          shippingCents: t.shippingUsdCents,
-          currency: "USD",
-          items: [],
-          channel: "custom",
-          agreementId: a!.id,
-          termsHash: a!.termsHash,
-        })
-        .returning()
-    )[0];
+  await d
+    .insert(schema.orders)
+    .values({
+      storeId: a!.storeId,
+      paypalOrderId: order.id,
+      status: "CREATED",
+      amountCents: t.totalUsdCents,
+      shippingCents: t.shippingUsdCents,
+      currency: "USD",
+      items: [],
+      channel: "custom",
+      agreementId: a!.id,
+      termsHash: a!.termsHash,
+    })
+    .onConflictDoNothing();
+  const [saved] = await d.select().from(schema.orders).where(eq(schema.orders.paypalOrderId, order.id));
+  if (!saved || saved.agreementId !== a!.id || saved.termsHash !== a!.termsHash || saved.amountCents !== t.totalUsdCents) {
+    throw new AgreementError("PayPal returned an order for different terms. Nothing was charged.", 500);
+  }
   const approveUrl = order.links?.find((l) => l.rel === "payer-action" || l.rel === "approve")?.href ?? null;
   return { paypalOrderId: order.id, orderId: saved.id, approveUrl, totalUsdCents: t.totalUsdCents };
 }
@@ -389,6 +391,8 @@ export async function beginAgreementCapture(order: OrderRef, now = new Date(), h
   return withTx(async (tx) => {
     const a = await lockAgreement(tx, order.agreementId!);
     await hooks.afterRead?.();
+    const [payment] = await tx.select({ status: schema.orders.status }).from(schema.orders).where(eq(schema.orders.id, order.id));
+    if (payment?.status === "REFUSED") throw new AgreementError("This payment was refused. Please start a new payment. You have not been charged.");
     if (!a) throw new AgreementError("agreement not found. You have not been charged.");
     if (a.termsHash !== order.termsHash) throw new AgreementError("These terms changed after checkout started. You have not been charged.");
     if (a.status === "paid") {
@@ -413,6 +417,24 @@ export async function endAgreementCapture(order: OrderRef) {
     const a = await lockAgreement(tx, order.agreementId!);
     if (!a || a.status !== "paying" || a.orderId !== order.id) return;
     await tx.update(schema.agreements).set({ status: "approved", payingSince: null, orderId: null }).where(eq(schema.agreements.id, a.id));
+  });
+}
+
+/** The payment row and agreement move together; a recorded capture always wins over a refusal. */
+export async function recordAgreementRefusal(order: OrderRef, now: Date, retire: boolean): Promise<CaptureRefusalResult> {
+  if (!order.agreementId) return { applied: false, status: "PENDING" };
+  return withTx(async (tx) => {
+    const a = await lockAgreement(tx, order.agreementId!);
+    await tx.execute(sql`select id from orders where id = ${order.id} for update`);
+    const [payment] = await tx.select().from(schema.orders).where(eq(schema.orders.id, order.id));
+    if (!payment) return { applied: false, status: "PENDING" };
+    if (CAPTURED_STATUSES.has(payment.status)) return { applied: false, status: payment.status };
+    if (!a || a.status !== "paying" || a.orderId !== order.id || !["CREATED", "APPROVED", "DENIED"].includes(payment.status)) {
+      return { applied: false, status: payment.status === "REFUSED" ? "REFUSED" : "PENDING" };
+    }
+    if (retire) await tx.update(schema.orders).set({ status: "REFUSED", updatedAt: now }).where(eq(schema.orders.id, order.id));
+    await tx.update(schema.agreements).set({ status: "approved", payingSince: null, orderId: null }).where(eq(schema.agreements.id, a.id));
+    return { applied: true, status: retire ? "REFUSED" : payment.status };
   });
 }
 

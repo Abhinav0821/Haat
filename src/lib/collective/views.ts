@@ -6,12 +6,12 @@ import { summarise } from "./explain";
 import { aloneVsTogether, BUYER_SENTENCE } from "./compare";
 import { shareSummaries } from "./payouts";
 import { materialsReadyOn, MemberFactsSchema } from "./facts";
-import { acceptedParts, CollectiveError, currentPlan, evaluateOrder, memberByLink, memberLangs, partStatuses, settingsOf, termsCtx, type OrderSpec } from "./service";
+import { acceptedParts, chosen, CollectiveError, currentPlan, evaluateOrder, memberByLink, memberLangs, partStatuses, settingsOf, termsCtx, type Choice, type OrderSpec } from "./service";
 import { keepAgreedOption } from "./replan";
 import { decidingQuestion } from "@/lib/planner/question";
 import { checkQuestion } from "@/lib/planner/check";
 import { questionWords } from "./explain";
-import { buyerLinesEn, hasRequirementsFor, partLines, partReadback, type BuyerTerms, type PartTerms, type PlanTerms } from "./terms";
+import { buyerLinesEn, hasRequirementsFor, planRequirementsReady, partLines, partReadback, type BuyerTerms, type PartTerms, type PlanTerms } from "./terms";
 import { isMakerLang, LANG_INFO, type MakerLang } from "@/lib/i18n/languages";
 import { productName } from "@/lib/i18n/maker-text";
 
@@ -70,6 +70,11 @@ export async function internalView(orderId: string, now = new Date()) {
     .orderBy(desc(schema.collectivePlans.version));
   const checked = evaluation.kind !== "unresolved" && problems.length === 0;
   const summary = summarise(evaluation, facts, spec, "internal");
+  const langs = await memberLangs(d, collective.id);
+  const alternatives = summary.alternatives.map((a) => {
+    const pick = chosen(evaluation, request, a.choice as Choice);
+    return { ...a, requirementsReady: !!pick && planRequirementsReady(pick.plan, langs, spec) };
+  });
   const comparison = aloneVsTogether(facts, request, now, { evaluation, problems });
 
   // M1-Q1: when one unknown materials date is all that stands between "unresolved" and an answer.
@@ -85,9 +90,9 @@ export async function internalView(orderId: string, now = new Date()) {
   if (plan && (plan.status === "maker_declined" || plan.status === "needs_replan") && evaluation.kind === "feasible" && problems.length === 0) {
     const accepted = await acceptedParts(d, plan);
     if (accepted.length) {
-      const r = keepAgreedOption(facts, request, now, accepted, termsCtx(collective, order.id, spec, await memberLangs(d, collective.id)), evaluation.plan);
+      const r = keepAgreedOption(facts, request, now, accepted, termsCtx(collective, order.id, spec, langs), evaluation.plan);
       keep = r.option
-        ? { ...r.option, plan: undefined, makersInr: r.option.plan.money.makersInr }
+        ? { ...r.option, requirementsReady: planRequirementsReady(r.option.plan, langs, spec), plan: undefined, makersInr: r.option.plan.money.makersInr }
         : { none: true as const, acceptedCount: accepted.length, search: r.search, failed: r.failed };
     }
   }
@@ -146,7 +151,7 @@ export async function internalView(orderId: string, now = new Date()) {
         language: isMakerLang(m.language) ? m.language : "hi",
       };
     }),
-    evaluation: { kind: evaluation.kind, checked, problems: problems.slice(0, 3), ...summary, startDate: facts.startDate, deliveryDay: request.deliveryDay },
+    evaluation: { kind: evaluation.kind, checked, problems: problems.slice(0, 3), ...summary, alternatives, startDate: facts.startDate, deliveryDay: request.deliveryDay },
     /** Coordinator only: each maker's standalone answer. Never sent to buyers or agents. */
     comparison,
     question,

@@ -151,6 +151,11 @@ part's pay. Code: `src/lib/collective/checkout.ts` and `src/lib/collective/payou
      is created exactly once from her accepted part (id, hash, pay).
    - **Definite refusal:** the plan goes back to `approved` only if the result belongs
      to the exact current attempt and its HTTP lease has ended.
+     Retiring the payment as `REFUSED` and unlocking the plan happen in the same locked,
+     fenced transaction. A pending or completed capture, or a newer attempt, wins over a
+     late refusal. Only recognised refusal issue codes retire an order; an unknown 422
+     remains unresolved and its webhook remains retryable. Refused collective and custom
+     checkouts get a new PayPal order on retry; terminal storefront refusals release stock.
    - **Unknown outcome:** the plan stays `paying`. After 10 minutes it is reconciled
      against PayPal's own order record. Anything ambiguous stays `paying`.
      A negative lookup is checked against the attempt id and start time captured before
@@ -201,8 +206,11 @@ part's pay. Code: `src/lib/collective/checkout.ts` and `src/lib/collective/payou
   each value before the buyer sees it:
   - a value counts as stated only when the model's quote **for that field** is in the words
     and contains it;
+  - measurements such as "180 cm scarves" cannot supply a missing quantity; multiple
+    quantity mentions remain a question or a flagged interpretation;
   - a quantity's quote is not a money phrase, and the quantity isn't one end of a range;
-  - a budget's quote names the same currency;
+  - a budget's quote names the same currency and agrees on per-piece versus total basis;
+    competing amounts stay flagged;
   - anything else is shown as an assumption, and a non-dollar, non-rupee budget is left empty;
   - code also reads the words itself and flags any disagreement with the model. It may fill in
     a missing quantity or date, never a budget, and never marks a budget as stated when the text
@@ -223,6 +231,9 @@ part's pay. Code: `src/lib/collective/checkout.ts` and `src/lib/collective/payou
 
     Anything vaguer, such as "in spring", stays empty, with a question;
   - a date counts as stated only when the words parse to it without the model;
+    event, dispatch and payment dates cannot automatically become delivery deadlines.
+    Alternative dates stay flagged even when the AI quotes one option. "Before Dec 10"
+    means no later than Dec 9, with that rule shown for confirmation;
   - a value that is missing, past or out of range stays empty, with a question.
 
   Only the requirements the buyer then confirms become the order. The proposal and the
@@ -231,8 +242,9 @@ part's pay. Code: `src/lib/collective/checkout.ts` and `src/lib/collective/payou
   approve nor pay.
 - **Earliest date.** The earliest delivery date accepted is the plan start, plus the rest
   day, packing, transit and one making day.
-- **Requirements are English only from buyers.** The coordinator adds and reviews the
-  Hindi before any plan goes to makers.
+- **Requirements are English only from buyers.** The coordinator adds and reviews Hindi
+  when a plan includes a Hindi-reading maker. Each offer's UI gate uses the participating
+  makers of that option, matching the server's rule.
 
 ## Each maker's language
 
@@ -249,7 +261,9 @@ part's pay. Code: `src/lib/collective/checkout.ts` and `src/lib/collective/payou
 - **Hindi requirements:** needed only when a Hindi-reading maker is in the plan. The coordinator
   can ask AI for a Hindi draft. A second, independent call translates the draft back into
   English without seeing the original, so the coordinator can compare meaning before saving.
-  Nothing is saved or sent automatically.
+  Drafts over 600 characters are rejected rather than truncated. The back-translation
+  describes exactly the returned Hindi; editing either reading invalidates it. Edits or a
+  newer request also invalidate outstanding draft responses. Nothing is saved or sent automatically.
 - **Adding a language later:** add it to `src/lib/i18n/languages.ts`, draft it by machine with
   `scripts/translate-maker-text.mts` (checked in code for placeholders and script), and have a
   native speaker review it before it's offered.

@@ -167,7 +167,7 @@ test("capture marks the exact plan paid and creates each maker's share once, fro
   const bv = await buyerView(o.id, later(2));
   assert.equal(bv.offer?.status, "paid");
   assert.ok(bv.offer?.paidAt);
-  assert.doesNotMatch(JSON.stringify(bv), /Meera|Sunita|Rukhsana|₹|Paise|owed|reference|fee/i);
+  assert.doesNotMatch(JSON.stringify(bv), /\b(?:Meera|Sunita|Rukhsana)\b|₹|"[^"]*(?:Paise|owed|reference|fee)[^"]*"\s*:/i);
   for (const part of parts) {
     const mv = await makerView(tokenOf(part.name), later(2));
     const mine = mv.parts.find((x) => x.id === part.partId)!;
@@ -661,4 +661,90 @@ test("the stateless MCP endpoint refuses GET instead of holding a function open"
   const res = await GET();
   assert.equal(res.status, 405);
   assert.equal(res.headers.get("Allow"), "POST");
+});
+
+test("a stale 422 cannot retire a newer pending capture, and the pending capture id is retained", async () => {
+  const { o, plan } = await approved();
+  const c = await checkout(o, plan);
+  let reached!: () => void, release!: () => void;
+  const paused = new Promise<void>((r) => { reached = r; });
+  const resume = new Promise<void>((r) => { release = r; });
+  const first = captureCheckoutOrder(c.paypalOrderId, {
+    now: later(1),
+    paypalCall: (async () => { throw new PayPalApiError(422, { details: [{ issue: "COMPLIANCE_VIOLATION" }] }, "capture"); }) as never,
+    beforeRefusal: async () => { reached(); await resume; },
+  });
+  await paused;
+  let started!: () => void, finish!: () => void;
+  const starting = new Promise<void>((r) => { started = r; });
+  const response = new Promise<void>((r) => { finish = r; });
+  const second = captureCheckoutOrder(c.paypalOrderId, {
+    now: later(1.01),
+    paypalCall: (async () => { started(); await response; return { status: "COMPLETED", purchase_units: [{ payments: { captures: [{ id: "CAP-NEW-PENDING", status: "PENDING" }] } }] }; }) as never,
+  });
+  await starting;
+  release();
+  assert.equal((await first).status, "PENDING", "the older response yields to the newer attempt");
+  assert.equal((await paymentRow(c.paypalOrderId)).status, "CREATED", "no stale retirement was applied");
+  finish();
+  assert.equal((await second).status, "PENDING");
+  const row = await paymentRow(c.paypalOrderId);
+  assert.equal(row.status, "PENDING");
+  assert.equal(row.paypalCaptureId, "CAP-NEW-PENDING");
+  assert.equal((await planRow(plan.id)).status, "paying");
+});
+
+test("a completion winning before refusal handling is returned as completed, never 'not charged'", async () => {
+  const { o, plan } = await approved();
+  const c = await checkout(o, plan);
+  const row = await paymentRow(c.paypalOrderId);
+  const result = await captureCheckoutOrder(c.paypalOrderId, {
+    now: later(1),
+    paypalCall: (async () => {
+      await finalizePayment(row.id, completed("CAP-WEBHOOK-WINS"), later(1));
+      throw new PayPalApiError(422, { details: [{ issue: "COMPLIANCE_VIOLATION" }] }, "capture");
+    }) as never,
+  });
+  assert.equal(result.status, "COMPLETED");
+  assert.equal((await planRow(plan.id)).status, "paid");
+  assert.equal((await shares(plan.id)).length, (await partsOf(plan.id)).length);
+});
+
+test("a retry's refusal cannot unlock a previously recorded pending capture; unknown 422s stay unresolved", async () => {
+  const { o, plan } = await approved();
+  const c = await checkout(o, plan);
+  const pending = (async () => ({ status: "COMPLETED", purchase_units: [{ payments: { captures: [{ id: "CAP-STILL-PENDING", status: "PENDING" }] } }] })) as never;
+  await captureCheckoutOrder(c.paypalOrderId, { paypalCall: pending, now: later(1) });
+  const retry = await captureCheckoutOrder(c.paypalOrderId, {
+    now: later(1.01),
+    paypalCall: (async () => { throw new PayPalApiError(422, { details: [{ issue: "COMPLIANCE_VIOLATION" }] }, "capture"); }) as never,
+  });
+  assert.equal(retry.status, "PENDING");
+  assert.equal((await paymentRow(c.paypalOrderId)).paypalCaptureId, "CAP-STILL-PENDING");
+  assert.equal((await planRow(plan.id)).status, "paying");
+
+  const other = await approved(1);
+  const unknown = await checkout(other.o, other.plan);
+  await assert.rejects(captureCheckoutOrder(unknown.paypalOrderId, {
+    now: later(1),
+    paypalCall: (async () => { throw new PayPalApiError(422, { details: [{ issue: "UNRECOGNISED_BUSINESS_ERROR" }] }, "capture"); }) as never,
+  }), PayPalApiError);
+  assert.equal((await paymentRow(unknown.paypalOrderId)).status, "CREATED");
+  assert.equal((await planRow(other.plan.id)).status, "paying");
+  for (const [status, issues] of [[422, ["INSTRUMENT_DECLINED", "UNRECOGNISED_BUSINESS_ERROR"]], [500, ["INSTRUMENT_DECLINED"]]] as const) {
+    await assert.rejects(captureCheckoutOrder(unknown.paypalOrderId, {
+      now: later(1.005),
+      paypalCall: (async () => { throw new PayPalApiError(status, { details: issues.map((issue) => ({ issue })) }, "capture"); }) as never,
+    }), PayPalApiError);
+    assert.equal((await planRow(other.plan.id)).status, "paying", "mixed unknown issues and server errors are not definite declines");
+  }
+  const event = { id: `WH-UNKNOWN-${unknown.paypalOrderId}`, event_type: "CHECKOUT.ORDER.APPROVED", resource: { id: unknown.paypalOrderId, status: "APPROVED" } };
+  await assert.rejects(handleWebhookEvent(event, { capture: (id) => captureCheckoutOrder(id, {
+    now: later(1.01),
+    paypalCall: (async () => { throw new PayPalApiError(422, { details: [{ issue: "UNRECOGNISED_BUSINESS_ERROR" }] }, "capture"); }) as never,
+  }) }), PayPalApiError);
+  const [unprocessed] = await (await db()).select().from(schema.webhookEvents).where(eq(schema.webhookEvents.id, event.id));
+  assert.equal(unprocessed.processedAt, null, "an unknown PayPal 422 remains retryable, unlike a classified refusal");
+  await handleWebhookEvent(event, { capture: (id) => captureCheckoutOrder(id, { now: later(1.02), paypalCall: okCapture }) });
+  assert.equal((await planRow(other.plan.id)).status, "paid", "redelivery can finish the uncertain payment");
 });

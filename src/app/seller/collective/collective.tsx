@@ -1,10 +1,11 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { EmptyState, SectionHeading, SellerNav, STUDIO, StudioHeader } from "@/components/seller-nav";
 import { speak } from "@/lib/client/media";
 import { plural } from "@/lib/collective/intake";
+import { currentBackTranslation, RequirementsDraftSession, type RequirementsReview } from "@/lib/collective/requirements-review";
 
 type Words = { en: string; hi: string };
 type Member = {
@@ -25,7 +26,7 @@ type Detail = {
   spec: { quantity: number; deadline: string; budgetUsdCents: number | null; details: string | null; detailsHi?: string | null };
   collective: { name: string; product: { en: string; hi: string } };
   excluded: string[];
-  evaluation: { kind: string; checked: boolean; problems: string[]; headline: Words; reasons: Words[]; alternatives: (Words & { choice: string })[]; notes: Words[] };
+  evaluation: { kind: string; checked: boolean; problems: string[]; headline: Words; reasons: Words[]; alternatives: (Words & { choice: string; requirementsReady: boolean })[]; notes: Words[] };
   plan: {
     id: string;
     version: number;
@@ -57,6 +58,7 @@ type Detail = {
         fresh: { priceUsdCents: number; keeps: number; askedAgain: number } | null;
         premiumUsdCents: number | null;
         search: "exhaustive" | "heuristic";
+        requirementsReady: boolean;
         failed: { names: string[]; reason: string }[];
       }
     | { none: true; acceptedCount: number; search: string; failed: { names: string[]; reason: string }[] }
@@ -237,7 +239,7 @@ export function Collective() {
                 </label>
                 <label className="col-span-2 block text-xs text-muted">
                   वही शर्तें हिंदी में · The same requirements in Hindi
-                  <textarea lang="hi" required={!!form.details.trim()} maxLength={600} value={form.detailsHi} onChange={(e) => setForm({ ...form, detailsHi: e.target.value })} className={field} />
+                  <textarea lang="hi" maxLength={600} value={form.detailsHi} onChange={(e) => setForm({ ...form, detailsHi: e.target.value })} className={field} />
                   <span className="mt-1 block">Review both readings. The maker hears this Hindi text before accepting.</span>
                 </label>
               </div>
@@ -301,7 +303,13 @@ export function Collective() {
                       value={m.language ?? "hi"}
                       disabled={busy}
                       onChange={async (e) => {
-                        if (await call("/api/seller/collective", { action: "language", memberId: m.id, language: e.target.value })) await loadHome();
+                        if (await call("/api/seller/collective", { action: "language", memberId: m.id, language: e.target.value })) {
+                          await loadHome();
+                          if (selected) {
+                            const res = await fetch(`/api/seller/collective/orders/${selected}`).catch(() => null);
+                            if (res?.ok) setDetail(await res.json());
+                          }
+                        }
                       }}
                       className="border border-line bg-paper px-1.5 py-0.5 text-ink focus:border-ink focus:outline-none"
                     >
@@ -478,27 +486,41 @@ function ShareRow({ share: sh, busy, onAction }: { share: ShareRowData; busy: bo
   );
 }
 
-function OrderDetail({ detail: d, busy, onAction, onBack }: { detail: Detail; busy: boolean; onAction: (b: Record<string, unknown>) => void; onBack: () => void }) {
+export function OrderDetail({ detail: d, busy, onAction, onBack }: { detail: Detail; busy: boolean; onAction: (b: Record<string, unknown>) => void; onBack: () => void }) {
   const ev = d.evaluation;
   const p = d.plan;
   const open = p && !["paid", "paying"].includes(p.status);
   const [copied, setCopied] = useState(false);
   const [readings, setReadings] = useState({ details: d.spec.details ?? "", detailsHi: d.spec.detailsHi ?? "" });
-  const [draft, setDraft] = useState<{ busy: boolean; back: string | null; note: string | null }>({ busy: false, back: null, note: null });
+  const [draft, setDraft] = useState<{ busy: boolean; review: RequirementsReview | null; note: string | null }>({ busy: false, review: null, note: null });
+  const draftSession = useRef(new RequirementsDraftSession());
+  useEffect(() => {
+    const session = draftSession.current;
+    return () => { session.invalidate(); };
+  }, []);
+  function editReading(key: "details" | "detailsHi", value: string) {
+    draftSession.current.invalidate();
+    setReadings((r) => ({ ...r, [key]: value }));
+    setDraft({ busy: false, review: null, note: null });
+  }
   async function draftHindi() {
-    setDraft({ busy: true, back: null, note: null });
+    const request = draftSession.current.begin(readings.details);
+    const english = request.english;
+    setDraft({ busy: true, review: null, note: null });
     try {
-      const res = await fetch(`/api/seller/collective/orders/${d.id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "draft_requirements", details: readings.details }) });
+      const res = await fetch(`/api/seller/collective/orders/${d.id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "draft_requirements", details: english }) });
       const out = await res.json();
+      if (!draftSession.current.isCurrent(request)) return;
       if (!res.ok) throw new Error(out.error);
       const hi = (out.drafts as { lang: string; text: string | null; back: string | null; problem: string | null }[]).find((x) => x.lang === "hi");
       if (!hi?.text) throw new Error(hi?.problem ?? "No Hindi draft came back. Please write it yourself.");
       setReadings((r) => ({ ...r, detailsHi: hi.text! }));
-      setDraft({ busy: false, back: hi.back, note: null });
+      setDraft({ busy: false, review: { english, hindi: hi.text.trim(), back: hi.back }, note: null });
     } catch (e) {
-      setDraft({ busy: false, back: null, note: (e as Error).message });
+      if (draftSession.current.isCurrent(request)) setDraft({ busy: false, review: null, note: (e as Error).message });
     }
   }
+  const backTranslation = currentBackTranslation(readings, draft.review);
   const readingsChanged = readings.details.trim() !== (d.spec.details ?? "") || readings.detailsHi.trim() !== (d.spec.detailsHi ?? "");
   const buyerUrl = typeof window === "undefined" ? `/c/orders/${d.id}` : `${window.location.origin}/c/orders/${d.id}`;
 
@@ -530,7 +552,7 @@ function OrderDetail({ detail: d, busy, onAction, onBack }: { detail: Detail; bu
         {open !== false && (
           <form className="mt-5 space-y-3 border-t border-line pt-4" onSubmit={(e) => { e.preventDefault(); onAction({ action: "requirements", ...readings }); }}>
             <label className="block text-xs text-muted">Requirements in English
-              <textarea maxLength={300} value={readings.details} onChange={(e) => setReadings({ ...readings, details: e.target.value })} className={field} />
+              <textarea maxLength={300} value={readings.details} onChange={(e) => editReading("details", e.target.value)} className={field} />
             </label>
             <label className="block text-xs text-muted">
               <span className="flex flex-wrap items-baseline justify-between gap-2">
@@ -539,17 +561,17 @@ function OrderDetail({ detail: d, busy, onAction, onBack }: { detail: Detail; bu
                   {draft.busy ? "Drafting…" : "Draft Hindi with AI"}
                 </button>
               </span>
-              <textarea lang="hi" required={!!readings.details.trim()} maxLength={600} value={readings.detailsHi} onChange={(e) => setReadings({ ...readings, detailsHi: e.target.value })} className={field} />
+              <textarea lang="hi" maxLength={600} value={readings.detailsHi} onChange={(e) => editReading("detailsHi", e.target.value)} className={field} />
             </label>
-            {draft.back && (
+            {backTranslation && (
               <p className="border-l-2 border-marigold bg-paper-deep/40 px-3 py-2 text-xs leading-relaxed text-muted">
-                Check before saving. The AI draft, translated back to English separately (without seeing your English): <span className="text-ink">“{draft.back}”</span>
+                Check before saving. The AI draft, translated back to English separately (without seeing your English): <span className="text-ink">“{backTranslation}”</span>
                 <span className="block">If it doesn&apos;t say the same as your English, fix the Hindi.</span>
               </p>
             )}
             {draft.note && <p className="text-xs text-danger">{draft.note}</p>}
-            <p className="text-xs text-muted">Review and save both readings before sending. Makers who read Hindi hear the Hindi; makers who chose English read your English. Changes release unpaid reservations and require a new plan and renewed maker consent.</p>
-            <button type="submit" disabled={busy} className="text-xs underline underline-offset-4 disabled:opacity-30">Save bilingual requirements</button>
+            <p className="text-xs text-muted">Hindi is required only for plans involving makers who read Hindi. Review each reading before sending. Changes release unpaid reservations and require a new plan and renewed maker consent.</p>
+            <button type="submit" disabled={busy || draft.busy} className="text-xs underline underline-offset-4 disabled:opacity-30">Save requirements</button>
           </form>
         )}
       </section>
@@ -662,7 +684,7 @@ function OrderDetail({ detail: d, busy, onAction, onBack }: { detail: Detail; bu
                     The plan and each kept part&apos;s terms are independently checked.
                   </span>
                 </span>
-                <button type="button" disabled={busy || readingsChanged || (!!d.spec.details && !d.spec.detailsHi)} onClick={() => onAction({ action: "offer", choice: "keep_agreed" })} className="border border-ink px-4 py-2 text-xs hover:bg-ink hover:text-paper disabled:opacity-30">
+                <button type="button" disabled={busy || readingsChanged || !d.keep.requirementsReady} onClick={() => onAction({ action: "offer", choice: "keep_agreed" })} className="border border-ink px-4 py-2 text-xs hover:bg-ink hover:text-paper disabled:opacity-30">
                   Send, keeping agreed parts
                 </button>
               </div>
@@ -689,7 +711,7 @@ function OrderDetail({ detail: d, busy, onAction, onBack }: { detail: Detail; bu
                     <span lang="hi">{a.hi}</span>
                     <span className="block text-xs text-muted">{a.en}</span>
                   </span>
-                  <button type="button" disabled={busy || readingsChanged || (!!d.spec.details && !d.spec.detailsHi)} onClick={() => onAction({ action: "offer", choice: a.choice })} className="border border-ink px-4 py-2 text-xs hover:bg-ink hover:text-paper disabled:opacity-30">
+                  <button type="button" disabled={busy || readingsChanged || !a.requirementsReady} onClick={() => onAction({ action: "offer", choice: a.choice })} className="border border-ink px-4 py-2 text-xs hover:bg-ink hover:text-paper disabled:opacity-30">
                     {p ? "Send as new version" : "Send to makers"}
                   </button>
                 </div>

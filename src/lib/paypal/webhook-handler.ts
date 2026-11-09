@@ -1,7 +1,7 @@
 import { eq, sql } from "drizzle-orm";
 import { finalizePayment, snapshotFromCapture, type PayPalCapture, type PayPalOrderSnapshot } from "@/lib/paypal/finalize";
 import { db, schema, withTx, type DB } from "@/db";
-import { paypal } from "@/lib/paypal/client";
+import { paypal, PayPalApiError } from "@/lib/paypal/client";
 import { shouldAdvance } from "@/lib/paypal/order-status";
 
 /**
@@ -176,7 +176,7 @@ export async function handleWebhookEvent(
           // A refusal (sold out, terms changed) is a final answer: record it. Nothing was charged.
           // Anything else is transient: rethrow so the event stays unprocessed and PayPal redelivers it.
           const status = (e as { status?: number }).status;
-          if (status !== 409 && status !== 422) throw e;
+          if (e instanceof PayPalApiError || (status !== 409 && status !== 422)) throw e;
           result = { status: "recorded", note: `capture refused: ${(e as Error).message}` };
         }
       }

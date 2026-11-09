@@ -115,8 +115,8 @@ export async function consume(orderId: string) {
   });
 }
 
-export async function release(orderId: string) {
-  const d = await db();
+export async function release(orderId: string, database?: Tx) {
+  const d = database ?? await db();
   await d
     .update(schema.reservations)
     .set({ status: "released" })
