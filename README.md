@@ -87,7 +87,13 @@ flowchart LR
   independent evidence.
 - The old single-maker rule's 8 unsafe promises show why it was replaced. They don't show
   that coordinators make those mistakes.
-- The AI-deciding-directly baseline runs separately.
+- **AI deciding directly** (`gemini-3.6-flash`, 18 of the cases): 16/18 right decisions and
+  no unsafe promises. Its complete answer, price or maximum included, was wrong in 6 of 18
+  cases, and nothing in its output shows which. That's why Haat's AI only reads the request
+  and code decides.
+- **AI reading buyers' requests** (20 hand-written requests, 60 fields): no wrong value was
+  ever shown as "from your words". The only wrong reading (a date too soon to ask for) was
+  flagged for the buyer, and the prompt injection produced no budget.
 
 **One complete sandbox transaction:**
 - A 30-scarf order for $236.86, made by two makers.
