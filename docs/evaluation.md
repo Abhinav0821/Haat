@@ -289,6 +289,33 @@ charged, the terms were unlocked, and a fresh PayPal order is used for the next 
 - **Still owed.** Sunita's ₹7,600 remains owed and unreported. That is the correct
   state: no payment to her was recorded.
 
+## 3. An order placed by a buyer's AI agent (hosted, 9 November 2026)
+
+Run on the **live** site (`haat-teal.vercel.app`, PayPal sandbox), with a real agent:
+**Claude Desktop**, connected to Haat's MCP server as a custom connector, with only Haat's
+tools enabled.
+
+| Step | Who | Evidence |
+|---|---|---|
+| Asked in plain words for 24 indigo scarves by Dec 15, budget $300; told the agent to confirm first | Buyer (project owner) | — |
+| Read the collective's product and earliest date, restated the request, waited for OK | Agent | `get_collective_info`; no request sent before OK |
+| Sent the confirmed requirements; said it cannot approve or pay | Agent | `request_collective_order` → order `ed02f6a5…`, recorded as `channel: mcp`, `intake.via: agent` |
+| Today's checked first answer | Haat | Yes: 24 by Dec 15, 3 makers, $205.11 |
+| Hindi requirements drafted by AI, back-translation compared, saved | Coordinator | `detailsHi` saved after review |
+| Each maker accepted her own part on her personal link | Makers (role-played) | Meera 11, Sunita 8, Rukhsana 5 pieces |
+| Buyer approved the exact terms and paid the collective | Buyer | PayPal capture `8DM9884353731852U`, $205.11 COMPLETED; fee $7.65, net $197.46 |
+| PayPal's webhooks delivered to the live site and processed | PayPal → Haat | `CHECKOUT.ORDER.APPROVED`, `PAYMENT.CAPTURE.COMPLETED` |
+| Makers' shares created once | Haat | ₹4,620 + ₹3,040 + ₹2,250 |
+| Agent asked for the status | Agent | `get_collective_order`: "paid, all 3 makers confirmed", with no maker names or pay |
+
+**What it shows:** an order placed by a buyer's agent goes through the same checked plan,
+per-maker consent and PayPal capture as any other. The agent can't approve or pay, and it sees
+only aggregate information.
+
+**What it doesn't show:** real makers, or a real buyer's agent other than ours. The project
+owner played the buyer, the coordinator and the makers. The hosted site receives payments into
+a US sandbox business account (see the README's sandbox note).
+
 ## Reproducing
 
 ```

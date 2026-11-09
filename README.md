@@ -107,6 +107,18 @@ flowchart LR
 This proves the integration works end to end. The payout was not a real bank transfer, and
 the maker was played by the project owner. It does not show an artisan earning income.
 
+**An order placed by a buyer's AI agent on the live site:**
+- **The agent:** Claude Desktop, connected to Haat's MCP server.
+- **What it did:** confirmed 24 scarves by Dec 15 (budget $300) with the buyer, sent the
+  request and said it couldn't pay.
+- **What followed:** each maker accepted her part on her link, and the buyer paid $205.11
+  through PayPal (capture `8DM9884353731852U`). PayPal's webhooks were delivered and processed,
+  and the makers' shares were created.
+- **What the agent saw:** asked for the status, it reported "paid", with no maker names or pay.
+
+Details are in [docs/evaluation.md §3](docs/evaluation.md). The project owner played the
+buyer, coordinator and makers.
+
 **Sandbox account note.** That payment went into an Indian sandbox business account, as a real
 Indian collective's would. Afterwards, PayPal's sandbox refused further international payments
 into that account:
