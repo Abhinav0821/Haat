@@ -8,7 +8,7 @@ import { PAGE } from "@/components/layout";
 const PRINCIPLE = [
   ["AI assists.", "It reads a buyer's words into quantity, date and budget. The buyer checks every field; nothing it guesses is treated as stated."],
   ["Code checks.", "Every plan, refusal and alternative is checked against the facts recorded for the makers, by a checker that shares no code with the planner."],
-  ["Makers decide.", "Each maker agrees to her own part (pieces, days, pay) on her personal link, in Hindi. A changed part is asked again."],
+  ["Makers decide.", "Each maker agrees to her own part (pieces, days, pay) on her personal link, in Hindi or English. A changed part is asked again."],
   ["Buyers pay with PayPal.", "One payment to the collective, for exactly the approved terms. Each maker's share is tracked until she confirms she received it."],
 ] as const;
 
@@ -44,6 +44,9 @@ export default function Home() {
               </Link>
               <Link href="/seller/collective" className="border border-ink px-8 py-3.5 text-sm tracking-wide transition hover:bg-ink hover:text-paper">
                 Coordinator&apos;s studio
+              </Link>
+              <Link href="/agent" className="px-2 py-3.5 text-sm tracking-wide underline underline-offset-4 transition hover:text-muted">
+                Ask through your AI agent
               </Link>
             </div>
           </div>

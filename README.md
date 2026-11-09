@@ -182,10 +182,13 @@ Everything runs against the **PayPal sandbox**. No real money moves.
 
 ## Agents (MCP)
 
-`/api/mcp` is a remote MCP server (Streamable HTTP). For collective orders:
+`/api/mcp` is a remote MCP server (Streamable HTTP, no sign-in). Setup for Claude, ChatGPT,
+Claude Code, Cursor and VS Code, with example prompts, is on
+[haat-teal.vercel.app/agent](https://haat-teal.vercel.app/agent). For collective orders:
 
 | Tool | What it does |
 |---|---|
+| `get_collective_info` | The collective, its product, the earliest delivery date that can be asked for, and what to confirm with the user |
 | `request_collective_order` | Sends the requirements the user confirmed (quantity, delivery date, optional budget and details). Returns today's checked first answer and the link where the **human** sees the terms, approves and pays |
 | `get_collective_order` | Status and terms, in aggregate only: no maker's name, availability or pay |
 

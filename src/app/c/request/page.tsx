@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { SiteFooter, SiteHeader } from "@/components/craft";
 import { PAGE } from "@/components/layout";
 import { BulkRequestForm } from "./form";
@@ -8,7 +9,7 @@ export const metadata: Metadata = { title: "Request a bulk order · Haat" };
 const STEPS = [
   ["Describe it in your words", "AI reads your request into quantity, date and budget. You check and correct every field; anything it isn't sure of is marked."],
   ["The collective plans it", "The plan is checked against each maker's recorded days, materials, prices and other promises — by code that shares nothing with the planner. If it can't be done, you're told why and what can."],
-  ["Each maker agrees to her part", "On her own link, in Hindi: her pieces, days and pay. You see the terms once every maker has agreed."],
+  ["Each maker agrees to her part", "On her own link, in Hindi or English: her pieces, days and pay. You see the terms once every maker has agreed."],
   ["You approve and pay with PayPal", "One payment to the collective, for exactly the approved terms. The makers start once you've paid."],
 ] as const;
 
@@ -24,6 +25,13 @@ export default function BulkRequestPage() {
           <p className="mt-5 max-w-xl text-lg font-light leading-relaxed text-muted">
             Ask for 30 or 300 hand block-printed scarves. Haat plans the work across the collective&apos;s makers, each maker agrees to her own part, and you pay the collective once
             with PayPal.
+          </p>
+          <p className="mt-4 text-sm text-muted">
+            Using Claude, ChatGPT or another AI assistant?{" "}
+            <Link href="/agent" className="text-ink underline underline-offset-4">
+              Ask through your agent
+            </Link>
+            .
           </p>
         </div>
         <div className="min-w-0 lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:pt-2">

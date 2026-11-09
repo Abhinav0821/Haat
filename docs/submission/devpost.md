@@ -138,8 +138,9 @@ nextjs · typescript · react · tailwindcss · postgresql · neon · drizzle ·
 
 - **Request an order:** open https://haat-teal.vercel.app/c/request, describe an order (e.g.
   "40 indigo scarves by Dec 20, budget $400") and press **Read my request**.
-- **Connect your own agent:** add `https://haat-teal.vercel.app/api/mcp` as a custom MCP
-  connector.
+- **Connect your own agent (optional, about a minute):** https://haat-teal.vercel.app/agent has
+  setup for Claude, ChatGPT, Claude Code, Cursor and VS Code (one-click for the last two) and
+  example prompts. The server URL is `https://haat-teal.vercel.app/api/mcp`; no sign-in.
 - **Studio access:** the coordinator studio and test PayPal accounts are shared with the
   judges privately.
 - **Run it locally:** setup and tests are in the README (`npm install`, `npm test`).
