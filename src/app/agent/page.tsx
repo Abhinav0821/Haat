@@ -32,6 +32,8 @@ const AFTER = [
 
 export default function AgentPage() {
   const url = siteUrl();
+  const endpoint = new URL(url);
+  const needsPublicUrl = endpoint.protocol !== "https:" || ["localhost", "127.0.0.1", "[::1]"].includes(endpoint.hostname) || endpoint.hostname.endsWith(".localhost");
   const mcp = `${url}/api/mcp`;
   const cursorLink = `cursor://anysphere.cursor-deeplink/mcp/install?name=haat&config=${encodeURIComponent(Buffer.from(JSON.stringify({ url: mcp })).toString("base64"))}`;
   const vscodeLink = `vscode:mcp/install?${encodeURIComponent(JSON.stringify({ name: "haat", type: "http", url: mcp }))}`;
@@ -41,8 +43,9 @@ export default function AgentPage() {
       name: "Claude (web or Desktop)",
       steps: (
         <>
-          Settings → <b>Connectors</b> → <b>Add custom connector</b>. Name it <i>Haat</i>, paste the URL, and add it. No sign-in is needed. Then turn Haat on in a new chat (the
-          tools menu under the message box).
+          <b>Customize → Connectors → + Add → Add custom connector</b>. Name it <i>Haat</i>, paste the public HTTPS URL, and choose <b>No sign in</b> for authentication.
+          Enable Haat in a new chat using <b>+ → Connectors</b>. On a managed workspace, an owner may need to add it first. See the{" "}
+          <a href="https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp" className="underline underline-offset-4">official Claude setup guide</a>.
         </>
       ),
       copy: mcp,
@@ -52,8 +55,9 @@ export default function AgentPage() {
       name: "ChatGPT",
       steps: (
         <>
-          Turn on <b>developer mode</b> in Settings (under Connectors or Apps, depending on the version), create a connector with this URL and no authentication, then choose it in a
-          new chat.
+          Open <b>ChatGPT Plugins → + → Add custom MCP server</b>. Enter Haat&apos;s name, description and public HTTPS URL; select no authentication, review the warning,
+          then choose <b>Create as a plugin</b>. In a new conversation, type <b>@</b> and select Haat. Availability depends on your account and workspace policies.
+          Menus can change; see the <a href="https://developers.openai.com/plugins/deploy/connect-chatgpt" className="underline underline-offset-4">official OpenAI setup guide</a>.
         </>
       ),
       copy: mcp,
@@ -80,17 +84,31 @@ export default function AgentPage() {
     <>
       <SiteHeader />
       <main className={`${PAGE} flex-1 py-16 lg:py-20`}>
+        <section className="mb-12 border border-line bg-paper-deep/60 p-6">
+          <h2 className="font-display text-2xl">Try Haat—no setup</h2>
+          <p className="mt-3 max-w-3xl text-sm leading-relaxed text-muted">
+            Use the request form to describe a bulk order, review what AI understood, and get the same checked first answer. This uses Haat directly; connecting your own agent below is optional.
+          </p>
+          <Link href="/c/request" className="mt-5 inline-block bg-ink px-6 py-3 text-sm text-paper transition hover:bg-ink/85">Request a bulk order</Link>
+        </section>
         <div className="grid gap-x-16 gap-y-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)]">
           <div className="min-w-0 lg:sticky lg:top-10 lg:self-start">
             <p className="eyebrow">Agentic commerce · MCP</p>
             <h1 className="mt-4 font-display text-4xl font-normal leading-tight lg:text-5xl">Ask through your own AI agent.</h1>
             <p className="mt-5 max-w-xl text-lg font-light leading-relaxed text-muted">
-              Haat runs a public MCP server. Connect it to the assistant you already use and ask for a bulk order in your own words. It takes about a minute, and there&apos;s nothing to
-              sign up for.
+              Haat runs a public MCP server. Connect it to a compatible assistant you already use and ask for a bulk order in your own words.
+              No Haat account is needed; your assistant or editor must support custom MCP servers and may require account access or workspace permission.
             </p>
             <div className="mt-8">
               <p className="eyebrow mb-2">Server URL</p>
               <CopyText text={mcp} label="Copy URL" />
+              {needsPublicUrl && (
+                <p className="mt-3 border-l-2 border-ink pl-3 text-sm leading-relaxed text-muted">
+                  Local development: Claude&apos;s remote connector cannot reach localhost, and ChatGPT needs a public HTTPS endpoint or its supported tunnel.
+                  Use the deployed site, or run <code className="font-mono">npm run tunnel</code> and use its HTTPS URL followed by <code className="font-mono">/api/mcp</code>.
+                  To update all links on this page, set <code className="font-mono">APP_URL</code> to that HTTPS origin and restart development or rebuild production.
+                </p>
+              )}
             </div>
             <p className="mt-6 text-sm leading-relaxed text-muted">
               Prefer a form? <Link href="/c/request" className="text-ink underline underline-offset-4">Request a bulk order</Link> directly. Both reach the same checks.

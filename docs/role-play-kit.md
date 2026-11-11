@@ -14,7 +14,7 @@ participants.
 ## Before the session
 
 - **Setup:** the app runs locally (`npm run dev`) or at the deployed URL. Use the
-  `collective` branch, with migrations up to `0019` applied.
+  submitted commit, with all checked-in migrations applied (currently through `0021`).
 - **Use isolated session data.** Preserve the paid sandbox order and its redacted
   receipt/ledger evidence. Stop the existing dev server, then use a fresh embedded
   database for each session, for example:

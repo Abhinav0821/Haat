@@ -27,7 +27,7 @@ flowchart LR
   AI --> C["Buyer edits and confirms"]
   C --> P["Planner<br/>(min-cost flow over the makers' days)"]
   P --> K{"Independent checker<br/>(shares no code with the planner)"}
-  K -- "yes: checked plan" --> M["Each maker agrees to her part<br/>on her own link, in Hindi"]
+  K -- "yes: checked plan" --> M["Each maker agrees to her part<br/>on her own link, in Hindi or English"]
   K -- "no: reason + checked alternatives" --> CO["Coordinator"]
   K -- "not yet: focused question" --> CO
   M --> A["Buyer approves the exact terms<br/>(capacity reserved)"]
@@ -119,8 +119,8 @@ the maker was played by the project owner. It does not show an artisan earning i
 Details are in [docs/evaluation.md §3](docs/evaluation.md). The project owner played the
 buyer, coordinator and makers.
 
-**Sandbox account note.** That payment went into an Indian sandbox business account, as a real
-Indian collective's would. Afterwards, PayPal's sandbox refused further international payments
+**Sandbox account note.** The earlier $236.86 local transaction went into an Indian sandbox
+business account. Afterwards, PayPal's sandbox refused further international payments
 into that account:
 - `COMPLIANCE_VIOLATION` at capture;
 - then `COMPLIANCE_KYC_VIOLATION` before checkout opened.
@@ -128,6 +128,7 @@ into that account:
 A sandbox account can't complete PayPal India's identity checks (KYC). The hosted demo
 therefore receives payments into a **US sandbox business account**. A real Indian collective
 completes PayPal India's KYC, PAN and purpose-code requirements, which Haat doesn't automate.
+The later $205.11 hosted Claude-agent transaction used this US sandbox account.
 When PayPal refuses a capture, Haat shows that nothing was charged, unlocks the terms and
 lets the buyer pay again with a new PayPal order.
 
@@ -144,8 +145,9 @@ time. A personal link proves possession of the link, not identity.
 Requirements: **Node.js 20+**. No database to install: an embedded Postgres runs automatically.
 
 ```bash
-git clone <this repo> haat && cd haat
-npm install
+git clone https://github.com/Abhinav0821/Haat.git haat
+cd haat
+npm ci
 cp .env.example .env.local   # then fill in the keys (see below)
 npm run smoke                # checks PayPal sandbox + AI + DB connectivity
 npm run dev                  # http://localhost:3000
@@ -179,6 +181,10 @@ Everything runs against the **PayPal sandbox**. No real money moves.
 | `npm run db:migrate` | Apply migrations (runs automatically in the Vercel build) |
 
 **Deploying:** free on Vercel + Neon. See [DEPLOY.md](DEPLOY.md).
+
+**Judges:** [step-by-step demo instructions](docs/submission/judge-guide.md) cover the
+buyer, coordinator, maker and sandbox payment flow. The studio PIN and sandbox buyer
+login are supplied in the submission's private testing instructions.
 
 ## Agents (MCP)
 

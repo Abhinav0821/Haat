@@ -17,7 +17,7 @@ type Interpretation = {
 type Info = { collective: string; product: string; earliest: string };
 
 const field = "w-full border-b border-line bg-transparent py-2.5 text-base focus:border-ink focus:outline-none";
-const EXAMPLE = "Hi — we're a boutique in Portland. We'd like 30 indigo block-printed cotton scarves for our spring window, delivered by Dec 10. Our budget is around $250.";
+const EXAMPLE = "Hi — we're a boutique in Portland. We'd like 30 indigo block-printed cotton scarves, delivered in four weeks. Our total budget is $300.";
 
 function Badge({ f }: { f?: Field<unknown> }) {
   if (!f) return null;

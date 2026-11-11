@@ -10,7 +10,10 @@ together → every promise checked, every maker agrees, the buyer pays with PayP
 - The PayPal and AI moments are clearly labelled on screen.
 
 **Setup before recording**
-- Record **locally** after `npm run demo:reset`.
+- Record **locally using an isolated database**, preserving the existing payment evidence.
+  Stop the current dev server, then run
+  `DATABASE_URL='' PGLITE_DIR=.data/video-session-01 npm run dev`.
+  Use a new session directory for a fresh take; do not reset the deployed judging database.
 - The three makers confirm their facts on their own links. Set **Meera to English**; keep
   Sunita and Rukhsana in Hindi.
 - Browser at 1467 px wide, zoom 110%. Hide bookmarks. Use a private window for each maker.
@@ -19,6 +22,9 @@ together → every promise checked, every maker agrees, the buyer pays with PayP
   recording.
 - The agent clip is the recorded Claude Desktop run on the live site (order `ed02f6a5…`), or
   a fresh screen recording of it.
+- Keep **PayPal sandbox · demonstration roles** visible during the payment and maker scenes.
+  Label the payout scene **Test reference · no bank transfer**. Use English captions for
+  Hindi speech and labels that matter to the demonstration.
 - Use a calm voice, about 140 words a minute. The voice-over below is about 370 words.
 
 | Time | On screen | Voice-over | Overlay text |
@@ -42,5 +48,5 @@ about 10 seconds. Never cut the PayPal payment or the checker beat.
 - "PayPal pays the makers";
 - anything implying real makers used it (they were role-played).
 
-The live site's PayPal is a US sandbox account; no need to mention it in the video, but don't
-call it an Indian PayPal account.
+The live site receives into a US PayPal sandbox account. Label the flow as sandbox;
+do not imply a real sale, real artisan participation, or a real bank transfer.
