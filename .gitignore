@@ -43,3 +43,6 @@ next-env.d.ts
 
 # embedded local database
 /.data
+
+# private submission material (credentials for judges)
+/.private
