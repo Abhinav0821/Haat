@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 /*
- * Haat — quiet, editorial, light. Ivory canvas, charcoal type, one indigo accent.
+ * Haat — quiet, editorial. Ivory by default; warm charcoal by explicit choice.
  * (Inspired by the restraint of brands like Aesop: whitespace and photography do the work.)
  */
 :root {
@@ -21,6 +21,38 @@
   --danger: #9f2b2b;
   --danger-soft: #f5e3e1;
   color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  --paper: #1c1b19;
+  --paper-deep: #292621;
+  --card: #25231f;
+  --ink: #f3eee5;
+  --muted: #b6aea2;
+  --line: #4c463e;
+  --indigo: #b6c4f5;
+  --indigo-soft: #2c3042;
+  --marigold: #e2bb72;
+  --marigold-soft: #3a3021;
+  --madder: #e3a18d;
+  --leaf: #a3c5a8;
+  --leaf-soft: #28362b;
+  --danger: #f2aaa1;
+  --danger-soft: #412928;
+  color-scheme: dark;
+}
+
+/* Stronger field boundaries than decorative dividers, including native date/select controls. */
+:root[data-theme="dark"] :where(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), textarea, select) {
+  border-color: #81776a;
+}
+
+:root[data-theme="dark"] :where(input, textarea, select):focus-visible {
+  border-color: var(--ink);
+}
+
+:root[data-theme="dark"] :where(input[type="checkbox"], input[type="radio"]) {
+  accent-color: var(--indigo);
 }
 
 @theme inline {

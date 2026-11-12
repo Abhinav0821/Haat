@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Wordmark } from "@/components/craft";
 import { DEMO_STORE } from "@/lib/store-constants";
 import { PAGE } from "./layout";
+import { ThemeToggle } from "./theme-toggle";
 
 /**
  * The seller studio's page frame: one column on phones (she works on her phone);
@@ -78,8 +79,12 @@ export function SellerNav({ active }: { active: "list" | "inbox" | "products" | 
       <Link href="/" aria-label="Haat home">
         <Wordmark />
       </Link>
+      {/* Phones: beside the wordmark. Wide screens: after the links, at the far right. */}
+      <div className="lg:order-last lg:ml-6">
+        <ThemeToggle />
+      </div>
       {/* Phones: links get their own row and scroll sideways, so the page never overflows. */}
-      <div className="-mx-4 flex w-[calc(100%+2rem)] items-center gap-5 overflow-x-auto whitespace-nowrap px-4 pb-1 text-sm sm:-mx-6 sm:w-[calc(100%+3rem)] sm:px-6 lg:mx-0 lg:w-auto lg:gap-6 lg:overflow-visible lg:px-0 lg:pb-0 [mask-image:linear-gradient(to_right,black_85%,transparent)] lg:[mask-image:none]">
+      <div className="-mx-4 flex w-[calc(100%+2rem)] items-center gap-5 overflow-x-auto whitespace-nowrap px-4 pb-1 text-sm sm:-mx-6 sm:w-[calc(100%+3rem)] sm:px-6 lg:mx-0 lg:ml-auto lg:w-auto lg:gap-6 lg:overflow-visible lg:px-0 lg:pb-0 [mask-image:linear-gradient(to_right,black_85%,transparent)] lg:[mask-image:none]">
         {links.map((l) => (
           <Link
             key={l.key}

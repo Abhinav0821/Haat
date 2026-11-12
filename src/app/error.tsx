@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 export default function Error({ error, retry }: { error: Error & { digest?: string }; retry: () => void }) {
   useEffect(() => {
@@ -9,6 +10,7 @@ export default function Error({ error, retry }: { error: Error & { digest?: stri
 
   return (
     <main className="mx-auto flex w-full max-w-xl flex-1 flex-col items-center justify-center px-6 py-28 text-center">
+      <div className="mb-8"><ThemeToggle /></div>
       <p className="eyebrow">Something went wrong</p>
       <h1 className="mt-4 font-display text-4xl font-normal">
         कुछ गड़बड़ हो गई

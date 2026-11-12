@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Wordmark } from "@/components/craft";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { PAGE } from "@/components/layout";
 import { speak } from "@/lib/client/media";
 import { LANG_INFO, MAKER_LANGS, longDay, type MakerLang } from "@/lib/i18n/languages";
@@ -507,8 +508,9 @@ function ShareLedger({ share, lang: L, busy, onAnswer }: { share: Share; lang: M
 function Shell({ children, dir = "ltr" }: { children: React.ReactNode; dir?: "ltr" | "rtl" }) {
   return (
     <div className={`${PAGE} pb-24 pt-8`} dir={dir}>
-      <nav className="mb-10 border-b border-line pb-5">
+      <nav className="mb-10 flex items-center justify-between gap-3 border-b border-line pb-5">
         <Wordmark />
+        <ThemeToggle />
       </nav>
       {children}
     </div>

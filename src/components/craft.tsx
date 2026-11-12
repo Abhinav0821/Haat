@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { PAGE } from "./layout";
+import { ThemeToggle } from "./theme-toggle";
 
 /** Bilingual wordmark: letterspaced serif HAAT, hairline, हाट. */
 export function Wordmark({ className = "", compactOnPhone = false }: { className?: string; compactOnPhone?: boolean }) {
@@ -20,7 +21,7 @@ export function Wordmark({ className = "", compactOnPhone = false }: { className
 export function SiteHeader({ storeSlug, storeName }: { storeSlug?: string; storeName?: string }) {
   return (
     <header className="border-b border-line">
-      <nav className={`${PAGE} grid h-16 grid-cols-[1fr_auto_1fr] items-center gap-3`}>
+      <nav className={`${PAGE} grid h-16 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 sm:gap-3`}>
         <div className="eyebrow min-w-0 truncate">
           {storeSlug ? (
             <Link href={`/s/${storeSlug}`} className="hover:text-ink">
@@ -35,10 +36,12 @@ export function SiteHeader({ storeSlug, storeName }: { storeSlug?: string; store
         <Link href="/" aria-label="Haat home">
           <Wordmark compactOnPhone />
         </Link>
-        <div className="eyebrow text-right">
-          <Link href="/c/request" className="hover:text-ink">
-            <span className="hidden sm:inline">Request a </span>bulk order
+        <div className="flex min-w-0 items-center justify-end gap-2 sm:gap-4">
+          <Link href="/c/request" className="eyebrow whitespace-nowrap hover:text-ink">
+            <span className="sm:hidden">Order</span>
+            <span className="hidden sm:inline">Request a bulk order</span>
           </Link>
+          <ThemeToggle />
         </div>
       </nav>
     </header>

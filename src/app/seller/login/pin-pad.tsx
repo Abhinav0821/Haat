@@ -3,6 +3,7 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { Wordmark } from "@/components/craft";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 const KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "⌫"];
 
@@ -63,7 +64,10 @@ export function PinPad() {
   return (
     <div className="mx-auto flex w-full max-w-xs flex-1 flex-col justify-center px-6 py-16">
       <div className="text-center">
-        <Wordmark />
+        <div className="flex items-center justify-between gap-3">
+          <Wordmark compactOnPhone />
+          <ThemeToggle />
+        </div>
         <p className="eyebrow mt-10"><span className="deva">विक्रेता</span> · Seller studio</p>
         <h1 className="mt-3 font-display text-3xl font-normal">
           पासकोड डालें
