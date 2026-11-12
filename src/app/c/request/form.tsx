@@ -156,6 +156,12 @@ export function BulkRequestForm() {
             Delivered by <Badge f={i?.deadline} />
           </span>
           <input type="date" required min={info?.earliest} value={form.deadline} onChange={(e) => setForm({ ...form, deadline: e.target.value })} className={`${field} text-ink`} />
+          {/^\d{4}-\d{2}-\d{2}$/.test(form.deadline) && (
+            // Numeric dates read differently by country (07/12 is July in the US, December elsewhere): say it in words.
+            <span className="mt-1 block text-xs text-ink">
+              {new Date(`${form.deadline}T00:00:00Z`).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric", timeZone: "UTC" })}
+            </span>
+          )}
           {i?.deadline.note && <span className="mt-1 block text-xs text-marigold">{i.deadline.note}</span>}
         </label>
         <label className="block text-sm text-muted">
