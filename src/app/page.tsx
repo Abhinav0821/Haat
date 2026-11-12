@@ -48,6 +48,9 @@ export default function Home() {
               <Link href="/agent" className="px-2 py-3.5 text-sm tracking-wide underline underline-offset-4 transition hover:text-muted">
                 Ask through your AI agent
               </Link>
+              <a href="https://youtu.be/JWpLjkx_Hnk" target="_blank" rel="noopener noreferrer" className="px-2 py-3.5 text-sm tracking-wide underline underline-offset-4 transition hover:text-muted">
+                Watch the 3-minute demo ↗
+              </a>
             </div>
           </div>
           <dl className="divide-y divide-line border-y border-line">

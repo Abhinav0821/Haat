@@ -9,9 +9,8 @@ Two parts:
    It goes from buyer request to plan, maker consent, buyer approval, PayPal payment,
    payment to a maker, and her confirmation.
 
-A separate **role-play evaluation** with people in the coordinator, maker and buyer roles
-is described in [role-play-kit.md](role-play-kit.md). It is not a pilot. Its results
-will be reported separately, with the number of participants.
+Sessions with people in the coordinator, maker and buyer roles have not been run yet, so
+nothing here measures how people use Haat.
 
 ## 1. Comparative evaluation
 
@@ -166,8 +165,7 @@ Run on 9 November 2026 on a paid Gemini project:
   measure either: per-maker fixed costs, quality differences between makers, travel,
   and so on.
 - **The rule-based baseline is one reasonable heuristic,** not the best a skilled
-  person could do with unlimited time. The role-play's manual round tests that against
-  a person instead.
+  person could do with unlimited time. Comparing against a person is future work.
 - **The AI result will hold for that model, that prompt and that date.** Better
   prompting or tool use could change it.
 
@@ -328,11 +326,3 @@ Deterministic results are written to `eval/results/seed-20261108.json` and `.md`
 AI comparison reports use `seed-20261108-ai.json` and `.md`, so `--no-llm` cannot erase
 an AI report. Fingerprinted raw answers and all recorded attempts are kept in
 `eval/results/llm-cache-v2-seed-20261108-<model>.json`.
-
-For role-play, download a private scenario from the coordinator page before each
-paired task. The manual checker now requires that file, the participant's own price,
-and an answer tied to its fingerprint; it does not recreate an empty-reservation demo.
-See [the updated protocol](role-play-kit.md).
-
-Submission deadline: **12 November 2026, 12:00 PST = 13 November, 01:30 IST**.
-[Official schedule](https://paypalaihackathon.devpost.com/details/dates).

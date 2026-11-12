@@ -87,7 +87,7 @@ payment steps above; the agent cannot approve or pay.
 - Credentials belong only in the submission's private testing instructions, never in
   this repository, screenshots or the public video.
 - The demo and its API access must remain available through December 15, 2026.
-- Local setup is in [README.md](../../README.md); the test suite runs with `npm test`.
-- Evaluation evidence and its limits are in [docs/evaluation.md](../evaluation.md).
+- Local setup is in [README.md](../README.md); the test suite runs with `npm test`.
+- Evaluation evidence and its limits are in [docs/evaluation.md](evaluation.md).
 - Refund allocation, replacement after a maker cannot finish, and collective shipment
   tracking are outside the demonstrated workflow.

@@ -6,7 +6,7 @@ share until she confirms receipt.
 
 **AI assists. Code checks. Makers decide. Buyers pay with PayPal.**
 
-> Built for the [PayPal AI Hackathon 2026](https://paypalaihackathon.devpost.com/). Direction and claim boundaries: [docs/direction.md](docs/direction.md).
+> Built for the [PayPal AI Hackathon 2026](https://paypalaihackathon.devpost.com/). **[Watch the 3-minute demo](https://youtu.be/JWpLjkx_Hnk)** · Live: [haat-teal.vercel.app](https://haat-teal.vercel.app) · Direction and claim boundaries: [docs/direction.md](docs/direction.md).
 
 ## Who it is for
 
@@ -133,8 +133,8 @@ When PayPal refuses a capture, Haat shows that nothing was charged, unlocks the 
 lets the buyer pay again with a new PayPal order.
 
 **Not yet established:** real use by a collective, extra orders won, or whether makers can
-keep their facts current without help. The [role-play kit](docs/role-play-kit.md) measures
-the last one with people. It is labelled a role-play, not a pilot.
+keep their facts current without help. These need sessions with a real coordinator and
+makers, which have not been run yet.
 
 **What "checked" means:** a plan is consistent with the facts recorded for the makers. It
 cannot show those facts are true, that every piece will match, or that a courier will be on
@@ -182,7 +182,7 @@ Everything runs against the **PayPal sandbox**. No real money moves.
 
 **Deploying:** free on Vercel + Neon. See [DEPLOY.md](DEPLOY.md).
 
-**Judges:** [step-by-step demo instructions](docs/submission/judge-guide.md) cover the
+**Judges:** [step-by-step demo instructions](docs/testing.md) cover the
 buyer, coordinator, maker and sandbox payment flow. The studio PIN and sandbox buyer
 login are supplied in the submission's private testing instructions.
 
@@ -218,7 +218,8 @@ evaluation includes an AI model deciding directly, to show why.
 - [docs/direction.md](docs/direction.md): direction, sections A–D, and the claims we make and don't.
 - [docs/planner-model.md](docs/planner-model.md): model M1, certificates, extension M1-Q1 (one unknown materials date).
 - [docs/collective-consent.md](docs/collective-consent.md): consent, reservations, payment, payouts, requests, keeping agreed parts.
-- [docs/evaluation.md](docs/evaluation.md) and [docs/role-play-kit.md](docs/role-play-kit.md).
+- [docs/evaluation.md](docs/evaluation.md): evaluation method and results.
+- [docs/testing.md](docs/testing.md): how to test the live demo, step by step.
 
 ## Also built
 
@@ -234,8 +235,8 @@ tested. It is described in [docs/single-maker.md](docs/single-maker.md).
   would need another payment route.
 - **Payouts.** Maker payouts happen outside Haat. Haat records them and the maker confirms;
   it doesn't move the money.
-- **No pilot yet.** The role-play kit measures whether people can keep facts current and
-  understand their part.
+- **No pilot yet.** Whether people can keep their facts current and understand their part
+  has not yet been measured with real users.
 - **No notifications.** No email or SMS. Buyers and makers open their links.
 
 ## AI tools used

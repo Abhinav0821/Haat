@@ -48,7 +48,7 @@ payments, not the merchant account and not a real PayPal login.
    MCP URL and the no-setup request option.
 3. The demo collective is created on first use. Sign in at `/seller/login`, open
    `/seller/collective`, and generate/save the makers' personal links privately.
-4. Follow [the judge guide](docs/submission/judge-guide.md). Check the confirmed request,
+4. Follow [the testing guide](docs/testing.md). Check the confirmed request,
    checked answer, maker consent, buyer approval, sandbox capture and maker shares.
 5. Verify actual webhook delivery and processing in the PayPal application/Vercel logs.
    A successful browser return alone is not evidence of webhook delivery.

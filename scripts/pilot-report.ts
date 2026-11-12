@@ -5,7 +5,7 @@
  *   npm run pilot:report -- --from <file.json> an archive written by `npm run demo:reset` (one per participant session)
  *
  * Only counts what the app logged; per-task success, assistance and quotes come from the facilitator's sheet
- * (docs/pilot-study.md).
+ * (the session protocol is kept outside the repository).
  */
 import { config } from "dotenv";
 config({ path: ".env.local", quiet: true });

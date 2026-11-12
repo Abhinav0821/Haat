@@ -89,7 +89,10 @@ export default function AgentPage() {
           <p className="mt-3 max-w-3xl text-sm leading-relaxed text-muted">
             Use the request form to describe a bulk order, review what AI understood, and get the same checked first answer. This uses Haat directly; connecting your own agent below is optional.
           </p>
-          <Link href="/c/request" className="mt-5 inline-block bg-ink px-6 py-3 text-sm text-paper transition hover:bg-ink/85">Request a bulk order</Link>
+          <div className="mt-5 flex flex-wrap items-center gap-x-6 gap-y-3">
+            <Link href="/c/request" className="mt-5 inline-block bg-ink px-6 py-3 text-sm text-paper transition hover:bg-ink/85">Request a bulk order</Link>
+            <a href="https://youtu.be/JWpLjkx_Hnk" target="_blank" rel="noopener noreferrer" className="text-sm underline underline-offset-4 hover:text-muted">Watch the 3-minute demo ↗</a>
+          </div>
         </section>
         <div className="grid gap-x-16 gap-y-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)]">
           <div className="min-w-0 lg:sticky lg:top-10 lg:self-start">
