@@ -213,6 +213,20 @@ messages, custom orders) are listed in [docs/single-maker.md](docs/single-maker.
 AI is kept out of anything that sets a quantity, date or price for the makers. The
 evaluation includes an AI model deciding directly, to show why.
 
+### Sponsor integration: Channel3
+
+The single-maker shop (see [Also built](#also-built)) uses the
+[Channel3](https://channel3.ai) product-search API in two places:
+
+- **Fair-price coach:** when a maker lists a piece, Haat fetches live retail prices of similar
+  products from Channel3 and shows them beside her price. She still decides the price.
+- **Maker Evidence:** a Channel3 visual search for the same product at mass-market retailers,
+  one of the checks behind a piece's "handmade" evidence. A search can miss products, and
+  the page says so.
+
+Both are optional: without `CHANNEL3_API_KEY` they are skipped and everything else works.
+The collective flow above doesn't use Channel3.
+
 ## Contracts
 
 - [docs/direction.md](docs/direction.md): direction, sections A–D, and the claims we make and don't.
