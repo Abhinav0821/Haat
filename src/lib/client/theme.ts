@@ -4,8 +4,8 @@ export const THEME_KEY = "haat-theme";
 const THEME_EVENT = "haat-theme-change";
 const THEME_COLOURS = { light: "#f6f3ee", dark: "#1c1b19" } as const;
 
-/** Runs synchronously before paint. An explicit choice wins; a new visitor always gets light. */
-export const THEME_SCRIPT = `(()=>{let t="light";try{if(localStorage.getItem(${JSON.stringify(THEME_KEY)})==="dark")t="dark"}catch{}document.documentElement.dataset.theme=t;const m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute("content",t==="dark"?${JSON.stringify(THEME_COLOURS.dark)}:${JSON.stringify(THEME_COLOURS.light)})})()`;
+/** Runs synchronously before paint. An explicit choice wins; a new visitor gets dark. */
+export const THEME_SCRIPT = `(()=>{let t="dark";try{if(localStorage.getItem(${JSON.stringify(THEME_KEY)})==="light")t="light"}catch{}document.documentElement.dataset.theme=t;const m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute("content",t==="dark"?${JSON.stringify(THEME_COLOURS.dark)}:${JSON.stringify(THEME_COLOURS.light)})})()`;
 
 function applyTheme(theme: Theme) {
   document.documentElement.dataset.theme = theme;
@@ -34,7 +34,7 @@ export function subscribeToTheme(onChange: () => void) {
     try {
       if (event.storageArea !== null && event.storageArea !== localStorage) return;
     } catch { return; }
-    applyTheme(event.newValue === "dark" ? "dark" : "light");
+    applyTheme(event.newValue === "light" ? "light" : "dark");
     onChange();
   };
   window.addEventListener(THEME_EVENT, onChange);

@@ -3,7 +3,7 @@
 import { useSyncExternalStore } from "react";
 import { isDarkTheme, setTheme, subscribeToTheme } from "@/lib/client/theme";
 
-const serverTheme = () => false;
+const serverTheme = () => true;
 
 /** One control for public pages, the studio and personal maker links. */
 export function ThemeToggle() {

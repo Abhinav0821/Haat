@@ -142,8 +142,8 @@ time. A personal link proves possession of the link, not identity.
 
 ## Quick start
 
-The interface starts in light mode. The sun/moon control switches to an optional warm
-dark theme and remembers your choice on this device across public, studio and maker pages.
+The interface starts in a warm dark theme. The sun/moon control switches to the ivory light
+theme and remembers your choice on this device across public, studio and maker pages.
 
 Requirements: **Node.js 20+**. No database to install: an embedded Postgres runs automatically.
 
